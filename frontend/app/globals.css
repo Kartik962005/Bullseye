@@ -798,3 +798,158 @@ html:has(.nova-canvas) * {
     animation: none;
   }
 }
+
+/* ── Dialogs: brand band, spinning border, quick look ─────────────────────── */
+.nova-glow-border::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  border-radius: inherit;
+  padding: 1px;
+  background: conic-gradient(from var(--nova-angle), rgba(0, 229, 255, 0.9), rgba(139, 92, 246, 0.25), rgba(255, 46, 151, 0.9), rgba(255, 181, 71, 0.25), rgba(0, 229, 255, 0.9));
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  animation: nova-spin 6s linear infinite;
+  pointer-events: none;
+}
+.nova-hero-band {
+  position: relative;
+  display: grid;
+  place-items: center;
+  height: 136px;
+  overflow: hidden;
+  background:
+    radial-gradient(60% 90% at 50% 100%, rgba(255, 46, 151, 0.35), transparent 70%),
+    radial-gradient(50% 80% at 15% 0%, rgba(0, 229, 255, 0.25), transparent 70%),
+    radial-gradient(50% 80% at 85% 0%, rgba(139, 92, 246, 0.4), transparent 70%),
+    #120c2b;
+}
+.nova-hero-band::after {
+  /* faint dot grid, like the particle field */
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.22) 1px, transparent 1.2px);
+  background-size: 14px 14px;
+  -webkit-mask-image: radial-gradient(70% 90% at 50% 50%, #000, transparent 75%);
+  mask-image: radial-gradient(70% 90% at 50% 50%, #000, transparent 75%);
+  opacity: 0.5;
+  pointer-events: none;
+}
+.nova-hero-band .bx-mark {
+  position: relative;
+  z-index: 1;
+  filter: drop-shadow(0 0 18px rgba(255, 46, 151, 0.6));
+}
+.nova-orbit {
+  position: absolute;
+  width: 118px;
+  height: 118px;
+  border-radius: 999px;
+  border: 1px dashed rgba(255, 255, 255, 0.22);
+  animation: nova-orbit 18s linear infinite;
+}
+.nova-orbit::after {
+  content: "";
+  position: absolute;
+  top: -3px;
+  left: 50%;
+  width: 6px;
+  height: 6px;
+  margin-left: -3px;
+  border-radius: 999px;
+  background: #00e5ff;
+  box-shadow: 0 0 10px #00e5ff;
+}
+.nova-orbit-2 {
+  width: 170px;
+  height: 170px;
+  border-style: solid;
+  border-color: rgba(255, 255, 255, 0.08);
+  animation-duration: 28s;
+  animation-direction: reverse;
+}
+.nova-orbit-2::after {
+  background: #ff4fa3;
+  box-shadow: 0 0 10px #ff4fa3;
+}
+@keyframes nova-orbit {
+  to {
+    transform: rotate(360deg);
+  }
+}
+/* The mark assembles as the dialog opens: rings pop, the arrow lands. */
+.bx-land .bx-ring-outer {
+  animation: bx-ring-in 0.7s var(--nova-ease) 0.1s both;
+}
+.bx-land .bx-ring-inner {
+  animation: bx-ring-in 0.7s var(--nova-ease) 0.2s both;
+}
+.bx-land .bx-core {
+  animation: bx-ring-in 0.6s var(--nova-ease) 0.3s both;
+}
+.bx-land .bx-arrow {
+  animation: bx-land 0.55s cubic-bezier(0.3, 1.4, 0.5, 1) 0.45s both;
+}
+@keyframes bx-ring-in {
+  from {
+    transform: scale(0.3);
+    opacity: 0;
+  }
+}
+@keyframes bx-land {
+  from {
+    transform: translate(14px, -14px);
+    opacity: 0;
+  }
+}
+
+.nova-quicklook-backdrop {
+  background: radial-gradient(90% 80% at 50% 45%, rgba(18, 10, 44, 0.72), rgba(4, 2, 12, 0.9));
+}
+.nova-quicklook {
+  --verdict: #ff4fa3;
+  will-change: transform, opacity;
+  transform-origin: center;
+  background:
+    radial-gradient(120% 60% at 100% 0%, color-mix(in srgb, var(--verdict) 18%, transparent), transparent 60%),
+    linear-gradient(160deg, rgba(139, 92, 246, 0.16), transparent 45%),
+    #0d0a1f;
+  box-shadow:
+    0 50px 120px -30px rgba(0, 0, 0, 0.9),
+    0 0 0 1px rgba(255, 255, 255, 0.1),
+    0 0 60px -20px color-mix(in srgb, var(--verdict) 60%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+.nova-quicklook-chart {
+  background: rgba(255, 255, 255, 0.035);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.07);
+}
+.nova-spinner {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  border-radius: 999px;
+  border: 2px solid rgba(255, 255, 255, 0.15);
+  border-top-color: #ff4fa3;
+  animation: nova-orbit 0.8s linear infinite;
+}
+/* Press-in on tap, like a phone icon being touched. */
+.nova-card:active {
+  transform: translateY(-2px) scale(0.97);
+  transition-duration: 0.12s;
+}
+@media (prefers-reduced-motion: reduce) {
+  .nova-glow-border::before,
+  .nova-orbit,
+  .bx-land .bx-ring-outer,
+  .bx-land .bx-ring-inner,
+  .bx-land .bx-core,
+  .bx-land .bx-arrow {
+    animation: none;
+  }
+}

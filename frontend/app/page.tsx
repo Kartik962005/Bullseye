@@ -1,5 +1,5 @@
 'use client';
-import { Suspense, useState, useEffect, useRef, useMemo, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react';
+import { Suspense, useState, useEffect, useLayoutEffect, useCallback, useId, useRef, useMemo, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react';
 import Link from 'next/link';
 import { createPortal } from 'react-dom';
 import { usePathname, useSearchParams } from 'next/navigation';
@@ -10,7 +10,7 @@ import {
 } from '@/components/home';
 import { NovaExperience } from '@/components/home/nova/NovaExperience';
 import { NovaSearch } from '@/components/home/NovaSearch';
-import { BullseyeLogo } from '@/components/brand/BullseyeLogo';
+import { BullseyeLogo, BullseyeMark } from '@/components/brand/BullseyeLogo';
 import { TrackRecord } from '@/components/stock/TrackRecord';
 import { PeerComparison } from '@/components/stock/PeerComparison';
 import { RangeBar } from '@/components/stock/RangeBar';
@@ -721,7 +721,7 @@ const MarketAssetCard = ({
   stock: typeof STOCKS[0];
   prefetchedAnalysis?: any;
   quickQuote?: QuoteSnapshot;
-  onPreview: (stock: typeof STOCKS[0]) => void;
+  onPreview: (stock: typeof STOCKS[0], origin?: HTMLElement | null) => void;
   onAnalysisReady?: (ticker: string, analysis: any) => void;
 }) => {
   const cardRef = useRef<HTMLDivElement | null>(null);
@@ -796,11 +796,16 @@ const MarketAssetCard = ({
       tabIndex={0}
       aria-label={`Open ${stock.name} preview`}
       onMouseMove={handleSpotlight}
-      onClick={() => onPreview(stock)}
+      onClick={() => {
+        // A light haptic tick on phones that support it (Android Chrome);
+        // silently ignored elsewhere.
+        try { navigator.vibrate?.(8); } catch { /* not supported */ }
+        onPreview(stock, cardRef.current);
+      }}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
-          onPreview(stock);
+          onPreview(stock, cardRef.current);
         }
       }}
       style={{ '--verdict': verdictColor } as CSSProperties}
@@ -854,6 +859,7 @@ const StockPreviewModal = ({
   onClose,
   onSelect,
   onAnalysisReady,
+  origin,
 }: {
   stock: typeof STOCKS[0];
   quickQuote?: QuoteSnapshot;
@@ -861,6 +867,8 @@ const StockPreviewModal = ({
   onClose: () => void;
   onSelect: (stock: typeof STOCKS[0]) => void;
   onAnalysisReady: (ticker: string, analysis: unknown) => void;
+  /** The card the dialog grows out of and shrinks back into. */
+  origin?: HTMLElement | null;
 }) => {
   const exactPreviewChart = getCache(`chart:${stock.ticker}:1mo`);
   const fallbackPreviewChart =
@@ -890,145 +898,256 @@ const StockPreviewModal = ({
   });
 
   const analysisView = getAnalysisPresentation(prefetchedAnalysis ?? fetchedAnalysis);
-  const previewPath = buildPreviewChartPath(previewChart);
+  const previewPath = buildPreviewChartPath(previewChart, 720, 170);
+  const areaPath = previewPath ? `${previewPath} L 720 180 L 0 180 Z` : '';
   const quickPrice = Number(quickQuote?.price);
   const quickChange = Number(quickQuote?.change_percent ?? 0);
+  const hasPrice = Number.isFinite(quickPrice) && quickPrice > 0;
+  const hasChange = Number.isFinite(quickChange) && quickQuote?.change_percent != null;
   const isBull = analysisView?.isBullish;
   const isHold = analysisView?.isHold;
-  const accentText = analysisView
-    ? isBull ? 'text-green-400' : isHold ? 'text-paper-muted' : 'text-red-400'
-    : 'text-cyan-500';
-  const accentBg = analysisView
-    ? isBull ? 'from-emerald-400 to-cyan-300' : isHold ? 'from-slate-300 to-cyan-200' : 'from-rose-400 to-orange-300'
-    : 'from-cyan-300 to-sky-300';
+  const verdictColor = analysisView ? (isBull ? '#3dffa2' : isHold ? '#b9b4d6' : '#ff5c7a') : '#ff4fa3';
+  const verdictLabel = analysisView ? analysisView.displayVerdict.replace('Strong ', '') : 'Analysing';
+  const gradientId = `ql-${useId().replace(/:/g, '')}`;
+
+  const backdropRef = useRef<HTMLDivElement | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  const contentRef = useRef<HTMLDivElement | null>(null);
+  const closingRef = useRef(false);
+
+  // Transform that lays the panel exactly over the origin card (FLIP "first").
+  const originTransform = useCallback(() => {
+    const panel = panelRef.current;
+    if (!panel || !origin || !document.contains(origin)) return null;
+    const from = origin.getBoundingClientRect();
+    const to = panel.getBoundingClientRect();
+    if (!from.width || !to.width) return null;
+    const dx = from.left + from.width / 2 - (to.left + to.width / 2);
+    const dy = from.top + from.height / 2 - (to.top + to.height / 2);
+    return `translate(${dx}px, ${dy}px) scale(${from.width / to.width}, ${from.height / to.height})`;
+  }, [origin]);
+
+  // Opening: the panel springs out of the tapped card like an app launching
+  // on a phone, the backdrop dims, and the contents settle in just after.
+  useLayoutEffect(() => {
+    const panel = panelRef.current;
+    const backdrop = backdropRef.current;
+    const content = contentRef.current;
+    if (!panel || !backdrop || !content || typeof panel.animate !== 'function') return;
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    backdrop.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 320, easing: 'ease-out' });
+    if (reduced) {
+      panel.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 180 });
+      return;
+    }
+    const from = originTransform();
+    panel.animate(
+      from
+        ? [{ transform: from, opacity: 0.35 }, { transform: 'none', opacity: 1 }]
+        : [{ transform: 'translateY(28px) scale(0.9)', opacity: 0 }, { transform: 'none', opacity: 1 }],
+      { duration: 640, easing: springEasing() },
+    );
+    content.animate(
+      [{ opacity: 0, transform: 'translateY(12px)' }, { opacity: 1, transform: 'none' }],
+      { duration: 380, delay: 180, easing: 'cubic-bezier(.22,.61,.36,1)', fill: 'backwards' },
+    );
+    // Mount-only: the opening plays once per dialog.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Closing: shrink back into the card (or drop away if it scrolled off).
+  const animateClose = useCallback(() => {
+    if (closingRef.current) return;
+    closingRef.current = true;
+    const panel = panelRef.current;
+    const backdrop = backdropRef.current;
+    const content = contentRef.current;
+    if (
+      !panel || !backdrop || !content || typeof panel.animate !== 'function'
+      || window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    ) {
+      onClose();
+      return;
+    }
+    const to = originTransform();
+    content.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 140, fill: 'forwards' });
+    backdrop.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 360, easing: 'ease-in', fill: 'forwards' });
+    const shrink = panel.animate(
+      [{ transform: 'none', opacity: 1 }, { transform: to ?? 'translateY(20px) scale(0.92)', opacity: to ? 0.25 : 0 }],
+      { duration: 380, easing: 'cubic-bezier(.4,0,.2,1)', fill: 'forwards' },
+    );
+    shrink.onfinish = () => onClose();
+  }, [onClose, originTransform]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
+      if (event.key === 'Escape') animateClose();
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onClose]);
+  }, [animateClose]);
+
+  const stat = (label: string, value: string, tone?: string) => (
+    <div className="rounded-2xl bg-white/[0.045] px-3.5 py-3">
+      <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-[#9f99c2]">{label}</div>
+      <div className="mt-1.5 truncate font-numeric text-[15px] text-paper" style={tone ? { color: tone } : undefined}>{value}</div>
+    </div>
+  );
 
   return (
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center overflow-y-auto bg-black/80 p-5 backdrop-blur-md sm:p-6"
-      onMouseDown={onClose}
+      ref={backdropRef}
+      data-lenis-prevent
+      className="nova-quicklook-backdrop fixed inset-0 z-[100] flex items-center justify-center overflow-y-auto overscroll-contain p-4 sm:p-6"
+      onMouseDown={animateClose}
       role="dialog"
       aria-modal="true"
-      aria-label={`${stock.name} preview`}
+      aria-label={`${stock.name} quick look`}
     >
       <div
-        className="relative my-4 flex max-h-[82vh] w-[min(88vw,72rem)] flex-col overflow-y-auto rounded-[24px] border border-hairline bg-[#070a09] shadow-[0_40px_120px_rgba(0,0,0,0.7)] sm:max-h-[88vh] sm:min-h-[60vh] sm:w-full sm:rounded-[28px]"
+        ref={panelRef}
         onMouseDown={event => event.stopPropagation()}
+        style={{ '--verdict': verdictColor } as CSSProperties}
+        className="nova-quicklook relative my-auto w-full max-w-[460px] overflow-hidden rounded-[28px] font-body"
       >
-        <div className={`h-1.5 bg-gradient-to-r ${accentBg}`} />
-        <div className="flex flex-col gap-4 p-4 sm:gap-5 sm:p-7">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <button
-                type="button"
-                onClick={onClose}
-                className="mb-4 rounded-full border border-hairline bg-white/[0.03]/[0.03] px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-paper-muted transition-colors hover:border-accent/50 hover:bg-accent/10 font-body"
-              >
-                Back
-              </button>
-              <div className="text-[10px] font-black uppercase tracking-[0.24em] text-accent font-body">{stock.symbol} · {stock.exchange}</div>
-              <h2 className="mt-2 font-display text-[28px] font-normal leading-tight text-paper sm:text-[44px]">{stock.name}</h2>
-              <p className="mt-3 max-w-2xl text-xs leading-6 text-paper-muted font-numeric sm:text-sm">
-                Sneak peek of price action, FISO verdict, target zone, and stop-loss risk before opening the full dashboard.
-              </p>
+        <div ref={contentRef} className="relative p-5 sm:p-6">
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="rounded-full bg-white/[0.08] px-2.5 py-1 font-numeric text-[12px] text-paper">{stock.symbol}</span>
+                <span className="text-[12px] text-[#9f99c2]">{stock.exchange}</span>
+              </div>
+              <h2 className="mt-3 truncate font-display text-[30px] leading-[1.05] text-paper" title={stock.name}>{stock.name}</h2>
             </div>
-            <div className="rounded-2xl border border-hairline bg-white/[0.03]/[0.03] p-4 text-right">
-              <div className="text-[10px] font-black uppercase tracking-widest text-paper-muted font-body">Live Price</div>
-              <div className="mt-1 text-2xl font-black text-paper font-numeric">
-                {Number.isFinite(quickPrice) && quickPrice > 0 ? `${stock.currency}${quickPrice.toLocaleString()}` : 'Fetching'}
+            <button
+              type="button"
+              onClick={animateClose}
+              aria-label="Close quick look"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/[0.07] text-[#d6d0f0] transition hover:rotate-90 hover:bg-white/15 hover:text-white"
+            >
+              <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
+                <path d="M18 6 6 18M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+
+          <div className="mt-5 flex items-end justify-between gap-4">
+            <div>
+              <div className="font-numeric text-[34px] leading-none tracking-tight text-paper">
+                {hasPrice ? `${stock.currency}${quickPrice.toLocaleString('en-IN')}` : '—'}
               </div>
-              <div className={`mt-1 text-xs font-black font-numeric ${quickChange >= 0 ? 'text-primary' : 'text-rose-300'}`}>
-                {quickChange >= 0 ? '+' : ''}{quickChange.toFixed(2)}%
-              </div>
-              <div className="mt-3 border-t border-hairline pt-2 text-[10px] font-black uppercase tracking-widest text-paper-muted">
-                Face Value <span className="text-paper font-numeric">{formatFaceValue(stock)}</span>
-              </div>
+              {hasChange ? (
+                <div className={`mt-2 inline-flex rounded-full px-2.5 py-0.5 font-numeric text-[12px] ${quickChange >= 0 ? 'bg-[#3dffa2]/12 text-[#6ff0b5]' : 'bg-[#ff5c7a]/12 text-[#ff8aa0]'}`}>
+                  {quickChange >= 0 ? '+' : '−'}{Math.abs(quickChange).toFixed(2)}% today
+                </div>
+              ) : null}
+            </div>
+            <div
+              className="rounded-2xl px-4 py-2 text-[14px] font-semibold uppercase tracking-[0.14em]"
+              style={{
+                color: verdictColor,
+                background: `color-mix(in srgb, ${verdictColor} 14%, transparent)`,
+                boxShadow: `inset 0 0 0 1px color-mix(in srgb, ${verdictColor} 35%, transparent)`,
+              }}
+            >
+              {verdictLabel}
             </div>
           </div>
 
-          <div className="grid gap-5 lg:grid-cols-[1.35fr_0.65fr]">
-            <div className="overflow-hidden rounded-2xl border border-hairline bg-white/[0.03]">
-              <div className="flex items-center justify-between border-b border-hairline px-4 py-3">
-                <div className="text-xs font-black uppercase tracking-[0.2em] text-paper-muted font-body">Mini Chart</div>
-                <div className="text-[10px] font-bold uppercase tracking-widest text-paper-muted font-numeric">1M preview</div>
-              </div>
-              <svg viewBox="0 0 720 230" className="h-44 w-full bg-white/[0.03] sm:h-64" preserveAspectRatio="none" role="img" aria-label={`${stock.name} mini chart`}>
-                {Array.from({ length: 7 }, (_, index) => (
-                  <line key={`h-${index}`} x1="0" x2="720" y1={index * 38} y2={index * 38} stroke="rgba(15,23,42,0.06)" />
-                ))}
-                {Array.from({ length: 13 }, (_, index) => (
-                  <line key={`v-${index}`} x1={index * 60} x2={index * 60} y1="0" y2="230" stroke="rgba(15,23,42,0.05)" />
-                ))}
-                {previewPath ? (
-                  <path d={previewPath} fill="none" stroke={isBull ? '#22c55e' : isHold ? '#06b6d4' : '#ef4444'} strokeWidth="3" vectorEffect="non-scaling-stroke" />
-                ) : (
-                  <text x="360" y="118" textAnchor="middle" className="fill-[#c6c6cd] text-xs font-bold uppercase tracking-widest">Loading chart</text>
-                )}
-              </svg>
+          <div className="nova-quicklook-chart mt-5 overflow-hidden rounded-2xl">
+            <div className="flex items-center justify-between px-4 pt-3 text-[12px] text-[#9f99c2]">
+              <span>Last month</span>
+              <span className="font-numeric">1M</span>
             </div>
-
-            <div className="grid gap-3">
-              {analysisView ? (
+            <svg viewBox="0 -10 720 190" preserveAspectRatio="none" className="h-28 w-full" role="img" aria-label={`${stock.name} price over the last month`}>
+              <defs>
+                <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0" style={{ stopColor: verdictColor, stopOpacity: 0.35 }} />
+                  <stop offset="1" style={{ stopColor: verdictColor, stopOpacity: 0 }} />
+                </linearGradient>
+              </defs>
+              {previewPath ? (
                 <>
-                  <div className="rounded-2xl border border-hairline bg-black/40 p-4">
-                    <div className="text-[10px] font-black uppercase tracking-widest text-paper-muted font-body">Verdict</div>
-                    <div className={`mt-2 text-3xl font-black uppercase tracking-widest ${accentText} font-body`}>{analysisView.displayVerdict}</div>
-                    <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/[0.03]/10">
-                      <div className={`h-full rounded-full bg-gradient-to-r ${accentBg}`} style={{ width: `${analysisView.confidenceLevel}%` }} />
-                    </div>
-                    <div className="mt-2 text-xs font-black text-paper font-numeric">{analysisView.confidenceLevel}/100 FISO confidence</div>
-                  </div>
-                  {isHold ? (
-                    <div className="rounded-2xl border border-hairline bg-white/[0.03]/[0.03] p-4">
-                      <div className="text-[10px] font-black uppercase tracking-widest text-paper-muted">No Active Trade</div>
-                      <div className="mt-2 text-sm font-black text-slate-700 font-body">Target and stop are hidden until the setup becomes actionable.</div>
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="rounded-2xl border border-hairline bg-white/[0.03]/[0.03] p-4">
-                        <div className="text-[10px] font-black uppercase tracking-widest text-paper-muted">Target</div>
-                        <div className="mt-2 text-lg font-black text-primary font-numeric">{stock.currency}{analysisView.target}</div>
-                      </div>
-                      <div className="rounded-2xl border border-hairline bg-white/[0.03]/[0.03] p-4">
-                        <div className="text-[10px] font-black uppercase tracking-widest text-paper-muted">Stop Loss</div>
-                        <div className="mt-2 text-lg font-black text-rose-300 font-numeric">{stock.currency}{analysisView.stop_loss}</div>
-                      </div>
-                    </div>
-                  )}
+                  <path d={areaPath} fill={`url(#${gradientId})`} />
+                  <path d={previewPath} fill="none" style={{ stroke: verdictColor }} strokeWidth="2.5" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
                 </>
               ) : (
-                <div className="flex min-h-52 items-center justify-center rounded-2xl border border-hairline bg-white/[0.03]/[0.03]">
-                  <div className="flex flex-col items-center gap-3">
-                    <div className="h-8 w-8 animate-spin rounded-full border-2 border-hairline border-t-cyan-500" />
-                    <div className="text-[10px] font-black uppercase tracking-widest text-paper-muted font-numeric">Running analysis</div>
+                <text x="360" y="95" textAnchor="middle" fill="#9f99c2" style={{ fontSize: 13 }}>Loading chart…</text>
+              )}
+            </svg>
+          </div>
+
+          {analysisView ? (
+            <>
+              <div className="mt-3 grid grid-cols-3 gap-2">
+                <div className="rounded-2xl bg-white/[0.045] px-3.5 py-3">
+                  <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-[#9f99c2]">Confidence</div>
+                  <div className="mt-1.5 font-numeric text-[15px] text-paper">{analysisView.confidenceLevel}%</div>
+                  <div className="mt-2 h-1 overflow-hidden rounded-full bg-white/10">
+                    <div className="h-full rounded-full" style={{ width: `${analysisView.confidenceLevel}%`, background: verdictColor }} />
                   </div>
                 </div>
-              )}
-              <a
-                href={`/?ticker=${encodeURIComponent(stock.ticker)}`}
-                onClick={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  onSelect(stock);
-                }}
-                className="rounded-2xl border border-cyan-200 bg-cyan-50 px-5 py-4 text-xs font-black uppercase tracking-[0.2em] text-paper transition-colors hover:bg-cyan-100 font-body"
-              >
-                Open Full Analysis →
-              </a>
+                {stat('Target', isHold ? '—' : `${stock.currency}${analysisView.target}`, isHold ? undefined : '#6ff0b5')}
+                {stat('Stop', isHold ? '—' : `${stock.currency}${analysisView.stop_loss}`, isHold ? undefined : '#ff8aa0')}
+              </div>
+              {isHold ? (
+                <p className="mt-3 text-[13px] leading-5 text-[#b9b4d6]">
+                  No active trade. Target and stop appear once the setup becomes actionable.
+                </p>
+              ) : null}
+            </>
+          ) : (
+            <div className="mt-3 flex items-center gap-3 rounded-2xl bg-white/[0.045] px-4 py-3.5 text-[13px] text-[#b9b4d6]">
+              <span className="nova-spinner" aria-hidden />
+              Running the analysis…
             </div>
-          </div>
+          )}
+
+          <a
+            href={`/?ticker=${encodeURIComponent(stock.ticker)}`}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              onSelect(stock);
+            }}
+            className="nova-btn nova-btn-primary group mt-5 w-full"
+          >
+            Open full analysis
+            <span aria-hidden className="transition-transform duration-300 group-hover:translate-x-1">→</span>
+          </a>
         </div>
       </div>
     </div>
   );
 };
+
+/**
+ * Damped-spring easing (slight overshoot, then settles) for the quick-look
+ * opening, as a CSS linear() curve. Falls back to an overshooting
+ * cubic-bezier where linear() isn't supported. Computed on first use (client
+ * only), then cached.
+ */
+let springEasingCache: string | null = null;
+function springEasing() {
+  if (springEasingCache) return springEasingCache;
+  const fallback = 'cubic-bezier(0.2, 1.12, 0.3, 1)';
+  if (typeof CSS === 'undefined' || !CSS.supports?.('animation-timing-function', 'linear(0, 1)')) {
+    springEasingCache = fallback;
+    return fallback;
+  }
+  const zeta = 0.72;
+  const omega = 9;
+  const damped = omega * Math.sqrt(1 - zeta * zeta);
+  const points: string[] = [];
+  for (let i = 0; i <= 40; i++) {
+    const t = i / 40;
+    const v = 1 - Math.exp(-zeta * omega * t) * (Math.cos(damped * t) + ((zeta * omega) / damped) * Math.sin(damped * t));
+    points.push(v.toFixed(4));
+  }
+  points[points.length - 1] = '1';
+  springEasingCache = `linear(${points.join(', ')})`;
+  return springEasingCache;
+}
 
 // ─── DETAILED FISO PANEL ──────────────────────────────────────────────────────
 const FisoDetailPanel = ({
@@ -2149,6 +2268,8 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
   const indicatorPaneRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const expandedTickerRef = useRef<string | null>(null);
   const previewHistoryOpenRef = useRef(false);
+  // The card the quick-look dialog grows out of (and shrinks back into).
+  const [previewOrigin, setPreviewOrigin] = useState<HTMLElement | null>(null);
 
   // ── Auth state ───────────────────────────────────────────────────────────
   const [user, setUser] = useState<any>(null);
@@ -3070,7 +3191,8 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
     openStockView(stock, 'details');
   };
 
-  const openPreview = (stock: typeof STOCKS[0]) => {
+  const openPreview = (stock: typeof STOCKS[0], origin?: HTMLElement | null) => {
+    setPreviewOrigin(origin ?? null);
     setExpandedTicker(stock.ticker);
     if (typeof window === 'undefined' || previewHistoryOpenRef.current) return;
     previewHistoryOpenRef.current = true;
@@ -3417,12 +3539,18 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
       {/* WELCOME — a short greeting after sign-in, then it fades away. */}
       {showWelcome && (
         <div className="nova-welcome pointer-events-none fixed inset-0 z-[9999] flex items-center justify-center p-6" role="status" aria-live="polite">
-          <div className="nova-welcome-card nova-modal rounded-[28px] px-10 py-9 text-center font-body">
-            <div className="flex justify-center"><BullseyeLogo size={26} wordClassName="text-[22px]" /></div>
-            <p className="mt-5 font-display text-[clamp(40px,6vw,60px)] leading-[1] text-paper">
+          <div className="nova-welcome-card nova-modal nova-glow-border w-full max-w-[440px] overflow-hidden rounded-[28px] text-center font-body">
+            <div className="nova-hero-band">
+              <span className="nova-orbit" aria-hidden />
+              <span className="nova-orbit nova-orbit-2" aria-hidden />
+              <BullseyeMark size={72} className="bx-land" />
+            </div>
+            <div className="px-8 pb-8">
+            <p className="mt-5 font-display text-[clamp(38px,6vw,52px)] leading-[1] text-paper">
               Welcome, <em className="nova-gradient-text italic">{welcomeName}.</em>
             </p>
             <p className="mt-3 text-[15px] text-[#c9c3e6]">You&apos;re signed in. Your alerts and saved scans are ready.</p>
+            </div>
           </div>
         </div>
       )}
@@ -4064,6 +4192,7 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
           stock={previewStock}
           quickQuote={visibleQuotes?.[previewStock.ticker]}
           prefetchedAnalysis={prefetchCache[previewStock.ticker]}
+          origin={previewOrigin}
           onClose={closePreview}
           onSelect={(stock) => {
             previewHistoryOpenRef.current = false;
@@ -4132,15 +4261,17 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
             aria-modal="true"
             aria-label="Sign in to Bullseye"
             data-lenis-prevent
-            className="nova-modal w-full max-w-[420px] rounded-[28px] p-7 font-body sm:p-8"
+            className="nova-modal nova-glow-border w-full max-w-[420px] overflow-hidden rounded-[28px] font-body"
           >
-            {/* Header */}
-            <div className="flex items-start justify-between gap-4">
-              <BullseyeLogo size={28} wordClassName="text-[24px]" />
+            {/* Brand band: the mark lands its arrow as the dialog opens. */}
+            <div className="nova-hero-band">
+              <span className="nova-orbit" aria-hidden />
+              <span className="nova-orbit nova-orbit-2" aria-hidden />
+              <BullseyeMark size={68} className="bx-land" />
               <button
                 onClick={dismissAuthModal}
                 aria-label="Close sign-in and continue without an account"
-                className="-mr-2 -mt-2 flex h-9 w-9 items-center justify-center rounded-full text-[#b9b4d6] transition-colors hover:bg-white/10 hover:text-white"
+                className="absolute right-3 top-3 flex h-9 w-9 items-center justify-center rounded-full bg-black/25 text-[#d6d0f0] transition hover:rotate-90 hover:bg-white/15 hover:text-white"
               >
                 <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
                   <path d="M18 6 6 18M6 6l12 12" />
@@ -4148,10 +4279,11 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
               </button>
             </div>
 
-            <h2 className="mt-6 font-display text-[34px] leading-[1.02] text-paper">
+            <div className="px-7 pb-7 sm:px-8 sm:pb-8">
+            <h2 className="mt-5 text-center font-display text-[34px] leading-[1.02] text-paper">
               {authMode === 'signin' ? <>Welcome <em className="nova-gradient-text italic">back.</em></> : <>Create your <em className="nova-gradient-text italic">account.</em></>}
             </h2>
-            <p className="mt-2 text-[14px] leading-6 text-[#c9c3e6]">
+            <p className="mx-auto mt-2 max-w-[34ch] text-center text-[14px] leading-6 text-[#c9c3e6]">
               Save alerts and get the short list by email. The screener, markets and Ask AI work without an account.
             </p>
 
@@ -4231,6 +4363,7 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
             <p className="mt-5 text-center text-[11.5px] leading-5 text-[#8f89ad]">
               Bullseye is research, not advice, and is not a SEBI-registered adviser.
             </p>
+            </div>
           </div>
         </div>,
         document.body,
