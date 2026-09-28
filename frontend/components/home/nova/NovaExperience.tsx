@@ -16,6 +16,31 @@ import type { NovaScene } from "./NovaScene";
 
 const noopSubscribe = () => () => {};
 
+/**
+ * Particle budget by GPU class. Soft glowing points don't need hi-DPI, and
+ * fill rate (count × point area × pixel ratio²) is what integrated laptop
+ * GPUs run out of first, so the budget is set by the graphics chip, not RAM.
+ */
+function pickTier(): { count: number; maxDpr: number } {
+  const phone = window.innerWidth < 768 || window.matchMedia("(pointer: coarse)").matches;
+  let renderer = "";
+  let software = false;
+  try {
+    const probe = document.createElement("canvas");
+    // null here means the browser would fall back to software rendering.
+    software = !probe.getContext("webgl", { failIfMajorPerformanceCaveat: true });
+    const gl = document.createElement("canvas").getContext("webgl");
+    const info = gl?.getExtension("WEBGL_debug_renderer_info");
+    if (gl && info) renderer = String(gl.getParameter(info.UNMASKED_RENDERER_WEBGL));
+  } catch {
+    software = true;
+  }
+  if (software || /swiftshader|llvmpipe|basic render/i.test(renderer)) return { count: 4000, maxDpr: 1 };
+  if (phone) return { count: 7000, maxDpr: 1 };
+  if (/intel|uhd|iris|mali|adreno|powervr/i.test(renderer)) return { count: 11000, maxDpr: 1 };
+  return { count: 16000, maxDpr: 1.25 };
+}
+
 function actsIn(root: HTMLElement | null) {
   return Array.from(root?.querySelectorAll<HTMLElement>("[data-nova-act]") ?? []);
 }
@@ -130,7 +155,7 @@ export function NovaExperience({ signedIn, onOpenDailySignals, stockStrip }: Nov
     import("lenis").then(({ default: Lenis }) => {
       if (destroyed) return;
       const lenis = new Lenis({
-        lerp: 0.085,
+        lerp: 0.12,
         smoothWheel: true,
         autoRaf: true,
         allowNestedScroll: true,
@@ -156,13 +181,11 @@ export function NovaExperience({ signedIn, onOpenDailySignals, stockStrip }: Nov
 
     import("./NovaScene").then(({ NovaScene }) => {
       if (disposed) return;
-      const narrow = window.innerWidth < 768 || window.matchMedia("(pointer: coarse)").matches;
-      const nav = navigator as Navigator & { deviceMemory?: number };
-      const count = narrow ? 9000 : (nav.deviceMemory ?? 8) >= 8 ? 26000 : 17000;
+      const { count, maxDpr } = pickTier();
       let scene: NovaScene;
       try {
         const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-        scene = new NovaScene({ canvas, count, maxDpr: narrow ? 1.5 : 1.75, still });
+        scene = new NovaScene({ canvas, count, maxDpr, still });
       } catch {
         setSceneEnabled(false);
         return;
@@ -305,7 +328,7 @@ export function NovaExperience({ signedIn, onOpenDailySignals, stockStrip }: Nov
             auroraRefs.current[i] = el;
           }}
           className="nova-aurora absolute -inset-[10%]"
-          style={{ background: bg, opacity: i === 0 ? 1 : 0, animationDelay: `${-i * 7}s` }}
+          style={{ background: bg, opacity: i === 0 ? 1 : 0 }}
         />
       ))}
       <div ref={canvasWrapRef} className="absolute inset-0">

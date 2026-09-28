@@ -82,7 +82,7 @@ void main() {
 
   vec4 mv = modelViewMatrix * vec4(pos, 1.0);
   float dist = -mv.z;
-  gl_PointSize = clamp(aRnd.z * 0.05 * uScale / max(dist, 0.1), 1.0, 44.0);
+  gl_PointSize = clamp(aRnd.z * 0.048 * uScale / max(dist, 0.1), 1.0, 26.0);
   gl_Position = projectionMatrix * mv;
 
   vColor = col * (1.0 + burst * 0.3);
@@ -148,11 +148,15 @@ export class NovaScene {
   private height = 1;
   private frameTimes: number[] = [];
   private look = new THREE.Vector3();
+  private lastTick = 0;
+  private count: number;
+  private drawFraction = 1;
 
   private still: boolean;
 
   constructor({ canvas, count, maxDpr, still = false }: NovaSceneOptions) {
     this.still = still;
+    this.count = count;
     if (still) this.intro = 1;
     this.dpr = Math.min(window.devicePixelRatio || 1, maxDpr);
     this.renderer = new THREE.WebGLRenderer({
@@ -247,6 +251,8 @@ export class NovaScene {
     if (this.running || this.opacity <= 0.01 || document.hidden) return;
     this.running = true;
     this.last = performance.now();
+    this.lastTick = this.last;
+    this.frameTimes.length = 0;
     this.renderer.setAnimationLoop(this.tick);
   }
 
@@ -256,24 +262,44 @@ export class NovaScene {
   }
 
   private tick = (now: number) => {
+    // rAF interval = how fast the whole page is actually running.
+    this.adaptQuality((now - this.lastTick) / 1000);
+    this.lastTick = now;
+
+    // While nothing is changing (no scroll, no pointer drift) the idle motion
+    // only needs 30fps, which halves GPU work and leaves headroom for the page.
+    const settled =
+      this.intro >= 1 &&
+      Math.abs(this.morphTarget - this.morph) < 0.002 &&
+      Math.abs(this.pointerTarget.x - this.pointer.x) < 0.003 &&
+      Math.abs(this.pointerTarget.y - this.pointer.y) < 0.003;
+    if (settled && now - this.last < 31) return;
+
     const dt = Math.min(0.05, Math.max(0, (now - this.last) / 1000));
     this.last = now;
-    this.adaptQuality(dt);
     this.render(dt);
   };
 
-  /** If the device can't hold ~40fps, drop to 1× pixel ratio once. */
-  private adaptQuality(dt: number) {
-    if (this.dpr <= 1 || this.intro < 1) return;
-    this.frameTimes.push(dt);
-    if (this.frameTimes.length < 90) return;
+  /**
+   * Step quality down while the page can't hold ~45fps: first 1× pixel ratio,
+   * then draw 60% and finally 40% of the particles. Slots are shuffled, so a
+   * smaller draw range thins every shape evenly.
+   */
+  private adaptQuality(interval: number) {
+    if (this.intro < 1 || interval <= 0 || interval > 0.25) return;
+    this.frameTimes.push(interval);
+    if (this.frameTimes.length < 60) return;
     const avg = this.frameTimes.reduce((a, b) => a + b, 0) / this.frameTimes.length;
     this.frameTimes.length = 0;
-    if (avg > 0.025) {
+    if (avg <= 0.022) return;
+    if (this.dpr > 1) {
       this.dpr = 1;
       this.renderer.setPixelRatio(1);
       this.renderer.setSize(this.width, this.height, false);
       this.updateScale();
+    } else if (this.drawFraction > 0.4) {
+      this.drawFraction = this.drawFraction > 0.6 ? 0.6 : 0.4;
+      this.geometry.setDrawRange(0, Math.floor(this.count * this.drawFraction));
     }
   }
 

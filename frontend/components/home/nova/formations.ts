@@ -235,5 +235,22 @@ export function buildFormations(count: number): Formations {
     }
   }
 
+  // Shuffle the slots (same permutation for every array) so any prefix of the
+  // buffer is an even sample of every shape. The scene relies on this to draw
+  // fewer particles on slow GPUs via setDrawRange without losing whole regions.
+  for (let i = N - 1; i > 0; i--) {
+    const j = Math.floor(rnd() * (i + 1));
+    for (const arr of [...positions, ...colors]) swap(arr, i, j, 3);
+    swap(random, i, j, 4);
+  }
+
   return { count: N, positions, colors, random };
+}
+
+function swap(arr: Float32Array, i: number, j: number, stride: number) {
+  for (let k = 0; k < stride; k++) {
+    const t = arr[i * stride + k];
+    arr[i * stride + k] = arr[j * stride + k];
+    arr[j * stride + k] = t;
+  }
 }

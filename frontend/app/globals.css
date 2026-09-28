@@ -248,14 +248,18 @@ body {
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
-  /* Italic serif overhangs its box; keep the last glyph unclipped. */
+  /* Italic serif overhangs its box; keep the last glyph unclipped. Static on
+     purpose: an animated background-position repaints the text every frame. */
   padding-right: 0.08em;
-  animation: nova-sheen 7s ease-in-out infinite alternate;
+  background-size: 100% 100%;
 }
-@keyframes nova-sheen {
-  to {
-    background-position: 100% 50%;
-  }
+
+/* Any backdrop-filter above the live canvas has to re-blur it every frame,
+   which is the single most expensive thing on the page for laptop GPUs. While
+   the Nova scene is on screen, glass surfaces are plain translucent fills. */
+html:has(.nova-canvas) * {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
 }
 
 .nova-dot {
@@ -342,17 +346,10 @@ body {
   border-radius: 40px;
 }
 
+/* Colour washes only cross-fade (opacity, set from the scroll handler) as the
+   scene changes shape; no continuous animation on five full-screen layers. */
 .nova-aurora {
-  will-change: transform, opacity;
-  animation: nova-drift 26s ease-in-out infinite alternate;
-}
-@keyframes nova-drift {
-  0% {
-    transform: translate3d(-2%, -1%, 0) scale(1);
-  }
-  100% {
-    transform: translate3d(3%, 2%, 0) scale(1.08);
-  }
+  pointer-events: none;
 }
 .nova-canvas {
   opacity: 0;
@@ -457,8 +454,6 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .nova-gradient-text,
-  .nova-aurora,
   .nova-scroll-line::after {
     animation: none;
   }
