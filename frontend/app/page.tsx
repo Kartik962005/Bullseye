@@ -1,5 +1,5 @@
 'use client';
-import { Suspense, useState, useEffect, useRef, useMemo, type MouseEvent as ReactMouseEvent } from 'react';
+import { Suspense, useState, useEffect, useRef, useMemo, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react';
 import Link from 'next/link';
 import { createPortal } from 'react-dom';
 import { usePathname, useSearchParams } from 'next/navigation';
@@ -9,6 +9,8 @@ import {
   DailySignalPreviewCard,
 } from '@/components/home';
 import { NovaExperience } from '@/components/home/nova/NovaExperience';
+import { NovaSearch } from '@/components/home/NovaSearch';
+import { BullseyeLogo } from '@/components/brand/BullseyeLogo';
 import { TrackRecord } from '@/components/stock/TrackRecord';
 import { PeerComparison } from '@/components/stock/PeerComparison';
 import { RangeBar } from '@/components/stock/RangeBar';
@@ -771,103 +773,72 @@ const MarketAssetCard = ({
   const isHold = analysisView?.isHold;
   const verdictBadge = isReady ? analysisView.displayVerdict.replace('Strong ', '') : 'Analyzing';
 
-  // Cursor-driven 3D tilt (cheap — only ~7 cards on the homepage). Mutates the
-  // DOM node directly to avoid re-rendering on every mousemove.
-  const handleTilt = (event: ReactMouseEvent<HTMLDivElement>) => {
+  // Verdict colour drives the card's border tint, glow and bar.
+  const verdictColor = isReady ? (isBull ? '#3dffa2' : isHold ? '#b9b4d6' : '#ff5c7a') : '#ff4fa3';
+  const hasPrice = Number.isFinite(quickPrice) && quickPrice > 0;
+  const hasChange = Number.isFinite(quickChange) && quickQuote?.change_percent != null;
+
+  // Spotlight follows the cursor; written straight to CSS variables so moving
+  // the mouse never re-renders the card.
+  const handleSpotlight = (event: ReactMouseEvent<HTMLDivElement>) => {
     const element = cardRef.current;
     if (!element) return;
     const rect = element.getBoundingClientRect();
-    const px = (event.clientX - rect.left) / rect.width;
-    const py = (event.clientY - rect.top) / rect.height;
-    const rotateX = (0.5 - py) * 9;
-    const rotateY = (px - 0.5) * 12;
-    element.style.transform = `perspective(760px) rotateX(${rotateX.toFixed(2)}deg) rotateY(${rotateY.toFixed(2)}deg) translateY(-4px) scale(1.02)`;
-  };
-  const resetTilt = () => {
-    if (cardRef.current) cardRef.current.style.transform = '';
+    element.style.setProperty('--mx', `${event.clientX - rect.left}px`);
+    element.style.setProperty('--my', `${event.clientY - rect.top}px`);
   };
 
   return (
     <div
       ref={cardRef}
       data-market-card={stock.ticker}
-      onMouseMove={handleTilt}
-      onMouseLeave={resetTilt}
-      style={{
-        transformStyle: 'preserve-3d',
-        transition: 'transform 0.15s ease, box-shadow 0.3s ease, border-color 0.3s ease',
-        background:
-          'linear-gradient(145deg, rgba(20,22,19,0.94) 0%, rgba(8,10,9,0.97) 55%, rgba(16,18,15,0.94) 100%)',
-        boxShadow: '0 22px 60px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,79,163,0.14)',
+      role="button"
+      tabIndex={0}
+      aria-label={`Open ${stock.name} preview`}
+      onMouseMove={handleSpotlight}
+      onClick={() => onPreview(stock)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onPreview(stock);
+        }
       }}
-      className="group relative flex w-full select-none flex-col overflow-hidden rounded-[20px] border border-accent/25 p-6 will-change-transform hover:border-accent/55"
+      style={{ '--verdict': verdictColor } as CSSProperties}
+      className="nova-card group w-full select-none font-body outline-none"
     >
-      {/* Verdict edge */}
-      <div
-        className="absolute inset-x-0 top-0 h-[2px]"
-        style={{
-          background: isReady
-            ? (isBull ? '#34d399' : isHold ? 'rgba(255,255,255,0.25)' : '#fb7185')
-            : 'rgba(255,79,163,0.55)',
-        }}
-      />
-
-      <div className="relative flex items-start justify-between gap-3">
+      <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="truncate font-numeric text-[15px] tracking-tight text-paper">{stock.symbol}</div>
-          <div className="mt-1.5 font-body text-[10px] uppercase tracking-[0.2em] text-paper-muted">
-            {stock.exchange}
+          <div className="truncate font-numeric text-[14px] font-medium tracking-tight text-paper">{stock.symbol}</div>
+          <div className="mt-1 truncate text-[13px] text-[#b9b4d6]" title={stock.name}>
+            {stock.name}
           </div>
         </div>
-        <button
-          type="button"
-          onPointerDown={(e) => { e.stopPropagation(); onPreview(stock); }}
-          onClick={(e) => { e.stopPropagation(); onPreview(stock); }}
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-hairline text-paper-muted transition duration-300 hover:border-accent/60 hover:text-accent"
-          aria-label={`Open ${stock.symbol} preview`}
-          title="Open preview"
-        >
-          <span className="text-xs transition-transform duration-300 group-hover:rotate-45">↗</span>
-        </button>
+        <span aria-hidden className="nova-card-arrow shrink-0">↗</span>
       </div>
 
-      <div className="relative mt-4 line-clamp-2 min-h-[3.2rem] font-display text-[20px] leading-snug text-paper">
-        {stock.name}
-      </div>
-
-      <div className="relative mt-5 flex items-end justify-between gap-3 border-t border-hairline pt-4">
-        <div>
-          <div className="font-body text-[9px] uppercase tracking-[0.22em] text-paper-muted">Price</div>
-          <div className="mt-1.5 font-numeric text-[19px] leading-none text-paper">
-            {Number.isFinite(quickPrice) && quickPrice > 0
-              ? `${stock.currency}${quickPrice.toLocaleString()}`
-              : '—'}
-          </div>
+      <div className="mt-5 flex items-end justify-between gap-2">
+        <div className="font-numeric text-[22px] leading-none tracking-tight text-paper">
+          {hasPrice ? `${stock.currency}${quickPrice.toLocaleString('en-IN')}` : '—'}
         </div>
-        <div className="text-right">
-          <div className="font-body text-[9px] uppercase tracking-[0.22em] text-paper-muted">Face value</div>
-          <div className="mt-1.5 font-numeric text-[13px] leading-none text-paper-muted">
-            {formatFaceValue(stock)}
-          </div>
-        </div>
+        {hasChange ? (
+          <span
+            className={`rounded-full px-2 py-0.5 font-numeric text-[12px] ${
+              quickChange >= 0 ? 'bg-[#3dffa2]/12 text-[#6ff0b5]' : 'bg-[#ff5c7a]/12 text-[#ff8aa0]'
+            }`}
+          >
+            {quickChange >= 0 ? '+' : '−'}
+            {Math.abs(quickChange).toFixed(2)}%
+          </span>
+        ) : null}
       </div>
 
-      <div className="relative mt-5 flex items-center gap-3">
-        <div className="h-[3px] flex-1 overflow-hidden rounded-full bg-white/10">
-          <div
-            className="h-full rounded-full transition-all duration-1000"
-            style={{
-              width: `${isReady ? analysisView.confidenceLevel : 22}%`,
-              backgroundColor: isReady
-                ? (isBull ? '#34d399' : isHold ? '#a1a1aa' : '#fb7185')
-                : '#ff4fa3',
-            }}
-          />
+      <div className="mt-4 flex items-center gap-3">
+        <div className="nova-card-bar" data-loading={isReady ? undefined : ''}>
+          <i style={{ width: `${isReady ? analysisView.confidenceLevel : 40}%` }} />
         </div>
         <span
-          className={`shrink-0 font-body text-[10px] font-semibold uppercase tracking-[0.18em] ${
-            isReady ? (isBull ? 'text-primary' : isHold ? 'text-paper-muted' : 'text-rose-300') : 'text-accent'
-          }`}
+          className="shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em]"
+          style={{ color: verdictColor, background: `color-mix(in srgb, ${verdictColor} 14%, transparent)` }}
         >
           {verdictBadge}
         </span>
@@ -3447,12 +3418,7 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
       {showWelcome && (
         <div className="nova-welcome pointer-events-none fixed inset-0 z-[9999] flex items-center justify-center p-6" role="status" aria-live="polite">
           <div className="nova-welcome-card nova-modal rounded-[28px] px-10 py-9 text-center font-body">
-            <div className="flex items-center justify-center gap-2.5">
-              <span aria-hidden className="nova-dot" />
-              <span className="font-display text-[20px] leading-none text-paper">
-                Bulls<span className="text-accent">eye</span>
-              </span>
-            </div>
+            <div className="flex justify-center"><BullseyeLogo size={26} wordClassName="text-[22px]" /></div>
             <p className="mt-5 font-display text-[clamp(40px,6vw,60px)] leading-[1] text-paper">
               Welcome, <em className="nova-gradient-text italic">{welcomeName}.</em>
             </p>
@@ -3488,36 +3454,32 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
           <button
             type="button"
             onClick={goHome}
-            className="group flex shrink-0 items-center gap-2.5 text-left"
+            className="flex shrink-0 items-center text-left"
             aria-label="Bullseye home"
           >
-            <span
-              aria-hidden
-              className="inline-flex h-[7px] w-[7px] rounded-full bg-accent shadow-[0_0_14px_rgba(255,79,163,0.85)] transition-transform duration-300 group-hover:scale-125"
-            />
-            <span className="font-display text-[26px] leading-none text-paper sm:text-[28px]">
-              Bulls<span className="text-accent">eye</span>
-            </span>
+            <BullseyeLogo size={32} wordClassName="text-[27px] sm:text-[29px]" />
           </button>
 
-          <div className="relative order-last w-full min-w-0 lg:order-none lg:w-auto lg:max-w-[380px] lg:flex-1">
-            <input
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onFocus={() => input.length > 0 && setShowSuggestions(true)}
-              onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
-              onKeyDown={(e) => { if (e.key === 'Enter' && suggestions.length > 0) selectStock(suggestions[0]); }}
-              className="relative z-10 h-11 w-full rounded-full border border-hairline bg-glass px-5 font-body text-[13px] text-paper outline-none backdrop-blur-md transition-all placeholder:text-paper-muted/70 hover:border-white/20 focus:border-accent/60 focus:bg-glass-strong"
-              placeholder="Search any stock…"
-            />
+          <div className="relative order-last w-full min-w-0 lg:order-none lg:w-auto lg:max-w-[420px] lg:flex-1">
+            <NovaSearch>
+              <input
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onFocus={() => input.length > 0 && setShowSuggestions(true)}
+                onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
+                onKeyDown={(e) => { if (e.key === 'Enter' && suggestions.length > 0) selectStock(suggestions[0]); }}
+                aria-label="Search any stock"
+                placeholder="Search any stock…"
+              />
+            </NovaSearch>
             {showSuggestions && suggestions.length > 0 && (
-              <div className="absolute z-50 mt-2 max-h-[72vh] w-full min-w-[min(82vw,320px)] overflow-y-auto overflow-x-hidden rounded-2xl border border-white/10 bg-black/95 shadow-[0_20px_50px_rgba(0,0,0,0.8)] backdrop-blur-3xl sm:min-w-full">
+              <div data-lenis-prevent className="nova-modal absolute z-50 mt-2 max-h-[72vh] w-full min-w-[min(82vw,320px)] overflow-y-auto overflow-x-hidden rounded-2xl p-1.5 sm:min-w-full" style={{ animationDuration: '0.25s' }}>
                 {suggestions.map((stock) => (
-                  <div key={stock.ticker} onMouseDown={() => selectStock(stock)} className="grid cursor-pointer grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-white/5 px-3 py-3 transition-all last:border-0 hover:bg-white/5 sm:px-5 sm:py-3.5 group">
-                    <span className="min-w-0 truncate font-body text-xs font-bold uppercase tracking-wide text-zinc-300 group-hover:text-white sm:text-sm sm:tracking-wider" title={stock.name}>{stock.name}</span>
+                  <div key={stock.ticker} onMouseDown={() => selectStock(stock)} className="group grid cursor-pointer grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-xl px-3 py-2.5 transition-colors hover:bg-white/[0.07] sm:px-4">
+                    <span className="min-w-0 truncate font-body text-[14px] text-[#e9e5ff] group-hover:text-white" title={stock.name}>{stock.name}</span>
                     <div className="flex min-w-0 max-w-[92px] shrink-0 items-center justify-end gap-1.5 sm:max-w-[140px] sm:gap-2">
                       <span className="rounded bg-white/5 px-1.5 py-0.5 font-numeric text-[8px] uppercase text-zinc-500 sm:px-2 sm:text-[9px]">{stock.exchange}</span>
-                      <span className="min-w-0 truncate font-numeric text-[10px] text-cyan-500/70 group-hover:text-cyan-400 sm:text-xs" title={stock.symbol}>{stock.symbol}</span>
+                      <span className="min-w-0 truncate font-numeric text-[12px] text-[#ff79c0]" title={stock.symbol}>{stock.symbol}</span>
                     </div>
                   </div>
                 ))}
@@ -3536,7 +3498,7 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
           <Link
             href="/screens"
             onClick={() => setShowProfileMenu(false)}
-            className="inline-flex h-10 shrink-0 items-center justify-center rounded-full bg-accent px-5 font-body text-[13px] font-semibold text-black transition duration-300 hover:bg-accent-dim"
+            className="nova-btn nova-btn-primary shrink-0 !h-11 !px-5 !text-[13px]"
           >
             Screener
           </Link>
@@ -3666,12 +3628,15 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
                 stockStrip={
                   <div>
                     <div className="mb-3 flex items-center justify-between gap-3">
-                      <span className="font-body text-[10px] font-medium uppercase tracking-[0.24em] text-paper-muted">
-                        Live scan · today&apos;s short list
+                      <span className="flex items-center gap-3">
+                        <span className="nova-dot" aria-hidden />
+                        <span className="font-numeric text-[11px] font-medium uppercase tracking-[0.3em] text-[#cfc9ea]">
+                          Live scan · today&apos;s short list
+                        </span>
                       </span>
                       <Link
                         href="/screens"
-                        className="font-body text-[11px] text-accent underline-offset-4 transition hover:underline"
+                        className="font-body text-[13px] font-medium text-[#ff79c0] underline-offset-4 transition hover:text-white hover:underline"
                       >
                         All screens →
                       </Link>
@@ -4171,12 +4136,7 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
           >
             {/* Header */}
             <div className="flex items-start justify-between gap-4">
-              <div className="flex items-center gap-2.5">
-                <span aria-hidden className="nova-dot" />
-                <span className="font-display text-[24px] leading-none text-paper">
-                  Bulls<span className="text-accent">eye</span>
-                </span>
-              </div>
+              <BullseyeLogo size={28} wordClassName="text-[24px]" />
               <button
                 onClick={dismissAuthModal}
                 aria-label="Close sign-in and continue without an account"

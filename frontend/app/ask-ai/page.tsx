@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { STOCKS } from '../stocks';
+import { BullseyeLogo } from '@/components/brand/BullseyeLogo';
 
 const BACKEND = '/api/backend';
 
@@ -973,13 +974,8 @@ export default function AskAiPage() {
               Back
             </button>
             <Link href="/" className="group flex items-center gap-2.5">
-              <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-accent/40 bg-accent/10">
-                <span className="font-display text-xs text-accent">BE</span>
-              </div>
+              <BullseyeLogo size={30} wordClassName="text-[22px]" />
               <div className="leading-tight">
-                <div className="font-display text-[19px] leading-none sm:text-[21px]">
-                  <span className="text-paper">BULLS</span><span className="text-accent">EYE</span>
-                </div>
                 <div className="text-[9px] font-bold uppercase tracking-[0.18em] text-paper-muted">Ask AI · Backtest · Scan</div>
               </div>
             </Link>

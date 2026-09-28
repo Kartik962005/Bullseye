@@ -7,6 +7,7 @@ import { getRowsForSector } from '../../screen-data';
 import ScreenMetricTable from '../../ScreenMetricTable';
 import StockSearch from '../../StockSearch';
 import { enrichScreenRows } from '../../enrichRows';
+import { BullseyeLogo } from '@/components/brand/BullseyeLogo';
 
 export default function SectorDetailPage() {
   const params = useParams<{ sector: string }>();
@@ -53,13 +54,7 @@ export default function SectorDetailPage() {
         <header className="relative z-40 border-b border-hairline bg-black/55 backdrop-blur-xl">
           <div className="mx-auto grid max-w-[1400px] grid-cols-1 items-center gap-4 px-5 py-5 sm:px-8 md:grid-cols-[auto_minmax(240px,1fr)_auto]">
             <Link href="/" className="flex min-w-0 items-center gap-2.5">
-              <span
-                aria-hidden
-                className="inline-flex h-[7px] w-[7px] shrink-0 rounded-full bg-accent shadow-[0_0_14px_rgba(255,79,163,0.85)]"
-              />
-              <span className="font-display text-[26px] leading-none text-paper">
-                Bulls<span className="text-accent">eye</span>
-              </span>
+              <BullseyeLogo size={30} wordClassName="text-[26px]" />
             </Link>
             <StockSearch compact />
             <Link

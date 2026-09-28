@@ -4,6 +4,7 @@
 // this is wayfinding plus the disclaimer, nothing more.
 
 import Link from "next/link";
+import { BullseyeLogo } from "@/components/brand/BullseyeLogo";
 
 export function SiteFooter() {
   const year = new Date().getFullYear();
@@ -13,15 +14,7 @@ export function SiteFooter() {
       <div className="border-t border-hairline pt-10">
         <div className="flex flex-wrap items-start justify-between gap-10">
           <div className="max-w-[34ch]">
-            <div className="flex items-center gap-2.5">
-              <span
-                aria-hidden
-                className="inline-flex h-[7px] w-[7px] rounded-full bg-accent shadow-[0_0_14px_rgba(255,79,163,0.85)]"
-              />
-              <span className="font-display text-2xl leading-none text-paper">
-                Bulls<span className="text-accent">eye</span>
-              </span>
-            </div>
+            <BullseyeLogo size={28} wordClassName="text-[24px]" />
             <p className="mt-4 font-body text-[13px] leading-6 text-paper-muted">
               AI-assisted market research for Indian equities. Not investment advice.
             </p>

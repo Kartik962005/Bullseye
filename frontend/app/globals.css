@@ -521,3 +521,280 @@ html:has(.nova-canvas) * {
     animation: none;
   }
 }
+
+/* ── Brand mark ───────────────────────────────────────────────────────────── */
+.bx-mark {
+  flex: none;
+  overflow: visible;
+  filter: drop-shadow(0 0 10px rgba(255, 46, 151, 0.35));
+}
+.bx-ring,
+.bx-core,
+.bx-arrow {
+  transform-box: view-box;
+  transform-origin: 16px 16px;
+  transition: transform 0.5s var(--nova-ease);
+}
+.bx-logo:hover .bx-arrow {
+  animation: bx-strike 0.6s var(--nova-ease);
+}
+.bx-logo:hover .bx-ring-outer {
+  animation: bx-pulse 0.7s var(--nova-ease) 0.18s;
+}
+.bx-logo:hover .bx-ring-inner {
+  animation: bx-pulse 0.7s var(--nova-ease) 0.1s;
+}
+.bx-logo:hover .bx-core {
+  transform: scale(1.18);
+}
+@keyframes bx-strike {
+  0% {
+    transform: translate(5px, -5px);
+    opacity: 0;
+  }
+  60% {
+    transform: translate(-0.6px, 0.6px);
+    opacity: 1;
+  }
+  100% {
+    transform: none;
+  }
+}
+@keyframes bx-pulse {
+  50% {
+    transform: scale(1.09);
+  }
+}
+
+/* ── Header search ────────────────────────────────────────────────────────── */
+@property --nova-angle {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+.nova-search {
+  --mx: 50%;
+  --my: 50%;
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  align-items: center;
+  height: 3rem;
+  border-radius: 999px;
+  background: rgba(13, 10, 31, 0.72);
+  transition:
+    transform 0.35s var(--nova-ease),
+    box-shadow 0.35s var(--nova-ease);
+}
+/* Gradient hairline border (masked so only the 1px ring shows). */
+.nova-search::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  padding: 1px;
+  background: conic-gradient(from var(--nova-angle), #00e5ff, #8b5cf6, #ff2e97, #ffb547, #00e5ff);
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  opacity: 0.35;
+  transition: opacity 0.35s var(--nova-ease);
+}
+/* Soft spotlight under the cursor. */
+.nova-search::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: radial-gradient(160px circle at var(--mx) var(--my), rgba(255, 79, 163, 0.2), transparent 70%);
+  opacity: 0;
+  transition: opacity 0.35s var(--nova-ease);
+  pointer-events: none;
+}
+.nova-search:hover::before,
+.nova-search:focus-within::before {
+  opacity: 1;
+  animation: nova-spin 3.2s linear infinite;
+}
+.nova-search:hover::after {
+  opacity: 1;
+}
+.nova-search:hover {
+  transform: translateY(-1px);
+}
+.nova-search:focus-within {
+  box-shadow:
+    0 0 0 4px rgba(255, 46, 151, 0.14),
+    0 12px 40px -12px rgba(139, 92, 246, 0.6);
+}
+@keyframes nova-spin {
+  to {
+    --nova-angle: 360deg;
+  }
+}
+.nova-search input {
+  height: 100%;
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  padding: 0 3rem 0 2.9rem;
+  font: 400 14px var(--font-inter), system-ui, sans-serif;
+  color: #fff;
+  outline: none;
+}
+.nova-search input::placeholder {
+  color: #9f99c2;
+  transition: color 0.3s;
+}
+.nova-search-icon {
+  position: absolute;
+  left: 1.05rem;
+  width: 18px;
+  height: 18px;
+  color: #9f99c2;
+  pointer-events: none;
+  transition:
+    transform 0.4s var(--nova-ease),
+    color 0.3s;
+}
+.nova-search:hover .nova-search-icon,
+.nova-search:focus-within .nova-search-icon {
+  color: #ff79c0;
+  transform: scale(1.12) rotate(-8deg);
+}
+.nova-search-kbd {
+  position: absolute;
+  right: 0.9rem;
+  display: grid;
+  place-items: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  border-radius: 7px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  font: 500 12px var(--font-jbmono), ui-monospace, monospace;
+  color: #b9b4d6;
+  pointer-events: none;
+  transition: opacity 0.2s;
+}
+.nova-search:focus-within .nova-search-kbd {
+  opacity: 0;
+}
+
+/* ── Live-scan stock cards ───────────────────────────────────────────────── */
+.nova-card {
+  --mx: 50%;
+  --my: 0%;
+  --verdict: #ff4fa3;
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  flex-direction: column;
+  border-radius: 22px;
+  padding: 1.15rem 1.2rem 1.1rem;
+  background:
+    linear-gradient(160deg, rgba(139, 92, 246, 0.16), rgba(13, 10, 31, 0.2) 45%),
+    rgba(13, 10, 31, 0.62);
+  box-shadow:
+    0 20px 50px -24px rgba(0, 0, 0, 0.9),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  cursor: pointer;
+  transition:
+    transform 0.4s var(--nova-ease),
+    box-shadow 0.4s var(--nova-ease);
+}
+.nova-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(150deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0.04) 40%, color-mix(in srgb, var(--verdict) 55%, transparent));
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+}
+.nova-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: radial-gradient(220px circle at var(--mx) var(--my), color-mix(in srgb, var(--verdict) 22%, transparent), transparent 70%);
+  opacity: 0;
+  transition: opacity 0.4s var(--nova-ease);
+  pointer-events: none;
+}
+.nova-card:hover,
+.nova-card:focus-visible {
+  transform: translateY(-6px);
+  box-shadow:
+    0 28px 60px -22px color-mix(in srgb, var(--verdict) 55%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+.nova-card:hover::after,
+.nova-card:focus-visible::after {
+  opacity: 1;
+}
+.nova-card-arrow {
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #d6d0f0;
+  font-size: 12px;
+  transition:
+    transform 0.4s var(--nova-ease),
+    background-color 0.3s,
+    color 0.3s;
+}
+.nova-card:hover .nova-card-arrow {
+  transform: rotate(45deg);
+  background: var(--verdict);
+  color: #0b0716;
+}
+.nova-card-bar {
+  height: 4px;
+  flex: 1;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+}
+.nova-card-bar > i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--verdict) 45%, transparent), var(--verdict));
+  transition: width 1s var(--nova-ease);
+}
+.nova-card-bar[data-loading] > i {
+  width: 40% !important;
+  animation: nova-scan 1.4s ease-in-out infinite;
+}
+@keyframes nova-scan {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(250%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nova-search:hover::before,
+  .nova-search:focus-within::before,
+  .nova-card-bar[data-loading] > i,
+  .bx-logo:hover .bx-arrow,
+  .bx-logo:hover .bx-ring-outer,
+  .bx-logo:hover .bx-ring-inner {
+    animation: none;
+  }
+}
