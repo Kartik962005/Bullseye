@@ -295,7 +295,7 @@ export class NovaScene {
     const introEased = 1 - Math.pow(1 - this.intro, 3);
 
     // Frame-rate independent easing toward the scroll-driven targets.
-    const k = this.still ? 1 : 1 - Math.pow(1 - 0.085, dt * 60);
+    const k = this.still ? 1 : 1 - Math.pow(1 - 0.06, dt * 60);
     this.morph += (this.morphTarget - this.morph) * k;
     const kp = 1 - Math.pow(1 - 0.05, dt * 60);
     this.pointer.x += (this.pointerTarget.x - this.pointer.x) * kp;

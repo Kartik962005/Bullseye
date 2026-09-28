@@ -22,10 +22,10 @@ export interface StatProps extends Omit<HTMLAttributes<HTMLDivElement>, "title">
 export function Stat({ label, value, hint, tone = "default", className, ...props }: StatProps) {
   return (
     <div className={cn("flex flex-col gap-1", className)} {...props}>
-      <span className="font-['Space_Grotesk'] text-[10px] font-black uppercase tracking-[0.16em] text-cyan-300">
+      <span className="font-body text-[10px] font-black uppercase tracking-[0.16em] text-cyan-300">
         {label}
       </span>
-      <span className={cn("font-['JetBrains_Mono'] text-base font-bold", VALUE_TONE[tone])}>{value}</span>
+      <span className={cn("font-numeric text-base font-bold", VALUE_TONE[tone])}>{value}</span>
       {hint != null && <span className="text-[11px] text-slate-400">{hint}</span>}
     </div>
   );

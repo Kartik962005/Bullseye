@@ -42,7 +42,7 @@ export default function StockSearch({ compact = false }: { compact?: boolean }) 
           }
         }}
         placeholder="SEARCH ASSETS, NOT HOPE."
-        className="h-11 w-full rounded-2xl border border-cyan-200 bg-white/95 px-4 pr-11 font-['JetBrains_Mono'] text-xs font-bold uppercase tracking-wider text-slate-900 outline-none shadow-[0_12px_34px_rgba(15,23,42,0.08)] transition placeholder:text-slate-400 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-100 sm:h-12 sm:px-5 sm:text-sm"
+        className="h-11 w-full rounded-2xl border border-cyan-200 bg-white/95 px-4 pr-11 font-numeric text-xs font-bold uppercase tracking-wider text-slate-900 outline-none shadow-[0_12px_34px_rgba(15,23,42,0.08)] transition placeholder:text-slate-400 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-100 sm:h-12 sm:px-5 sm:text-sm"
       />
       <div className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-cyan-600">
         <svg className="h-4 w-4 sm:h-5 sm:w-5" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -59,10 +59,10 @@ export default function StockSearch({ compact = false }: { compact?: boolean }) 
               className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 last:border-0 hover:bg-cyan-50"
             >
               <span className="min-w-0">
-                <span className="block truncate font-['Space_Grotesk'] text-sm font-black text-slate-950">{stock.name}</span>
-                <span className="mt-0.5 block font-['JetBrains_Mono'] text-[10px] font-bold uppercase tracking-widest text-slate-400">{stock.symbol}</span>
+                <span className="block truncate font-body text-sm font-black text-slate-950">{stock.name}</span>
+                <span className="mt-0.5 block font-numeric text-[10px] font-bold uppercase tracking-widest text-slate-400">{stock.symbol}</span>
               </span>
-              <span className="shrink-0 rounded-lg bg-slate-100 px-2 py-1 font-['JetBrains_Mono'] text-[10px] font-bold text-slate-500">{stock.exchange}</span>
+              <span className="shrink-0 rounded-lg bg-slate-100 px-2 py-1 font-numeric text-[10px] font-bold text-slate-500">{stock.exchange}</span>
             </Link>
           ))}
         </div>

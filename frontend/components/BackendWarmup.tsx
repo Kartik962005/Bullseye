@@ -87,7 +87,7 @@ export default function BackendWarmup() {
         boxShadow: '0 8px 30px rgba(0,0,0,0.35)',
         fontSize: 13,
         lineHeight: 1.35,
-        fontFamily: 'var(--font-jakarta), system-ui, sans-serif',
+        fontFamily: 'var(--font-inter), system-ui, sans-serif',
         maxWidth: '92vw',
       }}
     >

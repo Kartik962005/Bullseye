@@ -14,10 +14,8 @@ import { PeerComparison } from '@/components/stock/PeerComparison';
 import { RangeBar } from '@/components/stock/RangeBar';
 import { SectionShell } from '@/components/home/SectionShell';
 import { LiveScanSection } from '@/components/home/LiveScanSection';
-import { AboutSection } from '@/components/home/AboutSection';
 import { SiteFooter } from '@/components/home/SiteFooter';
 import { HomeAmbientBackground } from '@/components/home/HomeAmbientBackground';
-import BlurText from '@/components/ui/BlurText';
 
 import { BACKEND, fetcher, getCache, setCache } from '@/lib/client-cache';
 import {
@@ -589,11 +587,11 @@ const IndicatorPanel = ({ panel }: { panel: IndicatorPanelData }) => {
   const path = buildSvgPath(panel.series);
   return (
     <div className="relative border-t border-slate-200 bg-white">
-      <div className="absolute left-3 top-3 z-10 flex items-center gap-2 text-xs font-bold text-slate-700 font-['Space_Grotesk']">
+      <div className="absolute left-3 top-3 z-10 flex items-center gap-2 text-xs font-bold text-slate-700 font-body">
         <span>{panel.name}</span>
-        <span className="font-['JetBrains_Mono']" style={{ color: panel.color }}>{panel.latest}</span>
+        <span className="font-numeric" style={{ color: panel.color }}>{panel.latest}</span>
       </div>
-      <div className="absolute right-0 top-1/2 z-10 -translate-y-1/2 rounded-l-md px-2 py-1 text-xs font-black text-white font-['JetBrains_Mono']" style={{ backgroundColor: panel.color }}>
+      <div className="absolute right-0 top-1/2 z-10 -translate-y-1/2 rounded-l-md px-2 py-1 text-xs font-black text-white font-numeric" style={{ backgroundColor: panel.color }}>
         {panel.latest}
       </div>
       <svg viewBox="0 0 720 150" className="h-[190px] w-full" preserveAspectRatio="none" role="img" aria-label={`${panel.name} indicator chart`}>
@@ -617,11 +615,11 @@ const IndicatorChartPane = ({
   setPaneRef: (name: string, element: HTMLDivElement | null) => void;
 }) => (
   <div className="relative border-t border-slate-200 bg-white">
-    <div className="absolute left-3 top-3 z-10 flex items-center gap-2 text-xs font-bold text-slate-700 font-['Space_Grotesk']">
+    <div className="absolute left-3 top-3 z-10 flex items-center gap-2 text-xs font-bold text-slate-700 font-body">
       <span>{panel.name}</span>
-      <span className="font-['JetBrains_Mono']" style={{ color: panel.color }}>{panel.latest}</span>
+      <span className="font-numeric" style={{ color: panel.color }}>{panel.latest}</span>
     </div>
-    <div className="absolute right-0 top-1/2 z-10 -translate-y-1/2 rounded-l-md px-2 py-1 text-xs font-black text-white font-['JetBrains_Mono']" style={{ backgroundColor: panel.color }}>
+    <div className="absolute right-0 top-1/2 z-10 -translate-y-1/2 rounded-l-md px-2 py-1 text-xs font-black text-white font-numeric" style={{ backgroundColor: panel.color }}>
       {panel.latest}
     </div>
     <div
@@ -1062,62 +1060,6 @@ const StockPreviewModal = ({
   );
 };
 
-const GlobalNewsPanel = () => {
-  const { data } = useSWR<{ stories?: NewsStory[] }>('/api/v1/global-news', fetcher, {
-    refreshInterval: 1000 * 60 * 10,
-    revalidateOnFocus: false,
-  });
-  const stories = data?.stories?.length ? data.stories : [
-    { title: 'Loading global market news and macro context...', source: 'Bullseye', url: null },
-  ];
-
-  return (
-    <div className="grid gap-4 lg:grid-cols-3">
-      {stories.slice(0, 3).map((story, index) => (
-        <article
-          key={`${story.title}-${index}`}
-          className="group relative overflow-hidden rounded-[20px] border border-hairline p-6 transition duration-300 hover:border-accent/40"
-          style={{
-            background:
-              'linear-gradient(145deg, rgba(20,22,19,0.94) 0%, rgba(8,10,9,0.97) 55%, rgba(16,18,15,0.94) 100%)',
-            boxShadow: '0 22px 60px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,79,163,0.14)',
-          }}
-        >
-          <div className="flex items-center gap-2">
-            <span className="inline-flex h-[5px] w-[5px] rounded-full bg-accent" />
-            <span className="font-body text-[10px] font-medium uppercase tracking-[0.24em] text-accent">
-              {story.source || 'Market'}
-            </span>
-          </div>
-
-          {story.url ? (
-            <a
-              href={story.url}
-              target="_blank"
-              rel="noreferrer"
-              className="mt-4 block font-display text-[21px] leading-snug text-paper transition group-hover:text-accent"
-            >
-              {story.title}
-            </a>
-          ) : (
-            <h3 className="mt-4 font-display text-[21px] leading-snug text-paper">{story.title}</h3>
-          )}
-
-          <p className="mt-3 font-body text-[13px] leading-6 text-paper-muted">
-            {buildMarketNewsRead(story.title)}
-          </p>
-
-          {story.url && (
-            <div className="mt-5 font-body text-[11px] uppercase tracking-[0.2em] text-paper-muted transition group-hover:text-accent">
-              Read source →
-            </div>
-          )}
-        </article>
-      ))}
-    </div>
-  );
-};
-
 // ─── DETAILED FISO PANEL ──────────────────────────────────────────────────────
 const FisoDetailPanel = ({
   analysis,
@@ -1453,7 +1395,7 @@ const FisoDetailPanel = ({
         {isAiRunning && (
           <div className="mt-4 flex items-center gap-3 py-4">
             <div className="w-5 h-5 border-2 border-zinc-700 border-t-cyan-400 rounded-full animate-spin shrink-0"></div>
-            <span className="text-xs text-slate-300 font-['JetBrains_Mono'] uppercase tracking-widest animate-pulse">
+            <span className="text-xs text-slate-300 font-numeric uppercase tracking-widest animate-pulse">
               {aiLoaderSummary || `Reading market data for ${ticker}...`}
             </span>
           </div>
@@ -1464,7 +1406,7 @@ const FisoDetailPanel = ({
           <div className="mt-5 animate-in fade-in slide-in-from-bottom-4 duration-500">
             {aiResult.error || aiResult.custom_metrics?.error ? (
               <div className="bg-red-500/5 border border-red-500/20 rounded-2xl p-4">
-                <p className="text-red-400 text-sm font-['JetBrains_Mono']">
+                <p className="text-red-400 text-sm font-numeric">
                   {aiResult.error || aiResult.custom_metrics?.error}
                 </p>
               </div>
@@ -1472,18 +1414,18 @@ const FisoDetailPanel = ({
               <div className={`${aiResult.pnl >= 0 ? 'bg-green-500/5 border-green-500/20' : 'bg-red-500/5 border-red-500/20'} border rounded-2xl p-4`}>
                 <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 mb-4">
                   <div>
-                    <span className={`text-[10px] uppercase tracking-widest font-bold font-['Space_Grotesk'] ${aiResult.pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                    <span className={`text-[10px] uppercase tracking-widest font-bold font-body ${aiResult.pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                       {aiResult.pnl >= 0 ? 'Profit' : 'Loss'} estimate
                     </span>
-                    <p className="text-sm text-zinc-400 font-['JetBrains_Mono'] mt-1">
+                    <p className="text-sm text-zinc-400 font-numeric mt-1">
                       {aiResult.quantity.toLocaleString()} shares from {aiResult.buyDate} to {aiResult.latestDate}
                     </p>
                   </div>
                   <div className="text-left sm:text-right">
-                    <div className={`text-2xl font-black font-['JetBrains_Mono'] ${aiResult.pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                    <div className={`text-2xl font-black font-numeric ${aiResult.pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                       {aiResult.pnl >= 0 ? '+' : ''}{currency}{Math.abs(aiResult.pnl).toLocaleString(undefined, { maximumFractionDigits: 2 })}
                     </div>
-                    <div className={`text-xs font-bold font-['JetBrains_Mono'] ${aiResult.returnPct >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                    <div className={`text-xs font-bold font-numeric ${aiResult.returnPct >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                       {aiResult.returnPct >= 0 ? '+' : ''}{aiResult.returnPct.toFixed(2)}%
                     </div>
                   </div>
@@ -1497,7 +1439,7 @@ const FisoDetailPanel = ({
                   ].map(([label, value]) => (
                     <div key={label} className="bg-black/30 rounded-xl p-3 border border-white/5">
                       <span className="text-[9px] text-zinc-500 uppercase tracking-widest font-bold block mb-1">{label}</span>
-                      <span className="text-lg font-['JetBrains_Mono'] font-bold text-white">
+                      <span className="text-lg font-numeric font-bold text-white">
                         {currency}{Number(value).toLocaleString(undefined, { maximumFractionDigits: 2 })}
                       </span>
                     </div>
@@ -1508,23 +1450,23 @@ const FisoDetailPanel = ({
               <div className={`${aiResult.pnl >= 0 ? 'bg-green-500/5 border-green-500/20' : 'bg-red-500/5 border-red-500/20'} border rounded-2xl p-4`}>
                 <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 mb-4">
                   <div>
-                    <span className={`text-[10px] uppercase tracking-widest font-bold font-['Space_Grotesk'] ${aiResult.pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                    <span className={`text-[10px] uppercase tracking-widest font-bold font-body ${aiResult.pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                       Historical ROI
                     </span>
-                    <p className="text-sm text-zinc-300 font-['JetBrains_Mono'] mt-1 leading-relaxed">
+                    <p className="text-sm text-zinc-300 font-numeric mt-1 leading-relaxed">
                       {aiResult.answer}
                     </p>
                     {!aiResult.exact_match && (
-                      <p className="mt-2 text-[10px] text-amber-300 font-['JetBrains_Mono']">
+                      <p className="mt-2 text-[10px] text-amber-300 font-numeric">
                         Requested date was not a trading candle, so the nearest available candle was used.
                       </p>
                     )}
                   </div>
                   <div className="text-left sm:text-right">
-                    <div className={`text-2xl font-black font-['JetBrains_Mono'] ${aiResult.pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                    <div className={`text-2xl font-black font-numeric ${aiResult.pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                       {aiResult.pnl >= 0 ? '+' : '-'}{currency}{Math.abs(Number(aiResult.pnl || 0)).toLocaleString(undefined, { maximumFractionDigits: 2 })}
                     </div>
-                    <div className={`text-xs font-bold font-['JetBrains_Mono'] ${aiResult.return_pct >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                    <div className={`text-xs font-bold font-numeric ${aiResult.return_pct >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                       {aiResult.return_pct >= 0 ? '+' : ''}{Number(aiResult.return_pct || 0).toFixed(2)}%
                     </div>
                   </div>
@@ -1542,7 +1484,7 @@ const FisoDetailPanel = ({
                   ].map(([label, value]) => (
                     <div key={label} className="bg-black/30 rounded-xl p-3 border border-white/5">
                       <span className="text-[9px] text-zinc-500 uppercase tracking-widest font-bold block mb-1">{label}</span>
-                      <span className="text-sm font-['JetBrains_Mono'] font-bold text-white break-words">
+                      <span className="text-sm font-numeric font-bold text-white break-words">
                         {typeof value === 'number'
                           ? (String(label).toLowerCase().includes('quantity') ? value.toLocaleString() : `${currency}${value.toLocaleString(undefined, { maximumFractionDigits: 2 })}`)
                           : value}
@@ -1554,12 +1496,12 @@ const FisoDetailPanel = ({
             ) : aiResult.type === 'historical_price' ? (
               <div className="bg-cyan-500/5 border border-cyan-500/20 rounded-2xl p-4">
                 <div className="flex items-center justify-between gap-3 mb-4">
-                  <span className="text-[10px] text-cyan-400 uppercase tracking-widest font-bold font-['Space_Grotesk']">Historical Price</span>
-                  <span className="text-[10px] text-zinc-500 font-['JetBrains_Mono']">{aiResult.target_stock} · {aiResult.requested_date}</span>
+                  <span className="text-[10px] text-cyan-400 uppercase tracking-widest font-bold font-body">Historical Price</span>
+                  <span className="text-[10px] text-zinc-500 font-numeric">{aiResult.target_stock} · {aiResult.requested_date}</span>
                 </div>
                 {aiResult.candle ? (
                   <>
-                    <p className="mb-4 text-sm text-zinc-300 font-['JetBrains_Mono'] leading-relaxed">{aiResult.answer}</p>
+                    <p className="mb-4 text-sm text-zinc-300 font-numeric leading-relaxed">{aiResult.answer}</p>
                     <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
                       {[
                         ['Date', aiResult.candle.date],
@@ -1570,7 +1512,7 @@ const FisoDetailPanel = ({
                       ].map(([label, value]) => (
                         <div key={label} className="bg-black/30 rounded-xl p-3 border border-white/5">
                           <span className="text-[9px] text-zinc-500 uppercase tracking-widest font-bold block mb-1">{label}</span>
-                          <span className="text-lg font-['JetBrains_Mono'] font-bold text-white">
+                          <span className="text-lg font-numeric font-bold text-white">
                             {typeof value === 'number' ? `${currency}${value.toLocaleString(undefined, { maximumFractionDigits: 2 })}` : value}
                           </span>
                         </div>
@@ -1578,18 +1520,18 @@ const FisoDetailPanel = ({
                     </div>
                   </>
                 ) : (
-                  <p className="text-sm text-zinc-300 font-['JetBrains_Mono']">No historical candle was found for this request.</p>
+                  <p className="text-sm text-zinc-300 font-numeric">No historical candle was found for this request.</p>
                 )}
               </div>
             ) : aiResult.type === 'technical_analysis' ? (
               <div className="bg-cyan-500/5 border border-cyan-500/20 rounded-2xl p-4">
-                <span className="text-[10px] text-cyan-400 uppercase tracking-widest font-bold font-['Space_Grotesk']">{aiResult.title}</span>
-                <p className="text-sm text-zinc-300 font-['JetBrains_Mono'] leading-relaxed mt-2 mb-4">{aiResult.answer}</p>
+                <span className="text-[10px] text-cyan-400 uppercase tracking-widest font-bold font-body">{aiResult.title}</span>
+                <p className="text-sm text-zinc-300 font-numeric leading-relaxed mt-2 mb-4">{aiResult.answer}</p>
                 <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-3">
                   {(aiResult.rows ?? []).map(([label, value]: [string, any]) => (
                     <div key={label} className="bg-black/30 rounded-xl p-3 border border-white/5">
                       <span className="text-[9px] text-zinc-500 uppercase tracking-widest font-bold block mb-1">{String(label).replaceAll('_', ' ')}</span>
-                      <span className="text-sm font-['JetBrains_Mono'] font-bold text-white break-words">
+                      <span className="text-sm font-numeric font-bold text-white break-words">
                         {typeof value === 'number' ? value.toLocaleString(undefined, { maximumFractionDigits: 2 }) : value}
                       </span>
                     </div>
@@ -1598,14 +1540,14 @@ const FisoDetailPanel = ({
               </div>
             ) : aiResult.type === 'assistant_answer' ? (
               <div className="bg-cyan-500/5 border border-cyan-500/20 rounded-2xl p-4">
-                <span className="text-[10px] text-cyan-400 uppercase tracking-widest font-bold font-['Space_Grotesk']">{aiResult.title}</span>
-                <p className="text-sm text-zinc-300 font-['JetBrains_Mono'] leading-relaxed mt-2 mb-4">{aiResult.answer}</p>
+                <span className="text-[10px] text-cyan-400 uppercase tracking-widest font-bold font-body">{aiResult.title}</span>
+                <p className="text-sm text-zinc-300 font-numeric leading-relaxed mt-2 mb-4">{aiResult.answer}</p>
                 {aiResult.rows?.length > 0 && (
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                     {aiResult.rows.map(([label, value]: [string, any]) => (
                       <div key={label} className="bg-black/30 rounded-xl p-3 border border-white/5">
                         <span className="text-[9px] text-zinc-500 uppercase tracking-widest font-bold block mb-1">{label}</span>
-                        <span className="text-sm font-['JetBrains_Mono'] font-bold text-white break-words">
+                        <span className="text-sm font-numeric font-bold text-white break-words">
                           {typeof value === 'number' ? value.toLocaleString(undefined, { maximumFractionDigits: 2 }) : value}
                         </span>
                       </div>
@@ -1618,8 +1560,8 @@ const FisoDetailPanel = ({
                 {aiResult.candle ? (
                   <>
                     <div className="flex items-center justify-between gap-3 mb-4">
-                      <span className="text-[10px] text-cyan-400 uppercase tracking-widest font-bold font-['Space_Grotesk']">Price Lookup</span>
-                      <span className="text-[10px] text-zinc-500 font-['JetBrains_Mono']">{ticker} · {aiResult.requestedDate}</span>
+                      <span className="text-[10px] text-cyan-400 uppercase tracking-widest font-bold font-body">Price Lookup</span>
+                      <span className="text-[10px] text-zinc-500 font-numeric">{ticker} · {aiResult.requestedDate}</span>
                     </div>
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                       {[
@@ -1630,7 +1572,7 @@ const FisoDetailPanel = ({
                       ].map(([label, value]) => (
                         <div key={label} className="bg-black/30 rounded-xl p-3 border border-white/5">
                           <span className="text-[9px] text-zinc-500 uppercase tracking-widest font-bold block mb-1">{label}</span>
-                          <span className="text-lg font-['JetBrains_Mono'] font-bold text-white">
+                          <span className="text-lg font-numeric font-bold text-white">
                             {currency}{Number(value).toLocaleString(undefined, { maximumFractionDigits: 2 })}
                           </span>
                         </div>
@@ -1639,7 +1581,7 @@ const FisoDetailPanel = ({
                   </>
                 ) : (
                   <div className="flex flex-col gap-4">
-                    <p className="text-cyan-200/80 text-sm font-['JetBrains_Mono']">
+                    <p className="text-cyan-200/80 text-sm font-numeric">
                       No candle found for {ticker} on {aiResult.requestedDate}. It may be a market holiday, weekend, or outside loaded chart history.
                     </p>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -1650,7 +1592,7 @@ const FisoDetailPanel = ({
                         <div key={label} className="bg-black/30 rounded-xl p-3 border border-white/5">
                           <span className="text-[9px] text-zinc-500 uppercase tracking-widest font-bold block mb-2">{label}</span>
                           {candle ? (
-                            <div className="grid grid-cols-2 gap-2 text-xs font-['JetBrains_Mono']">
+                            <div className="grid grid-cols-2 gap-2 text-xs font-numeric">
                               <span className="text-cyan-300 col-span-2">{candle.day}</span>
                               <span>O: {currency}{Number(candle.open).toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
                               <span>C: {currency}{Number(candle.close).toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
@@ -1658,7 +1600,7 @@ const FisoDetailPanel = ({
                               <span>L: {currency}{Number(candle.low).toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
                             </div>
                           ) : (
-                            <span className="text-xs text-zinc-500 font-['JetBrains_Mono']">Not available in loaded data</span>
+                            <span className="text-xs text-zinc-500 font-numeric">Not available in loaded data</span>
                           )}
                         </div>
                       ))}
@@ -1702,9 +1644,9 @@ const FisoDetailPanel = ({
                     <div key={label} className="rounded-2xl border border-cyan-300/15 bg-slate-900/75 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] flex flex-col gap-2">
                       <div className="flex items-center gap-2">
                         <span className="text-base">{icon}</span>
-                        <span className="text-[9px] text-slate-300 uppercase tracking-widest font-bold font-['Space_Grotesk']">{label}</span>
+                        <span className="text-[9px] text-slate-300 uppercase tracking-widest font-bold font-body">{label}</span>
                       </div>
-                      <span className={`text-xl font-['JetBrains_Mono'] font-bold ${color}`}>
+                      <span className={`text-xl font-numeric font-bold ${color}`}>
                         {value !== undefined && value !== null ? `${value}${suffix}` : '—'}
                       </span>
                     </div>
@@ -1713,8 +1655,8 @@ const FisoDetailPanel = ({
                 <div className="mt-4 rounded-2xl border border-cyan-300/25 bg-slate-900/75 p-4">
                   <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
                     <div className="min-w-0">
-                      <span className="text-[10px] text-cyan-500 uppercase tracking-widest font-black font-['Space_Grotesk']">Strategy analysis</span>
-                      <p className="mt-2 text-sm text-zinc-300 leading-relaxed font-['JetBrains_Mono']">
+                      <span className="text-[10px] text-cyan-500 uppercase tracking-widest font-black font-body">Strategy analysis</span>
+                      <p className="mt-2 text-sm text-zinc-300 leading-relaxed font-numeric">
                         {aiResult.custom_metrics?.analysis_text || aiResult.custom_metrics?.warning || 'Strategy completed. Review the trade log below for entries and exits.'}
                       </p>
                     </div>
@@ -1730,7 +1672,7 @@ const FisoDetailPanel = ({
                       ].map(([label, value]) => (
                         <div key={label} className="rounded-xl bg-white/90 border border-cyan-100 p-3 text-slate-950">
                           <span className="text-[9px] text-slate-500 uppercase tracking-widest font-bold block">{label}</span>
-                          <span className="text-sm text-slate-950 font-bold font-['JetBrains_Mono']">{value}</span>
+                          <span className="text-sm text-slate-950 font-bold font-numeric">{value}</span>
                         </div>
                       ))}
                     </div>
@@ -1739,18 +1681,18 @@ const FisoDetailPanel = ({
                   <div className="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-3">
                     <div className="rounded-xl bg-white/90 border border-cyan-100 p-3 text-slate-950">
                       <span className="text-[9px] text-slate-500 uppercase tracking-widest font-bold block mb-1">Entry rule</span>
-                      <span className="text-xs text-slate-950 font-['JetBrains_Mono'] break-words">{aiResult.custom_metrics?.buy_expr}</span>
+                      <span className="text-xs text-slate-950 font-numeric break-words">{aiResult.custom_metrics?.buy_expr}</span>
                     </div>
                     <div className="rounded-xl bg-white/90 border border-cyan-100 p-3 text-slate-950">
                       <span className="text-[9px] text-slate-500 uppercase tracking-widest font-bold block mb-1">Exit rule</span>
-                      <span className="text-xs text-slate-950 font-['JetBrains_Mono'] break-words">{aiResult.custom_metrics?.sell_expr}</span>
+                      <span className="text-xs text-slate-950 font-numeric break-words">{aiResult.custom_metrics?.sell_expr}</span>
                     </div>
                   </div>
                 </div>
 
                 {aiResult.custom_metrics?.open_trade && (
                   <div className="mt-4 bg-amber-500/5 border border-amber-500/20 rounded-2xl p-4">
-                    <span className="text-[10px] text-amber-500 uppercase tracking-widest font-black font-['Space_Grotesk']">Open trade</span>
+                    <span className="text-[10px] text-amber-500 uppercase tracking-widest font-black font-body">Open trade</span>
                     <div className="mt-3 grid grid-cols-2 lg:grid-cols-5 gap-3">
                       {[
                         ['Buy date', `${aiResult.custom_metrics.open_trade.buy_date} (${aiResult.custom_metrics.open_trade.buy_day || '-'})`],
@@ -1761,7 +1703,7 @@ const FisoDetailPanel = ({
                       ].map(([label, value]) => (
                         <div key={label} className="rounded-xl bg-black/25 border border-white/5 p-3">
                           <span className="text-[9px] text-zinc-500 uppercase tracking-widest font-bold block">{label}</span>
-                          <span className="text-sm text-white font-bold font-['JetBrains_Mono']">{value}</span>
+                          <span className="text-sm text-white font-bold font-numeric">{value}</span>
                         </div>
                       ))}
                     </div>
@@ -1771,10 +1713,10 @@ const FisoDetailPanel = ({
                 {aiResult.custom_metrics?.trades?.length > 0 && (
                   <div className="mt-4 overflow-hidden rounded-2xl border border-cyan-200 bg-white text-slate-950 shadow-[0_18px_45px_rgba(2,6,23,0.22)]">
                     <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
-                      <span className="text-[10px] text-cyan-700 uppercase tracking-widest font-black font-['Space_Grotesk']">
+                      <span className="text-[10px] text-cyan-700 uppercase tracking-widest font-black font-body">
                         {aiResult.custom_metrics?.mode === 'weekday_projection' ? 'Projected setups' : 'Trade log'}
                       </span>
-                      <span className="text-[9px] text-slate-600 font-['JetBrains_Mono']">
+                      <span className="text-[9px] text-slate-600 font-numeric">
                         {aiResult.custom_metrics?.mode === 'weekday_projection' ? aiResult.custom_metrics.scope : `Latest ${aiResult.custom_metrics.trades.length}`}
                       </span>
                     </div>
@@ -1783,22 +1725,22 @@ const FisoDetailPanel = ({
                         <thead className="bg-slate-100">
                           <tr>
                             {['Buy day', 'Buy date', 'Buy', 'Sell day', 'Sell date', 'Sell', 'Hold', 'Return', 'Result'].map(label => (
-                              <th key={label} className="px-4 py-3 text-[9px] text-slate-600 uppercase tracking-widest font-black font-['Space_Grotesk']">{label}</th>
+                              <th key={label} className="px-4 py-3 text-[9px] text-slate-600 uppercase tracking-widest font-black font-body">{label}</th>
                             ))}
                           </tr>
                         </thead>
                         <tbody>
                           {aiResult.custom_metrics.trades.map((trade: any, index: number) => (
                             <tr key={`${trade.buy_date}-${trade.sell_date}-${index}`} className="border-t border-slate-200 odd:bg-white even:bg-slate-50 hover:bg-cyan-50">
-                              <td className="px-4 py-3 text-xs text-slate-800 font-['JetBrains_Mono']">{trade.buy_day || '-'}</td>
-                              <td className="px-4 py-3 text-xs text-slate-800 font-['JetBrains_Mono']">{trade.buy_date}</td>
-                              <td className="px-4 py-3 text-xs text-slate-950 font-bold font-['JetBrains_Mono']">{currency}{trade.buy_price}</td>
-                              <td className="px-4 py-3 text-xs text-slate-800 font-['JetBrains_Mono']">{trade.sell_day || '-'}</td>
-                              <td className="px-4 py-3 text-xs text-slate-800 font-['JetBrains_Mono']">{trade.sell_date}</td>
-                              <td className="px-4 py-3 text-xs text-slate-950 font-bold font-['JetBrains_Mono']">{currency}{trade.sell_price}</td>
-                              <td className="px-4 py-3 text-xs text-slate-800 font-['JetBrains_Mono']">{trade.holding_days}d</td>
-                              <td className={`px-4 py-3 text-xs font-bold font-['JetBrains_Mono'] ${trade.return_pct >= 0 ? 'text-green-400' : 'text-red-400'}`}>{trade.return_pct}%</td>
-                              <td className={`px-4 py-3 text-xs font-black font-['Space_Grotesk'] ${trade.result === 'PROJECTED' ? 'text-cyan-300' : trade.result === 'WIN' ? 'text-green-400' : 'text-red-400'}`}>{trade.result}</td>
+                              <td className="px-4 py-3 text-xs text-slate-800 font-numeric">{trade.buy_day || '-'}</td>
+                              <td className="px-4 py-3 text-xs text-slate-800 font-numeric">{trade.buy_date}</td>
+                              <td className="px-4 py-3 text-xs text-slate-950 font-bold font-numeric">{currency}{trade.buy_price}</td>
+                              <td className="px-4 py-3 text-xs text-slate-800 font-numeric">{trade.sell_day || '-'}</td>
+                              <td className="px-4 py-3 text-xs text-slate-800 font-numeric">{trade.sell_date}</td>
+                              <td className="px-4 py-3 text-xs text-slate-950 font-bold font-numeric">{currency}{trade.sell_price}</td>
+                              <td className="px-4 py-3 text-xs text-slate-800 font-numeric">{trade.holding_days}d</td>
+                              <td className={`px-4 py-3 text-xs font-bold font-numeric ${trade.return_pct >= 0 ? 'text-green-400' : 'text-red-400'}`}>{trade.return_pct}%</td>
+                              <td className={`px-4 py-3 text-xs font-black font-body ${trade.result === 'PROJECTED' ? 'text-cyan-300' : trade.result === 'WIN' ? 'text-green-400' : 'text-red-400'}`}>{trade.result}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -1818,7 +1760,7 @@ const FisoDetailPanel = ({
         <div className="flex items-center mb-5 border-b border-white/10 pb-4">
           <div className="flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-red-400 animate-pulse inline-block"></span>
-            <span className="stock-news-heading text-[10px] font-bold text-zinc-400 tracking-[0.2em] uppercase font-['Space_Grotesk']">Stock News</span>
+            <span className="stock-news-heading text-[10px] font-bold text-zinc-400 tracking-[0.2em] uppercase font-body">Stock News</span>
           </div>
         </div>
 
@@ -1838,17 +1780,17 @@ const FisoDetailPanel = ({
                 </div>
                 <div className="mt-2 flex flex-wrap items-center gap-2">
                   {source && (
-                    <span className="text-[9px] text-cyan-400/80 font-['JetBrains_Mono'] uppercase tracking-widest">
+                    <span className="text-[9px] text-cyan-400/80 font-numeric uppercase tracking-widest">
                       {source}
                     </span>
                   )}
                   {url && (
-                    <span className="rounded-full border border-cyan-400/20 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-cyan-300 font-['JetBrains_Mono']">
+                    <span className="rounded-full border border-cyan-400/20 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-cyan-300 font-numeric">
                       Open news
                     </span>
                   )}
                 </div>
-                <p className="mt-3 text-[11px] leading-5 text-zinc-400 font-['JetBrains_Mono']">{buildMarketNewsRead(title)}</p>
+                <p className="mt-3 text-[11px] leading-5 text-zinc-400 font-numeric">{buildMarketNewsRead(title)}</p>
               </li>
             );
           })}
@@ -1856,7 +1798,7 @@ const FisoDetailPanel = ({
 
         <div className="mt-4 pt-3 border-t border-white/5 flex items-center gap-2">
           <span className="w-1.5 h-1.5 rounded-full bg-zinc-600 inline-block"></span>
-          <span className="text-[9px] text-zinc-600 font-['JetBrains_Mono'] uppercase tracking-widest">
+          <span className="text-[9px] text-zinc-600 font-numeric uppercase tracking-widest">
             News sentiment derived via NLP - refreshed on each analysis
           </span>
         </div>
@@ -1889,8 +1831,8 @@ const FundamentalsTable = ({
     <div className="bg-black/40 backdrop-blur-2xl border border-white/10 rounded-3xl p-4 sm:p-6 shadow-[0_8px_30px_rgba(0,0,0,0.5)]">
       <div className="flex items-center justify-between gap-3 mb-4 border-b border-white/10 pb-3">
         <div className="min-w-0">
-          <h3 className="text-base sm:text-xl font-black text-white font-['Space_Grotesk']">{title}</h3>
-          <p className="text-[10px] sm:text-xs text-zinc-500 mt-1 font-['JetBrains_Mono']">{subtitle}</p>
+          <h3 className="text-base sm:text-xl font-black text-white font-body">{title}</h3>
+          <p className="text-[10px] sm:text-xs text-zinc-500 mt-1 font-numeric">{subtitle}</p>
         </div>
         {/* Zoom controls */}
         <div className="flex items-center gap-1.5 shrink-0">
@@ -1900,7 +1842,7 @@ const FundamentalsTable = ({
             className="w-7 h-7 rounded-lg border border-white/15 bg-white/5 text-zinc-400 hover:text-white hover:bg-white/15 flex items-center justify-center text-base font-bold transition-all select-none"
             title="Zoom out table"
           >−</button>
-          <span className="text-[9px] text-zinc-500 font-['JetBrains_Mono'] w-8 text-center tabular-nums">
+          <span className="text-[9px] text-zinc-500 font-numeric w-8 text-center tabular-nums">
             {Math.round(tableScale * 100)}%
           </span>
           <button
@@ -1913,7 +1855,7 @@ const FundamentalsTable = ({
       </div>
 
       {rows.length === 0 || columns.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-white/10 bg-white/5 px-4 py-6 text-xs text-zinc-500 font-['JetBrains_Mono']">
+        <div className="rounded-2xl border border-dashed border-white/10 bg-white/5 px-4 py-6 text-xs text-zinc-500 font-numeric">
           This free data source does not expose this statement for the selected stock yet.
         </div>
       ) : (
@@ -1925,13 +1867,13 @@ const FundamentalsTable = ({
             <thead className="bg-white/5">
               <tr>
                 <th
-                  className="text-zinc-500 uppercase tracking-widest font-black font-['Space_Grotesk'] whitespace-nowrap"
+                  className="text-zinc-500 uppercase tracking-widest font-black font-body whitespace-nowrap"
                   style={{ padding: cellPad }}
                 >Line Item</th>
                 {columns.map((column: string) => (
                   <th
                     key={column}
-                    className="text-zinc-500 uppercase tracking-widest font-black font-['Space_Grotesk'] whitespace-nowrap"
+                    className="text-zinc-500 uppercase tracking-widest font-black font-body whitespace-nowrap"
                     style={{ padding: cellPad }}
                   >
                     {column}
@@ -1949,7 +1891,7 @@ const FundamentalsTable = ({
                   {row.values.map((value: any, index: number) => (
                     <td
                       key={`${row.label}-${index}`}
-                      className="text-white font-['JetBrains_Mono'] whitespace-nowrap"
+                      className="text-white font-numeric whitespace-nowrap"
                       style={{ padding: cellPad }}
                     >
                       {value === null || value === undefined
@@ -2003,17 +1945,17 @@ const FundamentalsSnapshotCard = ({
     <aside className="order-1 rounded-3xl border border-slate-200 bg-white p-4 shadow-[0_22px_70px_rgba(15,23,42,0.12)] sm:p-5 xl:order-2">
       <div className="mb-4 flex items-start justify-between gap-3 border-b border-slate-200 pb-3">
         <div className="min-w-0">
-          <div className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 font-['Space_Grotesk']">Key Fundamentals</div>
-          <h2 className="mt-1 truncate text-lg font-black text-slate-950 font-['Space_Grotesk']">{stock?.name || stock?.symbol || 'Stock'}</h2>
+          <div className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 font-body">Key Fundamentals</div>
+          <h2 className="mt-1 truncate text-lg font-black text-slate-950 font-body">{stock?.name || stock?.symbol || 'Stock'}</h2>
         </div>
         {quote?.change_percent !== undefined && (
-          <span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-black font-['JetBrains_Mono'] ${quote.change_percent >= 0 ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'}`}>
+          <span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-black font-numeric ${quote.change_percent >= 0 ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'}`}>
             {quote.change_percent >= 0 ? '+' : ''}{quote.change_percent.toFixed(2)}%
           </span>
         )}
       </div>
       {isLoading && !fundamentals ? (
-        <div className="flex min-h-[240px] items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 text-center text-xs font-bold uppercase tracking-widest text-slate-400 font-['JetBrains_Mono']">
+        <div className="flex min-h-[240px] items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 text-center text-xs font-bold uppercase tracking-widest text-slate-400 font-numeric">
           Loading fundamentals
         </div>
       ) : (
@@ -2021,7 +1963,7 @@ const FundamentalsSnapshotCard = ({
           {items.map(item => (
             <div key={item.label} className="min-w-0 rounded-2xl bg-slate-50 px-3 py-3">
               <div className="text-[10px] font-semibold text-slate-500">{item.label}</div>
-              <div className="mt-1 truncate text-sm font-black text-slate-950 font-['JetBrains_Mono']" title={item.value}>{item.value}</div>
+              <div className="mt-1 truncate text-sm font-black text-slate-950 font-numeric" title={item.value}>{item.value}</div>
             </div>
           ))}
         </div>
@@ -2065,7 +2007,7 @@ const IndiaDetailedAnalysisPanel = ({
       <div className="flex items-center justify-center py-16">
         <div className="flex flex-col items-center gap-4">
           <div className="w-10 h-10 border-2 border-zinc-700 border-t-cyan-400 rounded-full animate-spin"></div>
-          <span className="text-xs text-zinc-500 font-['JetBrains_Mono'] uppercase tracking-widest animate-pulse">
+          <span className="text-xs text-zinc-500 font-numeric uppercase tracking-widest animate-pulse">
             Loading free fundamentals for {ticker}...
           </span>
         </div>
@@ -2079,20 +2021,20 @@ const IndiaDetailedAnalysisPanel = ({
         <div className="xl:col-span-8 bg-black/40 backdrop-blur-2xl border border-white/10 rounded-3xl p-4 sm:p-6 shadow-[0_8px_30px_rgba(0,0,0,0.5)]">
           <div className="flex items-center justify-between gap-3 mb-4 border-b border-white/10 pb-3">
             <div>
-              <h3 className="text-lg sm:text-xl font-black text-white font-['Space_Grotesk']">{resolveMarket(stock.exchange) === 'US' ? 'US Stock Analytics' : 'Indian Stock Analytics'}</h3>
-              <p className="text-[10px] sm:text-xs text-zinc-500 mt-1 font-['JetBrains_Mono']">
+              <h3 className="text-lg sm:text-xl font-black text-white font-body">{resolveMarket(stock.exchange) === 'US' ? 'US Stock Analytics' : 'Indian Stock Analytics'}</h3>
+              <p className="text-[10px] sm:text-xs text-zinc-500 mt-1 font-numeric">
                 Free fundamentals pipeline for {stock.symbol} using cached market data.
               </p>
             </div>
-            <span className="text-[10px] bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 px-3 py-1.5 rounded-full font-bold uppercase tracking-widest font-['JetBrains_Mono']">
+            <span className="text-[10px] bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 px-3 py-1.5 rounded-full font-bold uppercase tracking-widest font-numeric">
               {resolveMarket(stock.exchange)}
             </span>
           </div>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3">
             {highlights.map((item) => (
               <div key={item.label} className="metric-card-hover highlight-card rounded-xl sm:rounded-2xl border border-white/10 bg-white/5 p-2.5 sm:p-4 hover:border-cyan-500/25 cursor-default">
-                <div className="text-[9px] sm:text-[10px] text-zinc-500 uppercase tracking-widest font-black font-['Space_Grotesk'] leading-tight">{item.label}</div>
-                <div className="mt-1.5 sm:mt-2 text-sm sm:text-lg font-bold text-white font-['JetBrains_Mono'] break-words leading-snug">{item.value}</div>
+                <div className="text-[9px] sm:text-[10px] text-zinc-500 uppercase tracking-widest font-black font-body leading-tight">{item.label}</div>
+                <div className="mt-1.5 sm:mt-2 text-sm sm:text-lg font-bold text-white font-numeric break-words leading-snug">{item.value}</div>
               </div>
             ))}
           </div>
@@ -2101,8 +2043,8 @@ const IndiaDetailedAnalysisPanel = ({
         <div className="xl:col-span-4 bg-black/40 backdrop-blur-2xl border border-white/10 rounded-3xl p-4 sm:p-6 shadow-[0_8px_30px_rgba(0,0,0,0.5)]">
           <div className="flex items-center justify-between gap-3 mb-4 border-b border-white/10 pb-3">
             <div>
-              <h3 className="text-lg sm:text-xl font-black text-white font-['Space_Grotesk']">About</h3>
-              <p className="text-[10px] sm:text-xs text-zinc-500 mt-1 font-['JetBrains_Mono']">
+              <h3 className="text-lg sm:text-xl font-black text-white font-body">About</h3>
+              <p className="text-[10px] sm:text-xs text-zinc-500 mt-1 font-numeric">
                 Company profile and business context
               </p>
             </div>
@@ -2136,8 +2078,8 @@ const IndiaDetailedAnalysisPanel = ({
                 ['Employees', company.employees ? formatIndianNumber(company.employees, 0) : null],
               ].map(([label, value]) => (
                 <div key={label} className="metric-card-hover rounded-2xl border border-white/10 bg-white/5 p-3 hover:border-cyan-500/25">
-                  <div className="text-[10px] text-zinc-500 uppercase tracking-widest font-black font-['Space_Grotesk']">{label}</div>
-                  <div className="mt-2 text-sm text-white font-['JetBrains_Mono'] break-words">{value || '-'}</div>
+                  <div className="text-[10px] text-zinc-500 uppercase tracking-widest font-black font-body">{label}</div>
+                  <div className="mt-2 text-sm text-white font-numeric break-words">{value || '-'}</div>
                 </div>
               ))}
             </div>
@@ -2176,8 +2118,8 @@ const IndiaDetailedAnalysisPanel = ({
       <div className="bg-black/40 backdrop-blur-2xl border border-white/10 rounded-3xl p-4 sm:p-6 shadow-[0_8px_30px_rgba(0,0,0,0.5)]">
         <div className="flex items-center justify-between gap-3 mb-4 border-b border-white/10 pb-3">
           <div>
-            <h3 className="text-lg sm:text-xl font-black text-white font-['Space_Grotesk']">Key Ratios</h3>
-            <p className="text-[10px] sm:text-xs text-zinc-500 mt-1 font-['JetBrains_Mono']">
+            <h3 className="text-lg sm:text-xl font-black text-white font-body">Key Ratios</h3>
+            <p className="text-[10px] sm:text-xs text-zinc-500 mt-1 font-numeric">
               Highlights available from the free source for this stock.
             </p>
           </div>
@@ -2185,11 +2127,11 @@ const IndiaDetailedAnalysisPanel = ({
         <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 gap-3">
           {ratios.length > 0 ? ratios.map((ratio: any) => (
             <div key={ratio.label} className="metric-card-hover highlight-card rounded-2xl border border-white/10 bg-white/5 p-4 hover:border-cyan-500/25">
-              <div className="text-[10px] text-zinc-500 uppercase tracking-widest font-black font-['Space_Grotesk']">{ratio.label}</div>
-              <div className="mt-2 text-lg font-bold text-white font-['JetBrains_Mono']">{formatRatioValue(ratio.value, ratio.kind)}</div>
+              <div className="text-[10px] text-zinc-500 uppercase tracking-widest font-black font-body">{ratio.label}</div>
+              <div className="mt-2 text-lg font-bold text-white font-numeric">{formatRatioValue(ratio.value, ratio.kind)}</div>
             </div>
           )) : (
-            <div className="col-span-full rounded-2xl border border-dashed border-white/10 bg-white/5 px-4 py-6 text-xs text-zinc-500 font-['JetBrains_Mono']">
+            <div className="col-span-full rounded-2xl border border-dashed border-white/10 bg-white/5 px-4 py-6 text-xs text-zinc-500 font-numeric">
               Ratio fields are not available yet for this symbol.
             </div>
           )}
@@ -2312,7 +2254,7 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
             'there';
           setWelcomeName(name);
           setShowWelcome(true);
-          setTimeout(() => setShowWelcome(false), 4200);
+          setTimeout(() => setShowWelcome(false), 2800);
           setShowAuthModal(false);
           setShowProfileMenu(false);
           setAuthEmail('');
@@ -3384,7 +3326,6 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
   return (
     <>
       <style dangerouslySetInnerHTML={{__html: `
-        @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;600;700&family=JetBrains+Mono:wght@400;700;800&family=Inter:wght@400;500;600&display=swap');
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
         @keyframes marquee { 0% { transform: translateX(0%); } 100% { transform: translateX(-100%); } }
@@ -3501,116 +3442,27 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
         }
         /* Hover glow on strategy rows */
         .strategy-row:hover { background: rgba(6,182,212,0.04) !important; }
-        /* Apple-style welcome animation */
-        @keyframes welcomeFadeIn {
-          0%   { opacity: 0; transform: scale(1.06); }
-          18%  { opacity: 1; transform: scale(1); }
-          72%  { opacity: 1; transform: scale(1); }
-          100% { opacity: 0; transform: scale(0.96); }
-        }
-        @keyframes welcomeWordIn {
-          0%   { opacity: 0; transform: translateY(24px); filter: blur(8px); }
-          100% { opacity: 1; transform: translateY(0);    filter: blur(0);   }
-        }
-        @keyframes welcomeWordOut {
-          0%   { opacity: 1; transform: translateY(0);     filter: blur(0);   }
-          100% { opacity: 0; transform: translateY(-20px); filter: blur(6px); }
-        }
-        .welcome-overlay {
-          animation: welcomeFadeIn 4.2s cubic-bezier(0.22,0.61,0.36,1) forwards;
-        }
-        .welcome-word {
-          display: inline-block;
-          animation: welcomeWordIn 0.7s cubic-bezier(0.22,0.61,0.36,1) forwards;
-          opacity: 0;
-        }
-        .welcome-blur {
-          margin: 0;
-          justify-content: center;
-          font-family: var(--font-instrument), Georgia, serif;
-          font-weight: 400;
-          letter-spacing: -0.015em;
-          line-height: 1.02;
-          font-size: clamp(36px, 7vw, 72px);
-        }
-        .welcome-blur span {
-          background: linear-gradient(135deg, #ffc2e0 0%, #ff4fa3 48%, #34d399 100%);
-          -webkit-background-clip: text;
-          background-clip: text;
-          -webkit-text-fill-color: transparent;
-          color: transparent;
-        }
       `}} />
 
-      {/* APPLE-STYLE WELCOME OVERLAY — rendered outside the page shell so it owns its own colours */}
+      {/* WELCOME — a short greeting after sign-in, then it fades away. */}
       {showWelcome && (
-        <div
-          className="welcome-overlay fixed inset-0 z-[9999] pointer-events-none flex items-center justify-center"
-          style={{
-            /* Blur the site behind + dark vignette at corners, visible in middle */
-            backdropFilter: 'blur(12px)',
-            WebkitBackdropFilter: 'blur(12px)',
-            background: 'radial-gradient(ellipse 75% 65% at 50% 50%, rgba(0,0,0,0.18) 0%, rgba(0,0,0,0.60) 55%, rgba(0,0,0,0.90) 100%)',
-          }}
-        >
-          {/* Frosted dark card that holds the text — readable on any background */}
-          <div style={{
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            gap: '14px',
-            userSelect: 'none',
-            padding: 'clamp(36px,5vw,60px) clamp(44px,8vw,88px)',
-            background: 'linear-gradient(145deg, rgba(20,22,19,0.94) 0%, rgba(8,10,9,0.97) 55%, rgba(16,18,15,0.94) 100%)',
-            borderRadius: '28px',
-            border: '1px solid rgba(255,79,163,0.28)',
-            boxShadow: '0 40px 110px rgba(0,0,0,0.65), inset 0 1px 0 rgba(255,79,163,0.14)',
-            textAlign: 'center',
-            maxWidth: '92vw',
-          }}>
-            <span
-              className="welcome-word"
-              style={{
-                animationDelay: '0.12s',
-                fontSize: '11px',
-                letterSpacing: '0.3em',
-                textTransform: 'uppercase',
-                fontWeight: 500,
-                color: '#ff4fa3',
-                fontFamily: 'var(--font-inter), Inter, sans-serif',
-              }}
-            >
-              Bullseye
-            </span>
-
-            <BlurText
-              text={`Welcome, ${welcomeName}`}
-              animateBy="words"
-              direction="top"
-              delay={140}
-              stepDuration={0.4}
-              className="welcome-blur"
-            />
-
-            <span
-              className="welcome-word"
-              style={{
-                animationDelay: '1.0s',
-                fontSize: '14px',
-                color: '#c6c6cd',
-                fontWeight: 400,
-                letterSpacing: '0.02em',
-                marginTop: '2px',
-                fontFamily: 'var(--font-inter), Inter, sans-serif',
-              }}
-            >
-              Your market intelligence is ready.
-            </span>
+        <div className="nova-welcome pointer-events-none fixed inset-0 z-[9999] flex items-center justify-center p-6" role="status" aria-live="polite">
+          <div className="nova-welcome-card nova-modal rounded-[28px] px-10 py-9 text-center font-body">
+            <div className="flex items-center justify-center gap-2.5">
+              <span aria-hidden className="nova-dot" />
+              <span className="font-display text-[20px] leading-none text-paper">
+                Bulls<span className="text-accent">eye</span>
+              </span>
+            </div>
+            <p className="mt-5 font-display text-[clamp(40px,6vw,60px)] leading-[1] text-paper">
+              Welcome, <em className="nova-gradient-text italic">{welcomeName}.</em>
+            </p>
+            <p className="mt-3 text-[15px] text-[#c9c3e6]">You&apos;re signed in. Your alerts and saved scans are ready.</p>
           </div>
         </div>
       )}
 
-      <div className="min-h-screen overflow-x-clip bg-[#04070f] text-slate-100 selection:bg-cyan-500/20 selection:text-cyan-100 flex flex-col font-['Inter']">
+      <div className="min-h-screen overflow-x-clip bg-[#04070f] text-slate-100 selection:bg-cyan-500/20 selection:text-cyan-100 flex flex-col font-body">
 
         {/* IMMERSIVE BACKGROUND — View 2 keeps the Market Globe; View 1's
             background is owned by the Nova scroll scene (its own fixed layer). */}
@@ -3663,10 +3515,10 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
               <div className="absolute z-50 mt-2 max-h-[72vh] w-full min-w-[min(82vw,320px)] overflow-y-auto overflow-x-hidden rounded-2xl border border-white/10 bg-black/95 shadow-[0_20px_50px_rgba(0,0,0,0.8)] backdrop-blur-3xl sm:min-w-full">
                 {suggestions.map((stock) => (
                   <div key={stock.ticker} onMouseDown={() => selectStock(stock)} className="grid cursor-pointer grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-white/5 px-3 py-3 transition-all last:border-0 hover:bg-white/5 sm:px-5 sm:py-3.5 group">
-                    <span className="min-w-0 truncate font-['Space_Grotesk'] text-xs font-bold uppercase tracking-wide text-zinc-300 group-hover:text-white sm:text-sm sm:tracking-wider" title={stock.name}>{stock.name}</span>
+                    <span className="min-w-0 truncate font-body text-xs font-bold uppercase tracking-wide text-zinc-300 group-hover:text-white sm:text-sm sm:tracking-wider" title={stock.name}>{stock.name}</span>
                     <div className="flex min-w-0 max-w-[92px] shrink-0 items-center justify-end gap-1.5 sm:max-w-[140px] sm:gap-2">
-                      <span className="rounded bg-white/5 px-1.5 py-0.5 font-['JetBrains_Mono'] text-[8px] uppercase text-zinc-500 sm:px-2 sm:text-[9px]">{stock.exchange}</span>
-                      <span className="min-w-0 truncate font-['JetBrains_Mono'] text-[10px] text-cyan-500/70 group-hover:text-cyan-400 sm:text-xs" title={stock.symbol}>{stock.symbol}</span>
+                      <span className="rounded bg-white/5 px-1.5 py-0.5 font-numeric text-[8px] uppercase text-zinc-500 sm:px-2 sm:text-[9px]">{stock.exchange}</span>
+                      <span className="min-w-0 truncate font-numeric text-[10px] text-cyan-500/70 group-hover:text-cyan-400 sm:text-xs" title={stock.symbol}>{stock.symbol}</span>
                     </div>
                   </div>
                 ))}
@@ -3731,13 +3583,13 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
                         )}
                       </div>
                       <div className="min-w-0">
-                        <div className="font-black text-sm truncate font-['Space_Grotesk']">{user.user_metadata?.full_name || 'Signed in user'}</div>
-                        <div className="text-xs text-slate-500 truncate font-['JetBrains_Mono']">{user.email}</div>
+                        <div className="font-black text-sm truncate font-body">{user.user_metadata?.full_name || 'Signed in user'}</div>
+                        <div className="text-xs text-slate-500 truncate font-numeric">{user.email}</div>
                       </div>
                     </div>
                     <div className="mb-4">
-                      <div className="text-[10px] uppercase tracking-widest text-cyan-700 font-black font-['Space_Grotesk']">Dashboard</div>
-                      <div className="text-xs text-slate-500 mt-1 font-['JetBrains_Mono']">Your signed-in Bullseye workspace</div>
+                      <div className="text-[10px] uppercase tracking-widest text-cyan-700 font-black font-body">Dashboard</div>
+                      <div className="text-xs text-slate-500 mt-1 font-numeric">Your signed-in Bullseye workspace</div>
                     </div>
                     <div className="grid grid-cols-2 gap-3 mb-4">
                       <div className="rounded-xl bg-slate-50 border border-slate-200 p-3">
@@ -3763,14 +3615,14 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
                         setShowProfileMenu(false);
                         setShowNotificationSettings(true);
                       }}
-                      className="mb-3 w-full rounded-xl border border-cyan-200 bg-cyan-50 py-3 text-xs font-black uppercase tracking-widest text-cyan-700 transition-colors hover:border-cyan-300 hover:bg-cyan-100 font-['Space_Grotesk']"
+                      className="mb-3 w-full rounded-xl border border-cyan-200 bg-cyan-50 py-3 text-xs font-black uppercase tracking-widest text-cyan-700 transition-colors hover:border-cyan-300 hover:bg-cyan-100 font-body"
                     >
                       Logged-in Alerts
                     </button>
                     <button
                       type="button"
                       onClick={handleSignOut}
-                      className="force-light-text w-full rounded-xl bg-slate-900 py-3 text-xs font-black uppercase tracking-widest font-['Space_Grotesk'] hover:bg-slate-700 transition-colors"
+                      className="force-light-text w-full rounded-xl bg-slate-900 py-3 text-xs font-black uppercase tracking-widest font-body hover:bg-slate-700 transition-colors"
                     >
                       Sign Out
                     </button>
@@ -3779,20 +3631,20 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
                   <div className="flex flex-col items-center justify-center gap-3 py-6">
                     <div className="w-6 h-6 border-2 border-slate-200 border-t-cyan-500 rounded-full animate-spin" />
                     <div className="text-center">
-                      <div className="text-[10px] uppercase tracking-widest text-cyan-700 font-black font-['Space_Grotesk']">Loading Account</div>
-                      <div className="text-xs text-slate-500 mt-1 font-['JetBrains_Mono']">Checking your sign-in session...</div>
+                      <div className="text-[10px] uppercase tracking-widest text-cyan-700 font-black font-body">Loading Account</div>
+                      <div className="text-xs text-slate-500 mt-1 font-numeric">Checking your sign-in session...</div>
                     </div>
                   </div>
                 ) : (
                   <>
                     <div className="mb-4">
-                      <div className="text-[10px] uppercase tracking-widest text-cyan-700 font-black font-['Space_Grotesk']">Account</div>
-                      <div className="text-xs text-slate-500 mt-1 font-['JetBrains_Mono']">Sign in to open your Bullseye dashboard.</div>
+                      <div className="text-[10px] uppercase tracking-widest text-cyan-700 font-black font-body">Account</div>
+                      <div className="text-xs text-slate-500 mt-1 font-numeric">Sign in to open your Bullseye dashboard.</div>
                     </div>
                     <button
                       type="button"
                       onClick={() => { setShowProfileMenu(false); setShowAuthModal(true); }}
-                      className="force-light-text w-full rounded-xl bg-slate-900 py-3 text-xs font-black uppercase tracking-widest font-['Space_Grotesk'] hover:bg-slate-700 transition-colors"
+                      className="force-light-text w-full rounded-xl bg-slate-900 py-3 text-xs font-black uppercase tracking-widest font-body hover:bg-slate-700 transition-colors"
                     >
                       Sign In
                     </button>
@@ -3866,21 +3718,6 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
                 </Scroll3D>
               </SectionShell>
 
-              <SectionShell
-                eyebrow="Market context"
-                title="What moved the market today"
-                description="Macro and earnings flow worth reading before you act on any single signal."
-                compact
-              >
-                <Scroll3D intensity={0.9}>
-                  <GlobalNewsPanel />
-                </Scroll3D>
-              </SectionShell>
-
-              <Scroll3D intensity={0.9}>
-                <AboutSection />
-              </Scroll3D>
-
               <SiteFooter />
             </div>
           )}
@@ -3908,7 +3745,7 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
                       <button
                         type="button"
                         onClick={openOverview}
-                        className={`px-4 py-2 rounded-full border text-[10px] font-black uppercase tracking-[0.2em] font-['Space_Grotesk'] transition-all ${
+                        className={`px-4 py-2 rounded-full border text-[10px] font-black uppercase tracking-[0.2em] font-body transition-all ${
                           dashboardView === 'overview'
                             ? 'stock-view-toggle-active'
                             : 'stock-view-toggle-idle'
@@ -3919,7 +3756,7 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
                       <button
                         type="button"
                         onClick={openDetailedAnalysis}
-                        className={`px-4 py-2 rounded-full border text-[10px] font-black uppercase tracking-[0.2em] font-['Space_Grotesk'] transition-all ${
+                        className={`px-4 py-2 rounded-full border text-[10px] font-black uppercase tracking-[0.2em] font-body transition-all ${
                           dashboardView === 'details'
                             ? 'stock-view-toggle-active'
                             : 'stock-view-toggle-idle'
@@ -3932,8 +3769,8 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
                 {quote?.price && (
                   <div className="text-left sm:text-right">
                     <div className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest mb-1">Live Price</div>
-                    <span className="text-3xl sm:text-4xl font-['JetBrains_Mono'] font-bold text-white tracking-tight">{currency}{quote.price.toLocaleString()}</span>
-                    <div className={`text-sm font-['JetBrains_Mono'] font-bold mt-1 tracking-wider ${quote.change_percent > 0 ? 'text-green-400' : 'text-red-500'}`}>
+                    <span className="text-3xl sm:text-4xl font-numeric font-bold text-white tracking-tight">{currency}{quote.price.toLocaleString()}</span>
+                    <div className={`text-sm font-numeric font-bold mt-1 tracking-wider ${quote.change_percent > 0 ? 'text-green-400' : 'text-red-500'}`}>
                       {quote.change_percent > 0 ? '▲' : '▼'} {Math.abs(quote.change_percent).toFixed(2)}%
                     </div>
                   </div>
@@ -4075,7 +3912,7 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
                 }}
               >
                 <div className="flex items-center justify-between gap-3 mb-4 border-b border-slate-200 pb-3 flex-wrap">
-                  <span className="font-bold text-xs text-slate-500 uppercase tracking-[0.2em] font-['Space_Grotesk'] flex items-center gap-2 shrink-0">
+                  <span className="font-bold text-xs text-slate-500 uppercase tracking-[0.2em] font-body flex items-center gap-2 shrink-0">
                     <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse inline-block" />
                     Chart Geometry
                   </span>
@@ -4092,7 +3929,7 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
                           key={range}
                           type="button"
                           onClick={() => setChartRange(range)}
-                          className={`h-8 min-w-10 rounded-full px-3 text-[10px] font-black font-['JetBrains_Mono'] transition-all duration-200 ${
+                          className={`h-8 min-w-10 rounded-full px-3 text-[10px] font-black font-numeric transition-all duration-200 ${
                             chartRange === range
                               ? range === 'max'
                                 ? 'bg-cyan-600 shadow-md chart-range-btn-active ring-1 ring-cyan-500/50'
@@ -4108,7 +3945,7 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
                       <button
                         type="button"
                         onClick={() => setShowIndicatorMenu(value => !value)}
-                        className="h-10 rounded-full border border-slate-200 bg-white px-4 text-[10px] font-black uppercase tracking-widest text-slate-800 shadow-sm transition-all hover:border-cyan-300 hover:bg-cyan-50 font-['Space_Grotesk']"
+                        className="h-10 rounded-full border border-slate-200 bg-white px-4 text-[10px] font-black uppercase tracking-widest text-slate-800 shadow-sm transition-all hover:border-cyan-300 hover:bg-cyan-50 font-body"
                       >
                         Indicators
                       </button>
@@ -4117,7 +3954,7 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
                         <div className="fixed inset-0 z-40" onClick={() => setShowIndicatorMenu(false)} />
                         <div className="fixed left-1/2 top-20 z-50 w-[min(92vw,420px)] -translate-x-1/2 overflow-hidden rounded-2xl border border-slate-200 bg-white text-slate-950 shadow-[0_28px_80px_rgba(15,23,42,0.28)] sm:absolute sm:left-auto sm:right-0 sm:top-12 sm:translate-x-0">
                           <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
-                            <div className="text-lg font-black font-['Space_Grotesk']">Indicators</div>
+                            <div className="text-lg font-black font-body">Indicators</div>
                             <button
                               type="button"
                               onClick={() => setShowIndicatorMenu(false)}
@@ -4132,7 +3969,7 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
                               value={indicatorQuery}
                               onChange={event => setIndicatorQuery(event.target.value)}
                               placeholder="Search"
-                              className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm font-bold text-slate-800 outline-none transition-all placeholder:text-slate-400 focus:border-cyan-300 focus:bg-white font-['Space_Grotesk']"
+                              className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm font-bold text-slate-800 outline-none transition-all placeholder:text-slate-400 focus:border-cyan-300 focus:bg-white font-body"
                             />
                           </div>
                           <div className="max-h-[min(55vh,420px)] overflow-y-auto py-2">
@@ -4143,7 +3980,7 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
                                   key={name}
                                   type="button"
                                   onClick={() => toggleIndicator(name)}
-                                  className={`flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm font-bold transition-colors font-['Space_Grotesk'] ${
+                                  className={`flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm font-bold transition-colors font-body ${
                                     selected ? 'bg-slate-100 text-slate-950' : 'text-slate-700 hover:bg-slate-50'
                                   }`}
                                 >
@@ -4162,17 +3999,17 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
                       )}
                     </div>
                     {analysis && !analysis.error && (
-                      <span className={`hidden text-xs font-black uppercase tracking-widest font-['Space_Grotesk'] shrink-0 sm:inline ${accentColor}`}>{dashboardAnalysisView?.displayVerdict}</span>
+                      <span className={`hidden text-xs font-black uppercase tracking-widest font-body shrink-0 sm:inline ${accentColor}`}>{dashboardAnalysisView?.displayVerdict}</span>
                     )}
                   </div>
                 </div>
                 {chartError && !chartData ? (
-                  <div className="h-[260px] sm:h-[360px] flex flex-col items-center justify-center rounded-2xl border border-dashed border-red-200 bg-red-50 px-6 text-center font-['JetBrains_Mono'] text-xs text-red-500 sm:text-sm">
+                  <div className="h-[260px] sm:h-[360px] flex flex-col items-center justify-center rounded-2xl border border-dashed border-red-200 bg-red-50 px-6 text-center font-numeric text-xs text-red-500 sm:text-sm">
                     <div className="mb-2 font-black uppercase tracking-widest text-red-500">Chart unavailable</div>
                     <div>{chartError.message || 'The chart service returned an error. Try again in a moment.'}</div>
                   </div>
                 ) : !chartData ? (
-                  <div className="h-[260px] sm:h-[360px] flex flex-col items-center justify-center font-['JetBrains_Mono'] text-zinc-500 gap-4 text-xs sm:text-sm uppercase tracking-widest">
+                  <div className="h-[260px] sm:h-[360px] flex flex-col items-center justify-center font-numeric text-zinc-500 gap-4 text-xs sm:text-sm uppercase tracking-widest">
                     <div className="w-8 h-8 border-2 border-zinc-700 border-t-cyan-400 rounded-full animate-spin"></div>
                     Loading Data Stream...
                   </div>
@@ -4245,7 +4082,7 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
                 <div className="flex items-center justify-center py-16">
                   <div className="flex flex-col items-center gap-4">
                     <div className="w-10 h-10 border-2 border-zinc-700 border-t-cyan-400 rounded-full animate-spin"></div>
-                    <span className="text-xs text-zinc-500 font-['JetBrains_Mono'] uppercase tracking-widest animate-pulse">Running FISO Algorithm...</span>
+                    <span className="text-xs text-zinc-500 font-numeric uppercase tracking-widest animate-pulse">Running FISO Algorithm...</span>
                   </div>
                 </div>
               )}
@@ -4288,10 +4125,10 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
       {/* ── AUTH MODAL ── */}
       {!showNotificationSettings && notificationMessage && (
         <div className="fixed left-1/2 top-5 z-[85] w-[min(92vw,520px)] -translate-x-1/2 rounded-2xl border border-emerald-300/30 bg-slate-950/96 px-5 py-4 text-center shadow-[0_24px_80px_rgba(15,23,42,0.45)] backdrop-blur-xl">
-          <div className="text-[10px] font-black uppercase tracking-[0.18em] text-emerald-300 font-['Space_Grotesk']">
+          <div className="text-[10px] font-black uppercase tracking-[0.18em] text-emerald-300 font-body">
             Logged-in Alerts
           </div>
-          <div className="mt-2 text-sm text-emerald-50 font-['JetBrains_Mono']">
+          <div className="mt-2 text-sm text-emerald-50 font-numeric">
             {notificationMessage}
           </div>
         </div>
@@ -4333,48 +4170,49 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
           onClick={dismissAuthModal}
           role="presentation"
           style={{ isolation: 'isolate', transform: 'translateZ(0)' }}
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm"
+          className="nova-modal-backdrop fixed inset-0 z-50 flex items-center justify-center p-4"
         >
           <div
             onClick={event => event.stopPropagation()}
             role="dialog"
             aria-modal="true"
             aria-label="Sign in to Bullseye"
-            className="bg-zinc-950 border border-white/10 rounded-3xl p-6 w-full max-w-md shadow-[0_0_60px_rgba(6,182,212,0.15)]"
+            data-lenis-prevent
+            className="nova-modal w-full max-w-[420px] rounded-[28px] p-7 font-body sm:p-8"
           >
-
             {/* Header */}
-            <div className="mb-6">
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-cyan-400 to-fuchsia-600 flex items-center justify-center">
-                  <span className="font-black text-black text-sm">B</span>
-                </div>
-                <h2 className="text-lg font-black text-white tracking-widest uppercase font-['Space_Grotesk']">
-                  <span className="text-white">BULLS</span><span className="text-cyan-500">EYE</span>
-                </h2>
-                <button
-                  onClick={dismissAuthModal}
-                  aria-label="Close sign-in and continue without an account"
-                  className="ml-auto -mr-1 -mt-1 flex h-8 w-8 items-center justify-center rounded-lg text-zinc-500 transition-colors hover:bg-white/5 hover:text-zinc-200"
-                >
-                  <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                    <path d="M18 6 6 18M6 6l12 12" />
-                  </svg>
-                </button>
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex items-center gap-2.5">
+                <span aria-hidden className="nova-dot" />
+                <span className="font-display text-[24px] leading-none text-paper">
+                  Bulls<span className="text-accent">eye</span>
+                </span>
               </div>
-              <p className="mt-3 text-xs font-['JetBrains_Mono'] text-zinc-400">
-                Sign in to save alerts, strategies, and daily signal emails. Markets,
-                the screener, and Ask AI work without an account.
-              </p>
+              <button
+                onClick={dismissAuthModal}
+                aria-label="Close sign-in and continue without an account"
+                className="-mr-2 -mt-2 flex h-9 w-9 items-center justify-center rounded-full text-[#b9b4d6] transition-colors hover:bg-white/10 hover:text-white"
+              >
+                <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <path d="M18 6 6 18M6 6l12 12" />
+                </svg>
+              </button>
             </div>
+
+            <h2 className="mt-6 font-display text-[34px] leading-[1.02] text-paper">
+              {authMode === 'signin' ? <>Welcome <em className="nova-gradient-text italic">back.</em></> : <>Create your <em className="nova-gradient-text italic">account.</em></>}
+            </h2>
+            <p className="mt-2 text-[14px] leading-6 text-[#c9c3e6]">
+              Save alerts and get the short list by email. The screener, markets and Ask AI work without an account.
+            </p>
 
             {/* Google Sign In */}
             <button
               onClick={handleGoogleSignIn}
               disabled={authLoading}
-              className="w-full flex items-center justify-center gap-3 bg-white text-black font-bold py-3 rounded-xl mb-4 hover:bg-zinc-100 transition-all disabled:opacity-50 font-['Space_Grotesk']"
+              className="mt-6 flex h-12 w-full items-center justify-center gap-3 rounded-full bg-white text-[14px] font-semibold text-[#111] transition hover:bg-white/90 disabled:opacity-50"
             >
-              <svg className="w-5 h-5" viewBox="0 0 24 24">
+              <svg className="h-5 w-5" viewBox="0 0 24 24" aria-hidden>
                 <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
                 <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
                 <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
@@ -4384,66 +4222,65 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
             </button>
 
             {/* Divider */}
-            <div className="flex items-center gap-3 mb-4">
-              <div className="flex-1 h-px bg-white/10"></div>
-              <span className="text-[10px] text-zinc-600 font-['Space_Grotesk'] uppercase tracking-widest">or</span>
-              <div className="flex-1 h-px bg-white/10"></div>
+            <div className="my-5 flex items-center gap-3">
+              <div className="h-px flex-1 bg-white/10" />
+              <span className="text-[12px] text-[#8f89ad]">or use email</span>
+              <div className="h-px flex-1 bg-white/10" />
             </div>
 
-            {/* Tab switcher */}
-            <div className="flex bg-white/5 rounded-xl p-1 mb-4">
-              {(['signin', 'signup'] as const).map(mode => (
-                <button key={mode} onClick={() => { setAuthMode(mode); setAuthError(''); setAuthSuccess(''); }}
-                  className={`flex-1 py-2 rounded-lg text-xs font-bold uppercase tracking-widest font-['Space_Grotesk'] transition-all ${
-                    authMode === mode ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30' : 'text-zinc-500 hover:text-zinc-300'
-                  }`}>
-                  {mode === 'signin' ? 'Sign In' : 'Sign Up'}
-                </button>
-              ))}
+            <div className="grid gap-3">
+              <input
+                type="email"
+                value={authEmail}
+                onChange={e => setAuthEmail(e.target.value)}
+                placeholder="Email address"
+                autoComplete="email"
+                className="nova-input"
+              />
+              <input
+                type="password"
+                value={authPassword}
+                onChange={e => setAuthPassword(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleEmailAuth()}
+                placeholder="Password"
+                autoComplete={authMode === 'signin' ? 'current-password' : 'new-password'}
+                className="nova-input"
+              />
             </div>
-
-            {/* Email input */}
-            <input
-              type="email"
-              value={authEmail}
-              onChange={e => setAuthEmail(e.target.value)}
-              placeholder="Email address"
-              className="w-full bg-black/60 border border-white/10 rounded-xl px-4 py-3 text-sm font-['JetBrains_Mono'] text-white outline-none focus:border-cyan-400 placeholder-zinc-600 transition-all mb-3"
-            />
-
-            {/* Password input */}
-            <input
-              type="password"
-              value={authPassword}
-              onChange={e => setAuthPassword(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && handleEmailAuth()}
-              placeholder="Password"
-              className="w-full bg-black/60 border border-white/10 rounded-xl px-4 py-3 text-sm font-['JetBrains_Mono'] text-white outline-none focus:border-cyan-400 placeholder-zinc-600 transition-all mb-4"
-            />
 
             {/* Error / success messages */}
-            {authError && <p className="text-red-400 text-xs font-['JetBrains_Mono'] mb-3">{authError}</p>}
-            {authSuccess && <p className="text-green-400 text-xs font-['JetBrains_Mono'] mb-3">{authSuccess}</p>}
+            {authError && <p className="mt-3 text-[13px] text-[#ff7a93]">{authError}</p>}
+            {authSuccess && <p className="mt-3 text-[13px] text-[#6ff0b5]">{authSuccess}</p>}
 
-            {/* Submit button */}
             <button
               onClick={handleEmailAuth}
               disabled={authLoading}
-              className="force-light-text w-full bg-slate-950 border border-slate-800 font-bold uppercase tracking-widest text-sm py-3 rounded-xl hover:bg-slate-800 transition-all disabled:opacity-40 font-['Space_Grotesk']"
+              className="nova-btn nova-btn-primary mt-4 w-full disabled:opacity-50"
             >
-              {authLoading ? 'Please wait...' : authMode === 'signin' ? 'Sign In' : 'Create Account'}
+              {authLoading ? 'Please wait…' : authMode === 'signin' ? 'Sign in' : 'Create account'}
             </button>
+
+            <p className="mt-4 text-center text-[13px] text-[#b9b4d6]">
+              {authMode === 'signin' ? 'New to Bullseye? ' : 'Already have an account? '}
+              <button
+                type="button"
+                onClick={() => { setAuthMode(authMode === 'signin' ? 'signup' : 'signin'); setAuthError(''); setAuthSuccess(''); }}
+                className="font-semibold text-white underline-offset-4 hover:underline"
+              >
+                {authMode === 'signin' ? 'Create an account' : 'Sign in'}
+              </button>
+            </p>
 
             {/* Anonymous escape hatch — sign-in is not required to browse. */}
             <button
               onClick={dismissAuthModal}
-              className="mt-3 w-full rounded-xl border border-white/10 py-3 text-xs font-bold uppercase tracking-widest text-zinc-400 transition-all hover:border-white/20 hover:text-zinc-200 font-['Space_Grotesk']"
+              className="mt-5 w-full rounded-full border border-white/15 py-3 text-[14px] font-medium text-[#e9e5ff] transition hover:border-white/30 hover:bg-white/5"
             >
               Continue without signing in
             </button>
 
-            <p className="text-[9px] text-zinc-600 text-center mt-4 font-['JetBrains_Mono']">
-              By signing in you agree that Bullseye is not a SEBI-registered advisor. Invest at your own risk.
+            <p className="mt-5 text-center text-[11.5px] leading-5 text-[#8f89ad]">
+              Bullseye is research, not advice, and is not a SEBI-registered adviser.
             </p>
           </div>
         </div>,

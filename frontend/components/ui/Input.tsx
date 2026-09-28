@@ -9,7 +9,7 @@ export function Input({ invalid = false, className, ...props }: InputProps) {
   return (
     <input
       className={cn(
-        "h-12 w-full rounded-2xl border bg-black/50 px-4 text-sm text-white outline-none transition placeholder:text-slate-500 font-['JetBrains_Mono'] focus:border-cyan-400",
+        "h-12 w-full rounded-2xl border bg-black/50 px-4 text-sm text-white outline-none transition placeholder:text-slate-500 font-numeric focus:border-cyan-400",
         invalid ? "border-red-400/60" : "border-white/10",
         className,
       )}

@@ -47,7 +47,7 @@ export function Modal({ open, onClose, title, size = "md", children }: ModalProp
           onClick={(event) => event.stopPropagation()}
         >
           {title != null && (
-            <h3 className="mb-4 font-['Space_Grotesk'] text-xl font-bold text-white">{title}</h3>
+            <h3 className="mb-4 font-body text-xl font-bold text-white">{title}</h3>
           )}
           {children}
         </div>

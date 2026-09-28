@@ -223,7 +223,7 @@ function GeneratedSqlPanel({ sql, mode }: { sql: string; mode?: string }) {
   return (
     <div className="mb-4 rounded-2xl border border-slate-800 bg-slate-900 px-4 py-3 shadow-inner">
       <div className="mb-2 flex items-center justify-between gap-2">
-        <span className="font-['Space_Grotesk'] text-[10px] font-black uppercase tracking-widest text-cyan-300">
+        <span className="font-body text-[10px] font-black uppercase tracking-widest text-cyan-300">
           {mode === 'sql' ? 'Your SQL' : 'Generated SQL'}
         </span>
         <button
@@ -234,7 +234,7 @@ function GeneratedSqlPanel({ sql, mode }: { sql: string; mode?: string }) {
           {copied ? 'Copied ✓' : 'Copy'}
         </button>
       </div>
-      <pre className="overflow-x-auto text-xs leading-relaxed text-emerald-200 font-['JetBrains_Mono']"><code>{sql}</code></pre>
+      <pre className="overflow-x-auto text-xs leading-relaxed text-emerald-200 font-numeric"><code>{sql}</code></pre>
     </div>
   );
 }
@@ -341,10 +341,10 @@ function MetricTable({ rows, query, title }: { rows: ScreenMetricRow[]; query: s
         value: row => `${row.stock.name} (${row.stock.symbol})`,
         render: row => (
           <>
-            <Link href={`/?ticker=${encodeURIComponent(row.stock.ticker)}`} className="font-['Space_Grotesk'] text-sm font-bold text-cyan-700 hover:text-cyan-500">
+            <Link href={`/?ticker=${encodeURIComponent(row.stock.ticker)}`} className="font-body text-sm font-bold text-cyan-700 hover:text-cyan-500">
               {row.stock.name}
             </Link>
-            <div className="mt-0.5 text-[10px] font-['JetBrains_Mono'] text-slate-400">{row.stock.symbol} - {row.stock.exchange}</div>
+            <div className="mt-0.5 text-[10px] font-numeric text-slate-400">{row.stock.symbol} - {row.stock.exchange}</div>
             {row.technical?.latestDate && (
               <div className="mt-1 max-w-[300px] text-[10px] leading-relaxed text-slate-500">{row.reason}</div>
             )}
@@ -374,7 +374,7 @@ function MetricTable({ rows, query, title }: { rows: ScreenMetricRow[]; query: s
           <>
             <span className="rounded-full bg-cyan-100 px-2.5 py-1 text-[10px] font-black text-cyan-700">{row.score}</span>
             {row.technical && (
-              <div className="mt-2 whitespace-nowrap text-[10px] font-['JetBrains_Mono'] text-slate-500">
+              <div className="mt-2 whitespace-nowrap text-[10px] font-numeric text-slate-500">
                 {row.technical.gainStreakDays ?? 0}d up / {row.technical.volumeRatioVsPreviousWeek?.toFixed(2) ?? '-'}x vol
               </div>
             )}
@@ -429,7 +429,7 @@ function MetricTable({ rows, query, title }: { rows: ScreenMetricRow[]; query: s
           <thead className="bg-slate-950 text-white">
             <tr>
               {visibleColumns.map(column => (
-                <th key={column.id} className="px-4 py-3 text-[10px] font-black uppercase tracking-widest font-['Space_Grotesk']">
+                <th key={column.id} className="px-4 py-3 text-[10px] font-black uppercase tracking-widest font-body">
                   <span className="inline-flex items-center gap-2">
                     {column.label}
                     {column.removable && (
@@ -452,39 +452,39 @@ function MetricTable({ rows, query, title }: { rows: ScreenMetricRow[]; query: s
             {rows.map((row, index) => (
               <tr key={row.stock.ticker} className="border-t border-slate-100 odd:bg-white even:bg-slate-50/70 hover:bg-cyan-50/70">
                 {visibleColumns.map(column => (
-                  <td key={`${row.stock.ticker}-${column.id}`} className={`px-4 py-3 ${column.id === 'name' || column.id === 'score' ? '' : "text-xs font-['JetBrains_Mono'] text-slate-700"}`}>
+                  <td key={`${row.stock.ticker}-${column.id}`} className={`px-4 py-3 ${column.id === 'name' || column.id === 'score' ? '' : "text-xs font-numeric text-slate-700"}`}>
                     {column.render ? column.render(row, index) : formatCellValue(column.value(row, index))}
                   </td>
                 ))}
                 {false && (
                   <>
-                <td className="px-4 py-3 text-xs font-['JetBrains_Mono'] text-slate-500">{index + 1}.</td>
+                <td className="px-4 py-3 text-xs font-numeric text-slate-500">{index + 1}.</td>
                 <td className="px-4 py-3">
-                  <Link href={`/?ticker=${encodeURIComponent(row.stock.ticker)}`} className="font-['Space_Grotesk'] text-sm font-bold text-cyan-700 hover:text-cyan-500">
+                  <Link href={`/?ticker=${encodeURIComponent(row.stock.ticker)}`} className="font-body text-sm font-bold text-cyan-700 hover:text-cyan-500">
                     {row.stock.name}
                   </Link>
-                  <div className="mt-0.5 text-[10px] font-['JetBrains_Mono'] text-slate-400">{row.stock.symbol} · {row.stock.exchange}</div>
+                  <div className="mt-0.5 text-[10px] font-numeric text-slate-400">{row.stock.symbol} · {row.stock.exchange}</div>
                   {row.technical?.latestDate && (
                     <div className="mt-1 max-w-[300px] text-[10px] leading-relaxed text-slate-500">{row.reason}</div>
                   )}
                 </td>
-                <td className="px-4 py-3 text-xs font-['JetBrains_Mono'] text-slate-700">{formatCellValue(row.cmp)}</td>
-                <td className="px-4 py-3 text-xs font-['JetBrains_Mono'] text-slate-700">{formatCellValue(row.pe)}</td>
-                <td className="px-4 py-3 text-xs font-['JetBrains_Mono'] text-slate-700">{formatCellValue(row.marketCapCr)}</td>
-                <td className="px-4 py-3 text-xs font-['JetBrains_Mono'] text-slate-700">{formatCellValue(row.revenueGrowth3Yr)}</td>
-                <td className="px-4 py-3 text-xs font-['JetBrains_Mono'] text-slate-700">{formatCellValue(row.profitGrowth3Yr)}</td>
-                <td className="px-4 py-3 text-xs font-['JetBrains_Mono'] text-slate-700">{formatCellValue(row.profitGrowth5Yr)}</td>
-                <td className="px-4 py-3 text-xs font-['JetBrains_Mono'] text-slate-700">{formatCellValue(row.roe)}</td>
-                <td className="px-4 py-3 text-xs font-['JetBrains_Mono'] text-slate-700">{formatCellValue(row.avgRoce7Yr)}</td>
-                <td className="px-4 py-3 text-xs font-['JetBrains_Mono'] text-slate-700">{formatCellValue(row.debtToEquity)}</td>
-                <td className="px-4 py-3 text-xs font-['JetBrains_Mono'] text-slate-700">{formatCellValue(row.operatingMargin)}</td>
-                <td className="px-4 py-3 text-xs font-['JetBrains_Mono'] text-slate-700">{formatCellValue(row.piotroskiScore)}</td>
-                <td className="px-4 py-3 text-xs font-['JetBrains_Mono'] text-slate-700">{formatCellValue(row.divYield)}</td>
-                <td className="px-4 py-3 text-xs font-['JetBrains_Mono'] text-slate-700">{formatCellValue(row.avgDividendPayout3Yr)}</td>
+                <td className="px-4 py-3 text-xs font-numeric text-slate-700">{formatCellValue(row.cmp)}</td>
+                <td className="px-4 py-3 text-xs font-numeric text-slate-700">{formatCellValue(row.pe)}</td>
+                <td className="px-4 py-3 text-xs font-numeric text-slate-700">{formatCellValue(row.marketCapCr)}</td>
+                <td className="px-4 py-3 text-xs font-numeric text-slate-700">{formatCellValue(row.revenueGrowth3Yr)}</td>
+                <td className="px-4 py-3 text-xs font-numeric text-slate-700">{formatCellValue(row.profitGrowth3Yr)}</td>
+                <td className="px-4 py-3 text-xs font-numeric text-slate-700">{formatCellValue(row.profitGrowth5Yr)}</td>
+                <td className="px-4 py-3 text-xs font-numeric text-slate-700">{formatCellValue(row.roe)}</td>
+                <td className="px-4 py-3 text-xs font-numeric text-slate-700">{formatCellValue(row.avgRoce7Yr)}</td>
+                <td className="px-4 py-3 text-xs font-numeric text-slate-700">{formatCellValue(row.debtToEquity)}</td>
+                <td className="px-4 py-3 text-xs font-numeric text-slate-700">{formatCellValue(row.operatingMargin)}</td>
+                <td className="px-4 py-3 text-xs font-numeric text-slate-700">{formatCellValue(row.piotroskiScore)}</td>
+                <td className="px-4 py-3 text-xs font-numeric text-slate-700">{formatCellValue(row.divYield)}</td>
+                <td className="px-4 py-3 text-xs font-numeric text-slate-700">{formatCellValue(row.avgDividendPayout3Yr)}</td>
                 <td className="px-4 py-3">
                   <span className="rounded-full bg-cyan-100 px-2.5 py-1 text-[10px] font-black text-cyan-700">{row.score}</span>
                   {row.technical && (
-                    <div className="mt-2 whitespace-nowrap text-[10px] font-['JetBrains_Mono'] text-slate-500">
+                    <div className="mt-2 whitespace-nowrap text-[10px] font-numeric text-slate-500">
                       {row.technical?.gainStreakDays ?? 0}d up / {row.technical?.volumeRatioVsPreviousWeek?.toFixed(2) ?? '-'}x vol
                     </div>
                   )}
@@ -847,7 +847,7 @@ export default function ScreensPage() {
               >
                 <div className="mb-4">
                   <span className="font-body text-[11px] font-medium uppercase tracking-[0.28em] text-accent">AI screener result</span>
-                  <h2 className="mt-2 font-['Space_Grotesk'] text-xl font-black text-slate-950 sm:text-2xl">{result.title}</h2>
+                  <h2 className="mt-2 font-body text-xl font-black text-slate-950 sm:text-2xl">{result.title}</h2>
                   {result.explanation && <p className="mt-1 max-w-3xl text-xs leading-relaxed text-slate-500">{result.explanation}</p>}
                   {result.source && <p className="mt-1 text-[10px] font-bold uppercase tracking-widest text-slate-400">{result.source}</p>}
                 </div>
@@ -863,7 +863,7 @@ export default function ScreensPage() {
 
                 {result.error ? (
                   <div className="rounded-2xl border border-rose-200 bg-rose-50 p-5 text-sm text-rose-700">
-                    <p className="font-['Space_Grotesk'] font-black">Couldn&apos;t run that query</p>
+                    <p className="font-body font-black">Couldn&apos;t run that query</p>
                     <p className="mt-1 leading-relaxed">{result.error}</p>
                     <p className="mt-2 text-xs text-rose-500">Only read-only <code>SELECT</code> queries over <code>stock_snapshot</code> are allowed.</p>
                   </div>

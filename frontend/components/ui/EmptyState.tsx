@@ -19,9 +19,9 @@ export function EmptyState({ title, description, icon, action, className, ...pro
       {...props}
     >
       {icon != null && <div className="text-slate-500">{icon}</div>}
-      <p className="font-['Space_Grotesk'] text-sm font-bold text-slate-200">{title}</p>
+      <p className="font-body text-sm font-bold text-slate-200">{title}</p>
       {description != null && (
-        <p className="max-w-sm text-[12px] leading-relaxed text-slate-400 font-['JetBrains_Mono']">{description}</p>
+        <p className="max-w-sm text-[12px] leading-relaxed text-slate-400 font-numeric">{description}</p>
       )}
       {action != null && <div className="mt-1">{action}</div>}
     </div>

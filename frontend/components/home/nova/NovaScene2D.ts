@@ -102,7 +102,7 @@ export class NovaScene2D {
     if (!this.still) this.time += dt;
     this.intro = Math.min(1, this.intro + dt / 2.4);
     const intro = 1 - Math.pow(1 - this.intro, 3);
-    const k = this.still ? 1 : 1 - Math.pow(1 - 0.085, dt * 60);
+    const k = this.still ? 1 : 1 - Math.pow(1 - 0.06, dt * 60);
     this.morph += (this.morphTarget - this.morph) * k;
     const kp = 1 - Math.pow(1 - 0.05, dt * 60);
     this.pointer.x += (this.pointerTarget.x - this.pointer.x) * kp;

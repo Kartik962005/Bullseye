@@ -21,7 +21,7 @@ export function Badge({ tone = "neutral", pill = false, className, ...props }: B
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1.5 border px-2.5 py-0.5 font-['Space_Grotesk'] text-[10px] font-black uppercase tracking-[0.14em]",
+        "inline-flex items-center gap-1.5 border px-2.5 py-0.5 font-body text-[10px] font-black uppercase tracking-[0.14em]",
         pill ? "rounded-full" : "rounded-md",
         TONE[tone],
         className,

@@ -295,7 +295,7 @@ function renderInline(text: string, keyPrefix: string, onRun?: (prompt: string) 
             type="button"
             onClick={() => onRun(code)}
             title="Tap to run this"
-            className="group/run mx-0.5 inline rounded bg-accent/10 px-1.5 py-0.5 text-left font-mono text-[0.85em] text-accent underline decoration-accent/50 decoration-dotted underline-offset-2 transition hover:bg-accent/15 hover:text-accent hover:decoration-solid"
+            className="group/run mx-0.5 inline rounded bg-accent/10 px-1.5 py-0.5 text-left font-numeric text-[0.85em] text-accent underline decoration-accent/50 decoration-dotted underline-offset-2 transition hover:bg-accent/15 hover:text-accent hover:decoration-solid"
           >
             {code}
             <span className="ml-1 text-accent transition group-hover/run:text-accent" aria-hidden="true">↵</span>
@@ -303,7 +303,7 @@ function renderInline(text: string, keyPrefix: string, onRun?: (prompt: string) 
         );
       } else {
         nodes.push(
-          <code key={`${keyPrefix}-c-${i}`} className="rounded bg-white/[0.05] px-1.5 py-0.5 font-mono text-[0.85em] text-accent">
+          <code key={`${keyPrefix}-c-${i}`} className="rounded bg-white/[0.05] px-1.5 py-0.5 font-numeric text-[0.85em] text-accent">
             {code}
           </code>
         );
@@ -393,8 +393,8 @@ function BacktestCard({ data, ticker }: { data: Backtest; ticker: string | null 
 
       {(data.buy_expr || data.sell_expr) && (
         <div className="mt-2 space-y-1 text-[11px] text-paper-muted">
-          {data.buy_expr && <div><span className="font-bold text-primary">BUY</span> <code className="font-mono">{data.buy_expr}</code></div>}
-          {data.sell_expr && <div><span className="font-bold text-rose-200">SELL</span> <code className="font-mono">{data.sell_expr}</code></div>}
+          {data.buy_expr && <div><span className="font-bold text-primary">BUY</span> <code className="font-numeric">{data.buy_expr}</code></div>}
+          {data.sell_expr && <div><span className="font-bold text-rose-200">SELL</span> <code className="font-numeric">{data.sell_expr}</code></div>}
         </div>
       )}
 
@@ -454,8 +454,8 @@ function ScanCard({ data }: { data: Scan }) {
       <div className="text-xs font-black uppercase tracking-wider text-accent">Cross-stock scan</div>
       {(data.buy_expr || data.sell_expr) && (
         <div className="mt-2 space-y-1 text-[11px] text-paper-muted">
-          {data.buy_expr && <div><span className="font-bold text-primary">BUY</span> <code className="font-mono">{data.buy_expr}</code></div>}
-          {data.sell_expr && <div><span className="font-bold text-rose-200">SELL</span> <code className="font-mono">{data.sell_expr}</code></div>}
+          {data.buy_expr && <div><span className="font-bold text-primary">BUY</span> <code className="font-numeric">{data.buy_expr}</code></div>}
+          {data.sell_expr && <div><span className="font-bold text-rose-200">SELL</span> <code className="font-numeric">{data.sell_expr}</code></div>}
         </div>
       )}
       <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">

@@ -21,7 +21,7 @@ export function SectionHeading({
     <div className={cn("flex flex-wrap items-end justify-between gap-4", className)} {...props}>
       <div className="min-w-0">
         {eyebrow != null && <Eyebrow as="div">{eyebrow}</Eyebrow>}
-        <h2 className="mt-2 font-['Space_Grotesk'] text-2xl font-bold tracking-tight text-white">{title}</h2>
+        <h2 className="mt-2 font-body text-2xl font-bold tracking-tight text-white">{title}</h2>
         {description != null && (
           <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-400">{description}</p>
         )}

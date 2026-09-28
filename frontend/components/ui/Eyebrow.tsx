@@ -12,7 +12,7 @@ export function Eyebrow({ tone = "accent", as = "span", className, ...props }: E
   return (
     <Tag
       className={cn(
-        "font-['Space_Grotesk'] text-[10px] font-black uppercase tracking-[0.18em]",
+        "font-body text-[10px] font-black uppercase tracking-[0.18em]",
         tone === "accent" ? "text-cyan-300" : "text-slate-400",
         className,
       )}

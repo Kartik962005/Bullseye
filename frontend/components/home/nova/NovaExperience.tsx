@@ -159,11 +159,19 @@ export function NovaExperience({ signedIn, onOpenDailySignals, stockStrip }: Nov
     import("lenis").then(({ default: Lenis }) => {
       if (destroyed) return;
       const lenis = new Lenis({
-        lerp: 0.12,
+        // Gentle glide: lower lerp = scroll catches up more slowly, and a
+        // slightly smaller wheel step keeps each notch from covering too much.
+        lerp: 0.075,
+        wheelMultiplier: 0.8,
         smoothWheel: true,
         autoRaf: true,
-        allowNestedScroll: true,
-        prevent: (node: HTMLElement) => !!node.closest?.("[data-lenis-prevent]"),
+        // Hand the wheel back to the browser inside dialogs, dropdowns and any
+        // other scroll box. Lenis' own nested-scroll detection could swallow
+        // wheel events over some sections, leaving only the scrollbar working.
+        prevent: (node: HTMLElement) =>
+          !!node.closest?.(
+            '[data-lenis-prevent], [role="dialog"], [role="listbox"], .overflow-y-auto, .overflow-auto, .overflow-y-scroll',
+          ),
       });
       instance = lenis;
       lenisRef.current = lenis as unknown as typeof lenisRef.current;
@@ -250,10 +258,11 @@ export function NovaExperience({ signedIn, onOpenDailySignals, stockStrip }: Nov
       frame = 0;
       const vh = window.innerHeight || 1;
       const y = window.scrollY;
-      // Hop i happens while act i rises from 70% down the screen to 10% past the top.
+      // Hop i spans ~1.15 screens of scroll, from act i sitting 75% down the
+      // screen to 40% past the top, so each re-formation plays out slowly.
       let morph = 0;
       starts.forEach((top) => {
-        morph += Math.min(1, Math.max(0, (y - (top - vh * 0.7)) / (vh * 0.8)));
+        morph += Math.min(1, Math.max(0, (y - (top - vh * 0.75)) / (vh * 1.15)));
       });
       sceneRef.current?.setMorph(morph);
 

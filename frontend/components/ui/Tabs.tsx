@@ -32,7 +32,7 @@ export function Tabs({ tabs, value, onValueChange, className }: TabsProps) {
             aria-selected={active}
             onClick={() => onValueChange(tab.id)}
             className={cn(
-              "rounded-xl px-4 py-2 font-['Space_Grotesk'] text-xs font-bold uppercase tracking-[0.12em] outline-none transition focus-visible:ring-2 focus-visible:ring-cyan-300/60",
+              "rounded-xl px-4 py-2 font-body text-xs font-bold uppercase tracking-[0.12em] outline-none transition focus-visible:ring-2 focus-visible:ring-cyan-300/60",
               active ? "bg-cyan-400 text-slate-950" : "text-slate-400 hover:text-white",
             )}
           >
