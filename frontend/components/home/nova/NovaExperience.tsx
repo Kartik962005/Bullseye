@@ -14,6 +14,8 @@ import { createPortal } from "react-dom";
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import type { NovaScene } from "./NovaScene";
 
+type SceneLike = Pick<NovaScene, "setMorph" | "setPointer" | "setOpacity" | "resize" | "start" | "stop" | "dispose">;
+
 const noopSubscribe = () => () => {};
 
 /**
@@ -122,17 +124,19 @@ export function NovaExperience({ signedIn, onOpenDailySignals, stockStrip }: Nov
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const canvasWrapRef = useRef<HTMLDivElement>(null);
   const auroraRefs = useRef<Array<HTMLDivElement | null>>([]);
-  const sceneRef = useRef<NovaScene | null>(null);
+  const sceneRef = useRef<SceneLike | null>(null);
   const lenisRef = useRef<{ scrollTo: (target: number | HTMLElement, opts?: Record<string, unknown>) => void } | null>(null);
 
   // True only on the client, so the portal never renders during SSR.
   const mounted = useSyncExternalStore(noopSubscribe, () => true, () => false);
-  const [sceneEnabled, setSceneEnabled] = useState(false);
+  // WebGL when the browser offers it; otherwise the Canvas 2D fallback, so the
+  // particles show even with hardware acceleration switched off.
+  const [mode, setMode] = useState<"webgl" | "2d" | null>(null);
   const [active, setActive] = useState(0);
 
-  // Capability gate for the WebGL layer. Reduced motion does NOT hide the
-  // scene (Windows turns it on whenever "Animation effects" is off); it only
-  // freezes the idle drift and makes shape changes instant.
+  // Reduced motion does NOT hide the scene (Windows turns it on whenever
+  // "Animation effects" is off); it only freezes the idle drift and makes
+  // shape changes instant.
   useEffect(() => {
     let webgl = false;
     try {
@@ -141,10 +145,10 @@ export function NovaExperience({ signedIn, onOpenDailySignals, stockStrip }: Nov
     } catch {
       webgl = false;
     }
-    const nav = navigator as Navigator & { deviceMemory?: number };
-    const enough = (nav.deviceMemory ?? 4) >= 2 && (navigator.hardwareConcurrency ?? 4) >= 2;
+    // ?scene=2d forces the fallback, for checking it on a machine with WebGL.
+    if (new URLSearchParams(window.location.search).get("scene") === "2d") webgl = false;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot client capability probe
-    setSceneEnabled(webgl && enough);
+    setMode(webgl ? "webgl" : "2d");
   }, []);
 
   // Smooth wheel scrolling for the homepage only.
@@ -171,23 +175,30 @@ export function NovaExperience({ signedIn, onOpenDailySignals, stockStrip }: Nov
     };
   }, []);
 
-  // Build the WebGL scene.
+  // Build the scene for the chosen renderer.
   useEffect(() => {
-    if (!sceneEnabled || !mounted) return;
+    if (!mode || !mounted) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
     let disposed = false;
     let cleanup = () => {};
 
-    import("./NovaScene").then(({ NovaScene }) => {
+    const load = mode === "webgl" ? import("./NovaScene") : import("./NovaScene2D");
+    load.then((mod) => {
       if (disposed) return;
-      const { count, maxDpr } = pickTier();
-      let scene: NovaScene;
+      const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      let scene: SceneLike;
       try {
-        const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-        scene = new NovaScene({ canvas, count, maxDpr, still });
+        if ("NovaScene" in mod) {
+          const { count, maxDpr } = pickTier();
+          scene = new mod.NovaScene({ canvas, count, maxDpr, still });
+        } else {
+          const phone = window.innerWidth < 768;
+          scene = new mod.NovaScene2D({ canvas, count: phone ? 1400 : 2600, still });
+        }
       } catch {
-        setSceneEnabled(false);
+        // WebGL context creation can still fail after the probe; fall back.
+        if (mode === "webgl") setMode("2d");
         return;
       }
       sceneRef.current = scene;
@@ -218,7 +229,7 @@ export function NovaExperience({ signedIn, onOpenDailySignals, stockStrip }: Nov
       disposed = true;
       cleanup();
     };
-  }, [sceneEnabled, mounted]);
+  }, [mode, mounted]);
 
   // Scroll → morph value, aurora mix, scene fade, rail state. One read per frame.
   useEffect(() => {
@@ -285,7 +296,7 @@ export function NovaExperience({ signedIn, onOpenDailySignals, stockStrip }: Nov
       window.removeEventListener("scroll", onScroll);
       window.removeEventListener("resize", onResize);
     };
-  }, [mounted, sceneEnabled]);
+  }, [mounted, mode]);
 
   // Copy reveals as each act arrives. Content stays visible without JS.
   useEffect(() => {
@@ -332,7 +343,10 @@ export function NovaExperience({ signedIn, onOpenDailySignals, stockStrip }: Nov
         />
       ))}
       <div ref={canvasWrapRef} className="absolute inset-0">
-        {sceneEnabled ? <canvas ref={canvasRef} className="nova-canvas absolute inset-0 h-full w-full" /> : null}
+        {mode ? (
+          // Keyed by renderer: a canvas that tried WebGL can't switch to 2D.
+          <canvas key={mode} ref={canvasRef} className="nova-canvas absolute inset-0 h-full w-full" />
+        ) : null}
       </div>
       <div className="nova-vignette absolute inset-0" />
     </div>

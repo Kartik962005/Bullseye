@@ -6,6 +6,7 @@
 
 import * as THREE from "three";
 import { buildFormations } from "./formations";
+import { FOV, viewAt } from "./camera";
 
 const VERT = /* glsl */ `
 uniform float uMorph;
@@ -101,21 +102,6 @@ void main() {
   gl_FragColor = vec4(vColor, a);
 }
 `;
-
-type V3 = [number, number, number];
-
-// One camera stop per formation. `x` shifts the whole formation sideways so it
-// sits opposite that act's copy on wide screens.
-const STOPS: { pos: V3; look: V3; x: number }[] = [
-  { pos: [0, 2.3, 12.5], look: [0, 0, 0], x: 3.1 },
-  { pos: [0, 0.4, 12.8], look: [0, 1.4, 0], x: 0 },
-  { pos: [0, 2.4, 8.4], look: [0, -0.9, -3.5], x: -2.2 },
-  { pos: [0, 0.2, 12.4], look: [0, -1.5, 0], x: 0 },
-  { pos: [0.4, 0.6, 12.6], look: [0, 0.2, 0], x: -2.6 },
-];
-
-const smooth = (t: number) => t * t * (3 - 2 * t);
-const FOV = 42;
 
 export interface NovaSceneOptions {
   canvas: HTMLCanvasElement;
@@ -320,26 +306,12 @@ export class NovaScene {
     u.uTime.value = this.time;
     u.uIntro.value = introEased;
 
-    // Camera between the two nearest stops.
-    const i = Math.min(3, Math.floor(this.morph));
-    const f = smooth(Math.min(1, Math.max(0, this.morph - i)));
-    const a = STOPS[i];
-    const b = STOPS[i + 1];
-    const aspect = this.width / this.height;
-    const wide = aspect > 1.05;
-    // Portrait screens are narrow: pull back so formations still fit.
-    const pull = aspect < 1 ? 1 + (1 - aspect) * 0.95 : 1;
-    const lerp = (p: number, q: number) => p + (q - p) * f;
-
-    this.camera.position.set(
-      lerp(a.pos[0], b.pos[0]) + this.pointer.x * 0.6,
-      lerp(a.pos[1], b.pos[1]) + this.pointer.y * 0.4,
-      lerp(a.pos[2], b.pos[2]) * pull,
-    );
-    this.look.set(lerp(a.look[0], b.look[0]), lerp(a.look[1], b.look[1]), lerp(a.look[2], b.look[2]));
+    const view = viewAt(this.morph, this.width / this.height, this.pointer);
+    this.camera.position.set(...view.pos);
+    this.look.set(...view.look);
     this.camera.lookAt(this.look);
 
-    this.group.position.x = wide ? lerp(a.x, b.x) * Math.min(1, (aspect - 1.05) * 2.2) : 0;
+    this.group.position.x = view.groupX;
     this.group.rotation.y = this.pointer.x * 0.1;
     this.group.rotation.x = -this.pointer.y * 0.05;
 
