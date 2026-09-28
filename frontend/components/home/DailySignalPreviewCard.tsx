@@ -1,5 +1,9 @@
 "use client";
 
+// Daily-signals band: the one call to action after the scroll story. Same
+// left-column pattern as the story beats (copy left, content right) and kept
+// compact: two delivery buttons and a three-line preview, not a full email.
+
 export type SignalDeliveryMode = "today" | "next_day";
 
 export type DailySignalPreview = {
@@ -25,13 +29,6 @@ export interface DailySignalPreviewCardProps {
   onSendNow: (deliveryMode: SignalDeliveryMode) => void;
 }
 
-/** Shared surface treatment with the hero signal card: gold hairline, dark glass. */
-const CARD_SURFACE = {
-  background:
-    "linear-gradient(145deg, rgba(20,22,19,0.94) 0%, rgba(8,10,9,0.97) 55%, rgba(16,18,15,0.94) 100%)",
-  boxShadow: "0 26px 70px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,79,163,0.16)",
-} as const;
-
 export function DailySignalPreviewCard({
   signedIn,
   userEmail,
@@ -42,144 +39,93 @@ export function DailySignalPreviewCard({
   onOpenSettings,
   onSendNow,
 }: DailySignalPreviewCardProps) {
-  const destination = signedIn ? userEmail || "your signed-in account" : "your signed-in account";
+  const preview = signals.slice(0, 3);
 
   return (
-    <div
-      className="overflow-hidden rounded-[24px] border border-accent/35 p-7 sm:p-9"
-      style={CARD_SURFACE}
-    >
-      <div className="flex items-center gap-2">
-        <span aria-hidden className="inline-flex h-[5px] w-[5px] rounded-full bg-accent" />
-        <span className="font-body text-[10px] font-medium uppercase tracking-[0.26em] text-accent">
-          Daily signal email
-        </span>
-      </div>
-
-      <h3 className="mt-5 max-w-[24ch] font-display text-[clamp(1.5rem,2.6vw,2.1rem)] leading-tight text-paper">
-        Next-session stocks, packaged like an email preview.
-      </h3>
-      <p className="mt-3 max-w-[62ch] font-body text-[14px] leading-7 text-paper-muted">
-        Signals go to {destination}. Fewer are sent when the market is weak and few names clear the
-        quality bar.
-      </p>
-
-      {/* Delivery modes */}
-      <div className="mt-7 grid gap-3 sm:grid-cols-2">
-        <button
-          type="button"
-          onClick={() => (signedIn ? onSendNow("today") : onOpenSettings())}
-          disabled={isSaving}
-          className="rounded-2xl border border-accent/30 bg-accent/[0.06] px-5 py-5 text-left transition duration-300 hover:border-accent/60 hover:bg-accent/[0.11] disabled:opacity-60"
-        >
-          <span className="block font-display text-[18px] leading-none text-paper">Today&apos;s stocks</span>
-          <span className="mt-2.5 block font-body text-[12px] leading-6 text-paper-muted">
-            Same-day intraday email using the latest available data.
-          </span>
-        </button>
-        <button
-          type="button"
-          onClick={() => (signedIn ? onSendNow("next_day") : onOpenSettings())}
-          disabled={isSaving}
-          className="rounded-2xl border border-primary/25 bg-primary/[0.06] px-5 py-5 text-left transition duration-300 hover:border-primary/55 hover:bg-primary/[0.11] disabled:opacity-60"
-        >
-          <span className="block font-display text-[18px] leading-none text-paper">Next-day stocks</span>
-          <span className="mt-2.5 block font-body text-[12px] leading-6 text-paper-muted">
-            Ranked 10-stock email for the next trading day.
-          </span>
-        </button>
-      </div>
-
-      {(error || message) && (
-        <div className="mt-5 space-y-2">
-          {error && (
-            <div className="rounded-xl border border-rose-400/30 bg-rose-500/10 px-4 py-3 font-body text-[13px] text-rose-200">
-              {error}
-            </div>
-          )}
-          {message && (
-            <div className="rounded-xl border border-primary/30 bg-primary/10 px-4 py-3 font-body text-[13px] text-primary">
-              {message}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Signal rows — miniature signal cards */}
-      <div className="mt-7 space-y-3">
-        {signals.length > 0 ? (
-          signals.slice(0, 4).map((signal) => (
-            <div
-              key={signal.symbol}
-              className="rounded-2xl border border-hairline bg-white/[0.03] p-4 transition duration-300 hover:border-accent/30"
-            >
-              <div className="flex items-center justify-between gap-3">
-                <div className="font-numeric text-[15px] tracking-tight text-paper">{signal.symbol}</div>
-                <div
-                  className={`font-body text-[10px] font-semibold uppercase tracking-[0.2em] ${
-                    signal.direction === "BUY" ? "text-primary" : "text-rose-300"
-                  }`}
-                >
-                  {signal.direction}
-                </div>
-              </div>
-
-              <dl className="mt-3 flex flex-wrap gap-x-7 gap-y-2">
-                {[
-                  ["Entry", `${signal.entry_low.toFixed(2)}–${signal.entry_high.toFixed(2)}`],
-                  ["Target", signal.target_price.toFixed(2)],
-                  ["Stop", signal.stop_loss.toFixed(2)],
-                ].map(([label, value]) => (
-                  <div key={label}>
-                    <dt className="font-body text-[9px] uppercase tracking-[0.2em] text-paper-muted">{label}</dt>
-                    <dd className="mt-1 font-numeric text-[13px] text-paper">{value}</dd>
-                  </div>
-                ))}
-              </dl>
-
-              <div className="mt-3.5 flex items-center gap-3">
-                <div className="h-[3px] flex-1 overflow-hidden rounded-full bg-white/10">
-                  <div
-                    className="h-full rounded-full bg-primary"
-                    style={{ width: `${Math.round((signal.confidence ?? 0) * 100)}%` }}
-                  />
-                </div>
-                <span className="font-numeric text-[11px] text-primary">
-                  {Math.round((signal.confidence ?? 0) * 100)}
-                </span>
-                {typeof signal.risk_reward === "number" && (
-                  <span className="font-numeric text-[11px] text-paper-muted">
-                    R:R {signal.risk_reward.toFixed(2)}
-                  </span>
-                )}
-              </div>
-
-              <p className="mt-2.5 font-body text-[11px] leading-5 text-paper-muted">
-                {(signal.explanation_json?.reasons ?? []).slice(0, 2).join(" · ") ||
-                  "Model-ranked technical setup"}
-              </p>
-            </div>
-          ))
-        ) : (
-          <div className="rounded-2xl border border-hairline bg-white/[0.02] px-5 py-8 text-center">
-            <div className="font-display text-[18px] text-paper">No preview loaded</div>
-            <p className="mx-auto mt-2 max-w-[46ch] font-body text-[13px] leading-6 text-paper-muted">
-              The latest next-trading-day preview appears once the prediction engine runs for your
-              signed-in account.
-            </p>
+    <section className="w-full px-5 py-20 sm:px-10 lg:px-16">
+      <div className="mx-auto grid max-w-[1180px] items-center gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,26rem)] lg:gap-16">
+        <div className="max-w-[34rem]">
+          <div className="flex items-center gap-3">
+            <span className="nova-dot" aria-hidden />
+            <span className="font-numeric text-[11px] font-medium uppercase tracking-[0.3em] text-[#cfc9ea]">
+              Daily signals
+            </span>
           </div>
-        )}
-      </div>
+          <h2 className="mt-5 font-display text-[clamp(2.2rem,4.4vw,3.6rem)] font-normal leading-[1] text-paper">
+            Get the short list <em className="nova-gradient-text italic">in your inbox.</em>
+          </h2>
+          <p className="mt-4 max-w-[44ch] font-body text-[15px] leading-7 text-[#d6d0f0]">
+            Ranked picks after the close, sent to {signedIn && userEmail ? userEmail : "your account"}. Nothing
+            is sent on days when no setup is worth taking.
+          </p>
+          <button
+            type="button"
+            onClick={onOpenSettings}
+            disabled={isSaving}
+            className="nova-btn nova-btn-primary mt-7 disabled:opacity-60"
+          >
+            {signedIn ? "Set up daily alerts" : "Sign in to get alerts"}
+          </button>
+        </div>
 
-      <button
-        type="button"
-        onClick={onOpenSettings}
-        disabled={isSaving}
-        className="mt-7 inline-flex h-12 w-full items-center justify-center rounded-full bg-accent px-6 font-body text-[13px] font-semibold text-black transition duration-300 hover:bg-accent-dim disabled:opacity-60"
-      >
-        {signedIn ? "Configure daily alerts" : "Sign in to configure"}
-      </button>
-    </div>
+        <div className="nova-modal rounded-[24px] p-5 font-body sm:p-6" style={{ animation: "none" }}>
+          <div className="grid grid-cols-2 gap-2">
+            {(
+              [
+                ["today", "Today's list", "Intraday, latest data"],
+                ["next_day", "Next-day list", "Top 10 for tomorrow"],
+              ] as const
+            ).map(([mode, title, sub]) => (
+              <button
+                key={mode}
+                type="button"
+                onClick={() => (signedIn ? onSendNow(mode) : onOpenSettings())}
+                disabled={isSaving}
+                className="rounded-2xl border border-white/12 bg-white/[0.04] px-4 py-3 text-left transition hover:border-[#ff4fa3]/60 hover:bg-[#ff4fa3]/10 disabled:opacity-60"
+              >
+                <span className="block text-[14px] font-semibold text-paper">{title}</span>
+                <span className="mt-0.5 block text-[12px] text-[#b9b4d6]">{sub}</span>
+              </button>
+            ))}
+          </div>
+
+          {(error || message) && (
+            <p className={`mt-3 text-[13px] ${error ? "text-[#ff7a93]" : "text-[#6ff0b5]"}`}>{error || message}</p>
+          )}
+
+          <div className="mt-5 flex items-center justify-between">
+            <span className="text-[12px] font-medium uppercase tracking-[0.18em] text-[#b9b4d6]">Preview</span>
+            <span className="text-[12px] text-[#8f89ad]">Target · Confidence</span>
+          </div>
+          <ul className="mt-2 divide-y divide-white/10">
+            {preview.length > 0 ? (
+              preview.map((signal) => (
+                <li key={signal.symbol} className="flex items-center gap-3 py-2.5">
+                  <span className="font-numeric text-[14px] text-paper">{signal.symbol}</span>
+                  <span
+                    className={`rounded-md px-1.5 py-0.5 font-numeric text-[11px] ${
+                      signal.direction === "BUY" ? "bg-[#3dffa2]/12 text-[#6ff0b5]" : "bg-[#ff4d6d]/12 text-[#ff7a93]"
+                    }`}
+                  >
+                    {signal.direction}
+                  </span>
+                  <span className="ml-auto font-numeric text-[13px] text-[#d6d0f0]">
+                    ₹{signal.target_price.toFixed(2)}
+                  </span>
+                  <span className="w-10 text-right font-numeric text-[13px] text-paper">
+                    {Math.round((signal.confidence ?? 0) * 100)}%
+                  </span>
+                </li>
+              ))
+            ) : (
+              <li className="py-4 text-[13px] leading-6 text-[#b9b4d6]">
+                The preview fills in after tonight&apos;s engine run.
+              </li>
+            )}
+          </ul>
+        </div>
+      </div>
+    </section>
   );
 }
 

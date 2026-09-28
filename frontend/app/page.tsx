@@ -12,7 +12,7 @@ import { NovaExperience } from '@/components/home/nova/NovaExperience';
 import { TrackRecord } from '@/components/stock/TrackRecord';
 import { PeerComparison } from '@/components/stock/PeerComparison';
 import { RangeBar } from '@/components/stock/RangeBar';
-import { SectionShell } from '@/components/home/SectionShell';
+import { AboutSection } from '@/components/home/AboutSection';
 import { LiveScanSection } from '@/components/home/LiveScanSection';
 import { SiteFooter } from '@/components/home/SiteFooter';
 import { HomeAmbientBackground } from '@/components/home/HomeAmbientBackground';
@@ -47,7 +47,6 @@ import {
   buildPreviewChartPath,
 } from '@/lib/chart';
 import { buildMarketAnswer } from '@/lib/market-answer';
-import { Scroll3D } from '@/components/motion/Scroll3D';
 import {
   stableMarketShuffle,
   asNumber,
@@ -3695,28 +3694,18 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
                 }
               />
 
-              <SectionShell
-                eyebrow="Daily signals"
-                title={
-                  <>
-                    Get the short list <em className="italic text-accent">in your inbox</em>.
-                  </>
-                }
-                description="Ranked picks after close, on your schedule — and nothing on days with no signal worth sending."
-              >
-                <Scroll3D intensity={0.9}>
-                  <DailySignalPreviewCard
-                    signedIn={Boolean(user)}
-                    userEmail={user?.email}
-                    signals={dailySignalPreview}
-                    isSaving={notificationSaving || notificationLoading}
-                    error={notificationError}
-                    message={notificationMessage}
-                    onOpenSettings={openDailySignalSettings}
-                    onSendNow={deliveryMode => { void sendNotificationEmailNow(deliveryMode); }}
-                  />
-                </Scroll3D>
-              </SectionShell>
+              <DailySignalPreviewCard
+                signedIn={Boolean(user)}
+                userEmail={user?.email}
+                signals={dailySignalPreview}
+                isSaving={notificationSaving || notificationLoading}
+                error={notificationError}
+                message={notificationMessage}
+                onOpenSettings={openDailySignalSettings}
+                onSendNow={deliveryMode => { void sendNotificationEmailNow(deliveryMode); }}
+              />
+
+              <AboutSection />
 
               <SiteFooter />
             </div>

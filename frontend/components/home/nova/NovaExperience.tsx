@@ -65,10 +65,46 @@ const AURORAS = [
   "radial-gradient(55% 55% at 35% 50%, rgba(184,255,60,0.20), transparent 70%), radial-gradient(50% 50% at 80% 70%, rgba(0,229,255,0.28), transparent 70%)",
 ];
 
-function Eyebrow({ index, label, align = "left" }: { index: string; label: string; align?: "left" | "right" | "center" }) {
-  const justify = align === "right" ? "justify-end" : align === "center" ? "justify-center" : "justify-start";
+// The four story beats. Every beat uses the same layout (copy in a left
+// column, vertically centred; particles on the right) so the eye never has to
+// hunt for the next headline.
+const STORY: { index: string; label: string; lead: string; em: string; body: string; chips?: string[] }[] = [
+  {
+    index: "01",
+    label: "The whole tape",
+    lead: "The whole market,",
+    em: "at once.",
+    body: "Two thousand NSE tickers, every session. Indices, sectors, the noise and the signal, all in view before a single decision is made.",
+    chips: ["2,000+ tickers", "Every session", "Nifty · Sensex · sectors"],
+  },
+  {
+    index: "02",
+    label: "The read",
+    lead: "We fly the tape",
+    em: "so you don’t.",
+    body: "The engine scores momentum, quality, risk and setup across the market, then throws away everything that doesn’t clear the gates. Most days, most of it.",
+    chips: ["Momentum", "Quality", "Risk", "Setup"],
+  },
+  {
+    index: "03",
+    label: "The verdict",
+    lead: "Then it commits",
+    em: "to one.",
+    body: "A verdict, stamped: buy or sell, entry and target, a stop, and the conviction behind it. On a weak day, it tells you to sit out.",
+    chips: ["Entry", "Target", "Stop", "Conviction"],
+  },
+  {
+    index: "04",
+    label: "Your move",
+    lead: "See your",
+    em: "number.",
+    body: "Open the screener for today’s ranked short list, or ask anything in plain English.",
+  },
+];
+
+function Eyebrow({ index, label }: { index: string; label: string }) {
   return (
-    <div className={`flex items-center gap-3 ${justify}`}>
+    <div className="flex items-center gap-3">
       <span className="nova-dot" aria-hidden />
       <span className="font-numeric text-[11px] font-medium uppercase tracking-[0.3em] text-[#cfc9ea]">
         <span className="text-paper">{index}</span>
@@ -79,39 +115,13 @@ function Eyebrow({ index, label, align = "left" }: { index: string; label: strin
   );
 }
 
-function Chips({ items, align = "left" }: { items: string[]; align?: "left" | "right" | "center" }) {
-  const justify = align === "right" ? "justify-end" : align === "center" ? "justify-center" : "justify-start";
+function Act({ children }: { children: ReactNode }) {
   return (
-    <div className={`mt-7 flex flex-wrap gap-2 ${justify}`}>
-      {items.map((item) => (
-        <span key={item} className="nova-chip">
-          {item}
-        </span>
-      ))}
-    </div>
-  );
-}
-
-function Act({
-  align,
-  children,
-}: {
-  align: "left" | "right" | "top" | "bottom";
-  children: ReactNode;
-}) {
-  const vertical =
-    align === "top" ? "items-start pt-[16vh]" : align === "bottom" ? "items-end pb-[14vh]" : "items-center";
-  const horizontal =
-    align === "right"
-      ? "justify-center text-center md:justify-end md:text-right"
-      : align === "left"
-        ? "justify-center text-center md:justify-start md:text-left"
-        : "justify-center text-center";
-  return (
-    <section data-nova-act className="relative min-h-[170svh] w-full">
-      {/* Sticky copy holds still while the particles re-form behind it. */}
-      <div className={`sticky top-0 flex h-[100svh] w-full px-5 sm:px-10 lg:px-16 ${vertical} ${horizontal}`}>
-        <div data-nova-reveal className="nova-scrim max-w-[40rem] px-2 py-6">
+    <section data-nova-act className="relative min-h-[150svh] w-full">
+      {/* Sticky copy holds still while the particles re-form behind it.
+          Desktop: left column, centred. Phone: bottom, over the scene. */}
+      <div className="sticky top-0 flex h-[100svh] w-full items-end px-5 pb-[10vh] sm:px-10 md:items-center md:pb-0 lg:px-16">
+        <div data-nova-reveal className="nova-scrim w-full max-w-[34rem] py-6">
           {children}
         </div>
       </div>
@@ -259,7 +269,8 @@ export function NovaExperience({ signedIn, onOpenDailySignals, stockStrip }: Nov
       const vh = window.innerHeight || 1;
       const y = window.scrollY;
       // Hop i spans ~1.15 screens of scroll, from act i sitting 75% down the
-      // screen to 40% past the top, so each re-formation plays out slowly.
+      // screen to 40% past the top, so each re-formation plays out slowly
+      // and the finished shape then holds while its copy is pinned.
       let morph = 0;
       starts.forEach((top) => {
         morph += Math.min(1, Math.max(0, (y - (top - vh * 0.75)) / (vh * 1.15)));
@@ -420,73 +431,42 @@ export function NovaExperience({ signedIn, onOpenDailySignals, stockStrip }: Nov
           {stockStrip ? <div className="w-full">{stockStrip}</div> : null}
         </section>
 
-        <Act align="top">
-          <Eyebrow index="01" label="The whole tape" align="center" />
-          <h2 className="mt-6 font-display text-[clamp(2.6rem,6.4vw,5.4rem)] font-normal leading-[0.96] text-paper">
-            The whole market,
-            <br />
-            <em className="nova-gradient-text italic">at once.</em>
-          </h2>
-          <p className="mx-auto mt-6 max-w-[44ch] font-body text-[16px] leading-7 text-[#d6d0f0]">
-            Two thousand NSE tickers, every session. Indices, sectors, the noise and the signal, all in
-            view before a single decision is made.
-          </p>
-          <Chips align="center" items={["2,000+ tickers", "Every session", "Nifty · Sensex · sectors"]} />
-        </Act>
-
-        <Act align="right">
-          <Eyebrow index="02" label="The read" align="right" />
-          <h2 className="mt-6 font-display text-[clamp(2.6rem,6.4vw,5.4rem)] font-normal leading-[0.96] text-paper">
-            We fly the tape
-            <br />
-            so <em className="nova-gradient-text italic">you don&apos;t.</em>
-          </h2>
-          <p className="ml-auto mt-6 max-w-[44ch] font-body text-[16px] leading-7 text-[#d6d0f0] max-md:mx-auto">
-            The engine scores momentum, quality, risk and setup across the market, then throws away
-            everything that doesn&apos;t clear the gates. Most days, most of it.
-          </p>
-          <Chips align="right" items={["Momentum", "Quality", "Risk", "Setup"]} />
-        </Act>
-
-        <Act align="bottom">
-          <Eyebrow index="03" label="The verdict" align="center" />
-          <h2 className="mt-6 font-display text-[clamp(2.6rem,6.4vw,5.4rem)] font-normal leading-[0.96] text-paper">
-            Then it commits
-            <br />
-            to <em className="nova-gradient-text italic">one.</em>
-          </h2>
-          <p className="mx-auto mt-6 max-w-[44ch] font-body text-[16px] leading-7 text-[#d6d0f0]">
-            A verdict, stamped: buy or sell, entry and target, a stop, and the conviction behind it. On a
-            weak day, it tells you to sit out.
-          </p>
-          <Chips align="center" items={["Entry", "Target", "Stop", "Conviction"]} />
-        </Act>
-
-        <Act align="right">
-          <Eyebrow index="04" label="Your move" align="right" />
-          <h2 className="mt-6 font-display text-[clamp(3rem,7.6vw,6.4rem)] font-normal leading-[0.92] text-paper">
-            See your
-            <br />
-            <em className="nova-gradient-text italic">number.</em>
-          </h2>
-          <p className="ml-auto mt-6 max-w-[44ch] font-body text-[16px] leading-7 text-[#d6d0f0] max-md:mx-auto">
-            Open the screener for today&apos;s ranked short list, or ask anything in plain English.
-          </p>
-          <div className="mt-9 flex flex-wrap items-center justify-center gap-3 md:justify-end">
-            <Link href="/screens" className="nova-btn nova-btn-primary group">
-              Open Screener
-              <span aria-hidden className="transition-transform duration-300 group-hover:translate-x-1">
-                →
-              </span>
-            </Link>
-            <Link href="/ask-ai" className="nova-btn nova-btn-ghost">
-              Ask AI
-            </Link>
-            <button type="button" onClick={onOpenDailySignals} className="nova-btn nova-btn-link">
-              {signedIn ? "Daily alerts" : "Get daily signals"}
-            </button>
-          </div>
-        </Act>
+        {STORY.map((beat, i) => (
+          <Act key={beat.index}>
+            <Eyebrow index={beat.index} label={beat.label} />
+            <h2 className="mt-6 font-display text-[clamp(2.6rem,5.4vw,4.6rem)] font-normal leading-[0.96] text-paper">
+              {beat.lead}
+              <br />
+              <em className="nova-gradient-text italic">{beat.em}</em>
+            </h2>
+            <p className="mt-5 max-w-[44ch] font-body text-[16px] leading-7 text-[#d6d0f0]">{beat.body}</p>
+            {beat.chips ? (
+              <div className="mt-6 flex flex-wrap gap-2">
+                {beat.chips.map((chip) => (
+                  <span key={chip} className="nova-chip">
+                    {chip}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+            {i === STORY.length - 1 ? (
+              <div className="mt-8 flex flex-wrap items-center gap-3">
+                <Link href="/screens" className="nova-btn nova-btn-primary group">
+                  Open Screener
+                  <span aria-hidden className="transition-transform duration-300 group-hover:translate-x-1">
+                    →
+                  </span>
+                </Link>
+                <Link href="/ask-ai" className="nova-btn nova-btn-ghost">
+                  Ask AI
+                </Link>
+                <button type="button" onClick={onOpenDailySignals} className="nova-btn nova-btn-link">
+                  {signedIn ? "Daily alerts" : "Get daily signals"}
+                </button>
+              </div>
+            ) : null}
+          </Act>
+        ))}
       </div>
     </>
   );

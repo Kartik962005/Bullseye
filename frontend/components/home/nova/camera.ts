@@ -3,14 +3,15 @@
 
 type V3 = [number, number, number];
 
-// One camera stop per formation. `x` shifts the whole formation sideways so it
-// sits opposite that act's copy on wide screens.
+// One camera stop per formation. Copy always sits in a left column, so every
+// formation is shifted right (`x`) on wide screens: one steady layout instead
+// of the eye jumping left, right and centre between sections.
 const STOPS: { pos: V3; look: V3; x: number }[] = [
   { pos: [0, 2.3, 12.5], look: [0, 0, 0], x: 3.1 },
-  { pos: [0, 0.4, 12.8], look: [0, 1.4, 0], x: 0 },
-  { pos: [0, 2.4, 8.4], look: [0, -0.9, -3.5], x: -2.2 },
-  { pos: [0, 0.2, 12.4], look: [0, -1.5, 0], x: 0 },
-  { pos: [0.4, 0.6, 12.6], look: [0, 0.2, 0], x: -2.6 },
+  { pos: [0, 0.4, 13.4], look: [0, 0, 0], x: 3.3 },
+  { pos: [0, 2.4, 8.6], look: [0, -0.9, -3.5], x: 2.4 },
+  { pos: [0, 0.2, 13.2], look: [0, 0, 0], x: 3.4 },
+  { pos: [0.4, 0.6, 13.2], look: [0, 0.2, 0], x: 2.8 },
 ];
 
 export const FOV = 42;
