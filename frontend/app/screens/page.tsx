@@ -643,7 +643,7 @@ export default function ScreensPage() {
           className="absolute inset-0"
           style={{
             background:
-              'radial-gradient(820px 520px at 22% 6%, rgba(52,211,153,0.10), transparent 62%), radial-gradient(680px 460px at 82% 10%, rgba(245,196,81,0.07), transparent 58%)',
+              'radial-gradient(820px 520px at 22% 6%, rgba(52,211,153,0.10), transparent 62%), radial-gradient(680px 460px at 82% 10%, rgba(255,79,163,0.07), transparent 58%)',
           }}
         />
         <div
@@ -661,7 +661,7 @@ export default function ScreensPage() {
             <Link href="/" className="flex min-w-0 items-center gap-2.5">
               <span
                 aria-hidden
-                className="inline-flex h-[7px] w-[7px] shrink-0 rounded-full bg-accent shadow-[0_0_14px_rgba(245,196,81,0.85)]"
+                className="inline-flex h-[7px] w-[7px] shrink-0 rounded-full bg-accent shadow-[0_0_14px_rgba(255,79,163,0.85)]"
               />
               <span className="font-display text-[26px] leading-none text-paper">
                 Bulls<span className="text-accent">eye</span>
@@ -709,7 +709,7 @@ export default function ScreensPage() {
                 style={{
                   background:
                     'linear-gradient(145deg, rgba(20,22,19,0.94) 0%, rgba(8,10,9,0.97) 55%, rgba(16,18,15,0.94) 100%)',
-                  boxShadow: '0 26px 70px rgba(0,0,0,0.6), inset 0 1px 0 rgba(245,196,81,0.14)',
+                  boxShadow: '0 26px 70px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,79,163,0.14)',
                 }}
               >
                 <div className="mb-4 flex flex-wrap items-center gap-2">

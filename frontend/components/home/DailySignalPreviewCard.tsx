@@ -29,7 +29,7 @@ export interface DailySignalPreviewCardProps {
 const CARD_SURFACE = {
   background:
     "linear-gradient(145deg, rgba(20,22,19,0.94) 0%, rgba(8,10,9,0.97) 55%, rgba(16,18,15,0.94) 100%)",
-  boxShadow: "0 26px 70px rgba(0,0,0,0.6), inset 0 1px 0 rgba(245,196,81,0.16)",
+  boxShadow: "0 26px 70px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,79,163,0.16)",
 } as const;
 
 export function DailySignalPreviewCard({

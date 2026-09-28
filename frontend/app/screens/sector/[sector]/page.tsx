@@ -37,7 +37,7 @@ export default function SectorDetailPage() {
           className="absolute inset-0"
           style={{
             background:
-              'radial-gradient(820px 520px at 20% 4%, rgba(52,211,153,0.10), transparent 62%), radial-gradient(680px 460px at 84% 10%, rgba(245,196,81,0.07), transparent 58%)',
+              'radial-gradient(820px 520px at 20% 4%, rgba(52,211,153,0.10), transparent 62%), radial-gradient(680px 460px at 84% 10%, rgba(255,79,163,0.07), transparent 58%)',
           }}
         />
         <div
@@ -55,7 +55,7 @@ export default function SectorDetailPage() {
             <Link href="/" className="flex min-w-0 items-center gap-2.5">
               <span
                 aria-hidden
-                className="inline-flex h-[7px] w-[7px] shrink-0 rounded-full bg-accent shadow-[0_0_14px_rgba(245,196,81,0.85)]"
+                className="inline-flex h-[7px] w-[7px] shrink-0 rounded-full bg-accent shadow-[0_0_14px_rgba(255,79,163,0.85)]"
               />
               <span className="font-display text-[26px] leading-none text-paper">
                 Bulls<span className="text-accent">eye</span>

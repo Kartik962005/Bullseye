@@ -42,7 +42,7 @@ export function HomeAmbientBackground() {
         className="absolute inset-0"
         style={{
           background:
-            "radial-gradient(760px 520px at 50% 45%, rgba(52,211,153,0.10), transparent 65%), radial-gradient(620px 460px at 72% 28%, rgba(245,196,81,0.07), transparent 60%)",
+            "radial-gradient(760px 520px at 50% 45%, rgba(52,211,153,0.10), transparent 65%), radial-gradient(620px 460px at 72% 28%, rgba(255,79,163,0.07), transparent 60%)",
         }}
       />
 

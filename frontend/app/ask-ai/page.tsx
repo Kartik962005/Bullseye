@@ -955,7 +955,7 @@ export default function AskAiPage() {
       {/* ambient background glow */}
       <div className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
         <div className="absolute -top-40 left-1/2 h-[480px] w-[820px] -translate-x-1/2 rounded-full bg-[radial-gradient(circle,rgba(52,211,153,0.16),transparent_70%)] blur-[120px]" />
-        <div className="absolute bottom-0 right-0 h-[360px] w-[360px] rounded-full bg-[radial-gradient(circle,rgba(245,196,81,0.12),transparent_70%)] blur-[120px]" />
+        <div className="absolute bottom-0 right-0 h-[360px] w-[360px] rounded-full bg-[radial-gradient(circle,rgba(255,79,163,0.12),transparent_70%)] blur-[120px]" />
       </div>
 
       <header className="sticky top-0 z-40 border-b border-hairline bg-black/80 backdrop-blur-xl">

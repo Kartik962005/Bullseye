@@ -8,7 +8,7 @@ import { STOCKS } from './stocks';
 import {
   DailySignalPreviewCard,
 } from '@/components/home';
-import { AscentExperience } from '@/components/home/ascent/AscentExperience';
+import { NovaExperience } from '@/components/home/nova/NovaExperience';
 import { TrackRecord } from '@/components/stock/TrackRecord';
 import { PeerComparison } from '@/components/stock/PeerComparison';
 import { RangeBar } from '@/components/stock/RangeBar';
@@ -182,7 +182,7 @@ function NotificationSettingsModal({
           style={{
             background:
               'linear-gradient(145deg, rgba(20,22,19,0.97) 0%, rgba(8,10,9,0.99) 55%, rgba(16,18,15,0.97) 100%)',
-            boxShadow: '0 40px 110px rgba(0,0,0,0.7), inset 0 1px 0 rgba(245,196,81,0.12)',
+            boxShadow: '0 40px 110px rgba(0,0,0,0.7), inset 0 1px 0 rgba(255,79,163,0.12)',
           }}
           onKeyDown={event => {
             if (
@@ -277,7 +277,7 @@ function NotificationSettingsModal({
                     checked={preference.daily_stock_email_enabled}
                     onChange={event => onToggle(event.target.checked)}
                     disabled={isSaving}
-                    className="h-5 w-5 shrink-0 accent-[#f5c451]"
+                    className="h-5 w-5 shrink-0 accent-[#ff4fa3]"
                   />
                 </label>
               </div>
@@ -420,7 +420,7 @@ function NotificationSettingsModal({
               style={{
                 background:
                   'linear-gradient(145deg, rgba(20,22,19,0.97) 0%, rgba(8,10,9,0.99) 55%, rgba(16,18,15,0.97) 100%)',
-                boxShadow: '0 40px 110px rgba(0,0,0,0.7), inset 0 1px 0 rgba(245,196,81,0.12)',
+                boxShadow: '0 40px 110px rgba(0,0,0,0.7), inset 0 1px 0 rgba(255,79,163,0.12)',
               }}
             >
               <div className="flex items-center gap-3">
@@ -801,7 +801,7 @@ const MarketAssetCard = ({
         transition: 'transform 0.15s ease, box-shadow 0.3s ease, border-color 0.3s ease',
         background:
           'linear-gradient(145deg, rgba(20,22,19,0.94) 0%, rgba(8,10,9,0.97) 55%, rgba(16,18,15,0.94) 100%)',
-        boxShadow: '0 22px 60px rgba(0,0,0,0.55), inset 0 1px 0 rgba(245,196,81,0.14)',
+        boxShadow: '0 22px 60px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,79,163,0.14)',
       }}
       className="group relative flex w-full select-none flex-col overflow-hidden rounded-[20px] border border-accent/25 p-6 will-change-transform hover:border-accent/55"
     >
@@ -811,7 +811,7 @@ const MarketAssetCard = ({
         style={{
           background: isReady
             ? (isBull ? '#34d399' : isHold ? 'rgba(255,255,255,0.25)' : '#fb7185')
-            : 'rgba(245,196,81,0.55)',
+            : 'rgba(255,79,163,0.55)',
         }}
       />
 
@@ -863,7 +863,7 @@ const MarketAssetCard = ({
               width: `${isReady ? analysisView.confidenceLevel : 22}%`,
               backgroundColor: isReady
                 ? (isBull ? '#34d399' : isHold ? '#a1a1aa' : '#fb7185')
-                : '#f5c451',
+                : '#ff4fa3',
             }}
           />
         </div>
@@ -1080,7 +1080,7 @@ const GlobalNewsPanel = () => {
           style={{
             background:
               'linear-gradient(145deg, rgba(20,22,19,0.94) 0%, rgba(8,10,9,0.97) 55%, rgba(16,18,15,0.94) 100%)',
-            boxShadow: '0 22px 60px rgba(0,0,0,0.55), inset 0 1px 0 rgba(245,196,81,0.14)',
+            boxShadow: '0 22px 60px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,79,163,0.14)',
           }}
         >
           <div className="flex items-center gap-2">
@@ -1407,10 +1407,10 @@ const FisoDetailPanel = ({
         style={{
           background:
             'linear-gradient(145deg, rgba(20,22,19,0.94) 0%, rgba(8,10,9,0.97) 55%, rgba(16,18,15,0.94) 100%)',
-          boxShadow: '0 26px 70px rgba(0,0,0,0.6), inset 0 1px 0 rgba(245,196,81,0.14)',
+          boxShadow: '0 26px 70px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,79,163,0.14)',
         }}
       >
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(245,196,81,0.12),transparent_42%),radial-gradient(circle_at_bottom_left,rgba(52,211,153,0.08),transparent_44%)]" />
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(255,79,163,0.12),transparent_42%),radial-gradient(circle_at_bottom_left,rgba(52,211,153,0.08),transparent_44%)]" />
         <h3 className="relative mb-3 flex items-center gap-2 border-b border-hairline pb-4 font-body text-[10px] font-medium uppercase tracking-[0.24em] text-accent">
           <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-accent"></span>
           AI market search
@@ -2992,8 +2992,8 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
         grid: { vertLines: { color: 'rgba(255,255,255,0.07)' }, horzLines: { color: 'rgba(255,255,255,0.07)' } },
         crosshair: {
           mode: 1,
-          vertLine: { color: 'rgba(245,196,81,0.55)', labelBackgroundColor: '#f5c451' },
-          horzLine: { color: 'rgba(245,196,81,0.55)', labelBackgroundColor: '#f5c451' },
+          vertLine: { color: 'rgba(255,79,163,0.55)', labelBackgroundColor: '#ff4fa3' },
+          horzLine: { color: 'rgba(255,79,163,0.55)', labelBackgroundColor: '#ff4fa3' },
         },
         timeScale: {
           timeVisible: chartRange === '1d' || chartRange === '1w',
@@ -3421,9 +3421,9 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
         }
         .stock-view-toggle-active {
           color: #000000 !important;
-          background: #f5c451 !important;
-          border-color: #f5c451 !important;
-          box-shadow: 0 12px 28px rgba(245, 196, 81, 0.22);
+          background: #ff4fa3 !important;
+          border-color: #ff4fa3 !important;
+          box-shadow: 0 12px 28px rgba(255, 79, 163, 0.22);
         }
         .stock-view-toggle-idle {
           color: #c6c6cd !important;
@@ -3432,7 +3432,7 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
         }
         .stock-view-toggle-idle:hover {
           background: rgba(255, 255, 255, 0.07) !important;
-          border-color: rgba(245, 196, 81, 0.4) !important;
+          border-color: rgba(255, 79, 163, 0.4) !important;
         }
         /* Active chart range button: preserve white text in light mode */
         .chart-range-btn-active { color: #ffffff !important; }
@@ -3534,7 +3534,7 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
           font-size: clamp(36px, 7vw, 72px);
         }
         .welcome-blur span {
-          background: linear-gradient(135deg, #ffe6a4 0%, #f5c451 48%, #34d399 100%);
+          background: linear-gradient(135deg, #ffc2e0 0%, #ff4fa3 48%, #34d399 100%);
           -webkit-background-clip: text;
           background-clip: text;
           -webkit-text-fill-color: transparent;
@@ -3563,8 +3563,8 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
             padding: 'clamp(36px,5vw,60px) clamp(44px,8vw,88px)',
             background: 'linear-gradient(145deg, rgba(20,22,19,0.94) 0%, rgba(8,10,9,0.97) 55%, rgba(16,18,15,0.94) 100%)',
             borderRadius: '28px',
-            border: '1px solid rgba(245,196,81,0.28)',
-            boxShadow: '0 40px 110px rgba(0,0,0,0.65), inset 0 1px 0 rgba(245,196,81,0.14)',
+            border: '1px solid rgba(255,79,163,0.28)',
+            boxShadow: '0 40px 110px rgba(0,0,0,0.65), inset 0 1px 0 rgba(255,79,163,0.14)',
             textAlign: 'center',
             maxWidth: '92vw',
           }}>
@@ -3576,7 +3576,7 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
                 letterSpacing: '0.3em',
                 textTransform: 'uppercase',
                 fontWeight: 500,
-                color: '#f5c451',
+                color: '#ff4fa3',
                 fontFamily: 'var(--font-inter), Inter, sans-serif',
               }}
             >
@@ -3610,10 +3610,10 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
         </div>
       )}
 
-      <div className="min-h-screen overflow-x-hidden bg-[#04070f] text-slate-100 selection:bg-cyan-500/20 selection:text-cyan-100 flex flex-col font-['Inter']">
+      <div className="min-h-screen overflow-x-clip bg-[#04070f] text-slate-100 selection:bg-cyan-500/20 selection:text-cyan-100 flex flex-col font-['Inter']">
 
         {/* IMMERSIVE BACKGROUND — View 2 keeps the Market Globe; View 1's
-            background is owned by the Ascent cinematic (its own fixed scene). */}
+            background is owned by the Nova scroll scene (its own fixed layer). */}
         {ticker && <HomeAmbientBackground />}
 
         {/* FIXED INDEX TAPE — pinned to the very top of the homepage so live
@@ -3642,7 +3642,7 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
           >
             <span
               aria-hidden
-              className="inline-flex h-[7px] w-[7px] rounded-full bg-accent shadow-[0_0_14px_rgba(245,196,81,0.85)] transition-transform duration-300 group-hover:scale-125"
+              className="inline-flex h-[7px] w-[7px] rounded-full bg-accent shadow-[0_0_14px_rgba(255,79,163,0.85)] transition-transform duration-300 group-hover:scale-125"
             />
             <span className="font-display text-[26px] leading-none text-paper sm:text-[28px]">
               Bulls<span className="text-accent">eye</span>
@@ -3809,7 +3809,7 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
           {/* ── VIEW 1: DISCOVERY HUB ── */}
           {!ticker && (
             <div className="bullseye-night animate-in fade-in duration-700 w-full flex flex-col">
-              <AscentExperience
+              <NovaExperience
                 signedIn={Boolean(user)}
                 onOpenDailySignals={openDailySignalSettings}
                 stockStrip={
@@ -3891,7 +3891,7 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
 
               {/* Header */}
               <div className="flex flex-col sm:flex-row items-start sm:items-end justify-between border-b border-white/10 pb-5 gap-3 relative">
-                <div className="absolute inset-x-0 bottom-0 h-[1px] bg-gradient-to-r from-transparent via-[rgba(245,196,81,0.4)] to-transparent" />
+                <div className="absolute inset-x-0 bottom-0 h-[1px] bg-gradient-to-r from-transparent via-[rgba(255,79,163,0.4)] to-transparent" />
                 <div>
                   <button onClick={goHome}
                     className="mb-4 inline-flex items-center gap-2 rounded-full border border-hairline bg-glass px-3.5 py-1.5 font-body text-[11px] font-medium text-paper-muted backdrop-blur-md transition duration-300 hover:border-accent/50 hover:text-accent">
@@ -3969,7 +3969,7 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
                     style={{
                       background:
                         'linear-gradient(145deg, rgba(20,22,19,0.94) 0%, rgba(8,10,9,0.97) 55%, rgba(16,18,15,0.94) 100%)',
-                      boxShadow: '0 26px 70px rgba(0,0,0,0.6), inset 0 1px 0 rgba(245,196,81,0.16)',
+                      boxShadow: '0 26px 70px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,79,163,0.16)',
                     }}
                   >
                     <div className="flex flex-wrap items-end justify-between gap-6">

@@ -16,7 +16,7 @@ export function SiteFooter() {
             <div className="flex items-center gap-2.5">
               <span
                 aria-hidden
-                className="inline-flex h-[7px] w-[7px] rounded-full bg-accent shadow-[0_0_14px_rgba(245,196,81,0.85)]"
+                className="inline-flex h-[7px] w-[7px] rounded-full bg-accent shadow-[0_0_14px_rgba(255,79,163,0.85)]"
               />
               <span className="font-display text-2xl leading-none text-paper">
                 Bulls<span className="text-accent">eye</span>

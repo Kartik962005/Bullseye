@@ -18,7 +18,7 @@ const GLOBE_RADIUS = 3.2;
 const ARC_COUNT = 70;
 
 const EMERALD = "#34d399";
-const GOLD = "#f5c451";
+const GOLD = "#ff4fa3";
 
 function makeRng(seed: number) {
   let s = seed >>> 0;

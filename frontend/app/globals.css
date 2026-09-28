@@ -116,8 +116,8 @@ body {
   --color-hairline: rgba(255, 255, 255, 0.10);
   --color-primary: #34d399;
   --color-primary-dim: #10b981;
-  --color-accent: #f5c451;
-  --color-accent-dim: #d9a531;
+  --color-accent: #ff4fa3;
+  --color-accent-dim: #e8338a;
   --color-paper: #f7f7f5;
   /* Kept deliberately bright: this sits over a live 3D scene, so the usual
      zinc-400 muted tone disappears into the background glow. */
@@ -224,4 +224,242 @@ body {
 .bullseye-night.bullseye-night [class~="bg-black/30"],
 .bullseye-night.bullseye-night [class~="bg-black/40"] {
   background-color: rgba(3, 5, 4, 0.72) !important;
+}
+
+/* ── Nova homepage ───────────────────────────────────────────────────────────
+   Vivid palette over deep indigo: electric violet, hot pink, cyan, lime and
+   amber. Only transform / opacity animate continuously, so everything stays
+   on the compositor. */
+:root {
+  --nova-ink: #070514;
+  --nova-violet: #8b5cf6;
+  --nova-pink: #ff2e97;
+  --nova-cyan: #00e5ff;
+  --nova-lime: #b8ff3c;
+  --nova-amber: #ffb547;
+  --nova-ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --nova-gradient: linear-gradient(100deg, #00e5ff 0%, #8b5cf6 32%, #ff2e97 64%, #ffb547 100%);
+}
+
+.nova-gradient-text {
+  background-image: var(--nova-gradient);
+  background-size: 220% 100%;
+  background-position: 0% 50%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  /* Italic serif overhangs its box; keep the last glyph unclipped. */
+  padding-right: 0.08em;
+  animation: nova-sheen 7s ease-in-out infinite alternate;
+}
+@keyframes nova-sheen {
+  to {
+    background-position: 100% 50%;
+  }
+}
+
+.nova-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--nova-gradient);
+  box-shadow: 0 0 14px rgba(255, 46, 151, 0.8);
+}
+
+.nova-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 7px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.06);
+  font: 500 12px/1 var(--font-jbmono), ui-monospace, monospace;
+  letter-spacing: 0.04em;
+  color: #ece8ff;
+}
+
+.nova-btn {
+  position: relative;
+  display: inline-flex;
+  height: 3.25rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: 999px;
+  padding: 0 1.6rem;
+  font: 600 14px/1 var(--font-inter), system-ui, sans-serif;
+  letter-spacing: 0.01em;
+  transition:
+    transform 0.35s var(--nova-ease),
+    box-shadow 0.35s var(--nova-ease),
+    background-position 0.6s var(--nova-ease),
+    border-color 0.3s,
+    background-color 0.3s;
+}
+.nova-btn:hover {
+  transform: translateY(-2px);
+}
+.nova-btn-primary {
+  color: #fff;
+  background-image: linear-gradient(100deg, #ff2e97 0%, #8b5cf6 50%, #00e5ff 100%);
+  background-size: 180% 100%;
+  background-position: 0% 50%;
+  box-shadow:
+    0 12px 36px -10px rgba(255, 46, 151, 0.75),
+    inset 0 1px 0 rgba(255, 255, 255, 0.25);
+}
+.nova-btn-primary:hover {
+  background-position: 100% 50%;
+  box-shadow:
+    0 16px 44px -10px rgba(0, 229, 255, 0.6),
+    inset 0 1px 0 rgba(255, 255, 255, 0.25);
+}
+.nova-btn-ghost {
+  color: #f7f5ff;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.06);
+}
+.nova-btn-ghost:hover {
+  border-color: rgba(0, 229, 255, 0.6);
+  background: rgba(0, 229, 255, 0.1);
+}
+.nova-btn-link {
+  height: auto;
+  padding: 0.75rem;
+  color: #cfc9ea;
+  font-weight: 500;
+}
+.nova-btn-link:hover {
+  color: #fff;
+  transform: none;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+
+/* Keeps copy legible over the brightest particles without a hard box. */
+.nova-scrim {
+  background: radial-gradient(closest-side, rgba(7, 5, 20, 0.62), rgba(7, 5, 20, 0.28) 70%, transparent);
+  border-radius: 40px;
+}
+
+.nova-aurora {
+  will-change: transform, opacity;
+  animation: nova-drift 26s ease-in-out infinite alternate;
+}
+@keyframes nova-drift {
+  0% {
+    transform: translate3d(-2%, -1%, 0) scale(1);
+  }
+  100% {
+    transform: translate3d(3%, 2%, 0) scale(1.08);
+  }
+}
+.nova-canvas {
+  opacity: 0;
+  transition: opacity 1.2s var(--nova-ease);
+}
+.nova-canvas[data-ready] {
+  opacity: 1;
+}
+.nova-vignette {
+  background:
+    radial-gradient(120% 90% at 50% 50%, transparent 55%, rgba(4, 2, 12, 0.75) 100%),
+    linear-gradient(180deg, transparent 70%, rgba(4, 2, 12, 0.55));
+}
+
+.nova-scroll-line {
+  position: relative;
+  width: 56px;
+  height: 1px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.18);
+}
+.nova-scroll-line::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--nova-gradient);
+  transform: translateX(-100%);
+  animation: nova-cue 2.2s var(--nova-ease) infinite;
+}
+@keyframes nova-cue {
+  60%,
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.nova-rail-btn {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 4px 0 4px 12px;
+  cursor: pointer;
+}
+.nova-rail-label {
+  font: 500 10.5px/1 var(--font-jbmono), ui-monospace, monospace;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: #e9e5ff;
+  opacity: 0;
+  transform: translateX(6px);
+  transition:
+    opacity 0.3s var(--nova-ease),
+    transform 0.3s var(--nova-ease);
+}
+.nova-rail-btn:hover .nova-rail-label,
+.nova-rail-btn:focus-visible .nova-rail-label,
+.nova-rail-btn[aria-current] .nova-rail-label {
+  opacity: 1;
+  transform: none;
+}
+.nova-rail-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  transition:
+    transform 0.35s var(--nova-ease),
+    background-color 0.35s,
+    box-shadow 0.35s;
+}
+.nova-rail-dot[data-active] {
+  transform: scale(1.5);
+  border-color: transparent;
+  background: var(--nova-pink);
+  box-shadow: 0 0 14px rgba(255, 46, 151, 0.9);
+}
+
+/* Reveal: children rise in as their act arrives (JS adds .nova-js). */
+.nova-js [data-nova-reveal] > * {
+  opacity: 0;
+  transform: translate3d(0, 34px, 0);
+  transition:
+    opacity 0.9s var(--nova-ease),
+    transform 1.1s var(--nova-ease);
+}
+.nova-js [data-nova-reveal][data-in] > * {
+  opacity: 1;
+  transform: none;
+}
+.nova-js [data-nova-reveal] > :nth-child(2) {
+  transition-delay: 0.08s;
+}
+.nova-js [data-nova-reveal] > :nth-child(3) {
+  transition-delay: 0.16s;
+}
+.nova-js [data-nova-reveal] > :nth-child(4) {
+  transition-delay: 0.24s;
+}
+.nova-js [data-nova-reveal] > :nth-child(n + 5) {
+  transition-delay: 0.32s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nova-gradient-text,
+  .nova-aurora,
+  .nova-scroll-line::after {
+    animation: none;
+  }
 }
