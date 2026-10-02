@@ -350,7 +350,6 @@ html:has(.nova-canvas) * {
 
 /* Shared raised surface (suggestion list, signals panel). */
 .nova-modal {
-  position: relative;
   background:
     linear-gradient(160deg, rgba(139, 92, 246, 0.14), transparent 45%),
     linear-gradient(340deg, rgba(255, 46, 151, 0.1), transparent 40%),
@@ -373,7 +372,8 @@ html:has(.nova-canvas) * {
   background: rgba(4, 2, 12, 0.72);
 }
 .nova-auth {
-  position: relative;
+  /* No position here: this surface is reused by absolute dropdowns, and an
+     unlayered rule would override Tailwind's layered `absolute` utility. */
   background: #0f0c1d;
   border: 1px solid rgba(255, 255, 255, 0.08);
   box-shadow:
@@ -559,23 +559,15 @@ html:has(.nova-canvas) * {
 /* ── Brand mark ───────────────────────────────────────────────────────────── */
 .bx-mark {
   flex: none;
-  filter: drop-shadow(0 4px 14px rgba(196, 59, 214, 0.35));
 }
-.bx-ring,
-.bx-core,
 .bx-hit {
   transform-box: view-box;
   transform-origin: 16px 16px;
-  transition: transform 0.6s var(--nova-ease);
+  transition: transform 0.5s var(--nova-ease);
 }
-.bx-logo:hover .bx-ring {
-  transform: rotate(90deg);
-}
-.bx-logo:hover .bx-core {
-  transform: scale(1.12);
-}
+/* On hover the point settles to dead centre: the eye finds its target. */
 .bx-logo:hover .bx-hit {
-  transform: rotate(90deg);
+  transform: translate(-2.6px, 2.6px);
 }
 
 /* ── Header search ────────────────────────────────────────────────────────── */
@@ -1085,4 +1077,131 @@ html:has(.nova-canvas) * {
   align-items: center;
   gap: 10px;
   padding: 10px 12px 2px 14px;
+}
+
+/* ── Motion system: one set of open/close animations for the whole site ─────
+   Pair with usePresence(): data-state="open" plays in, "closed" plays out
+   before the element unmounts. Only opacity / transform animate. */
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.98);
+  }
+}
+@keyframes pop-out {
+  to {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.98);
+  }
+}
+@keyframes dialog-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.96);
+  }
+}
+@keyframes dialog-out {
+  to {
+    opacity: 0;
+    transform: translateY(8px) scale(0.97);
+  }
+}
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes fade-out {
+  to {
+    opacity: 0;
+  }
+}
+.anim-pop[data-state] {
+  transform-origin: top center;
+}
+.anim-pop[data-state="open"] {
+  animation: pop-in 0.22s cubic-bezier(0.2, 0.9, 0.3, 1.05) both;
+}
+.anim-pop[data-state="closed"] {
+  animation: pop-out 0.16s ease-in forwards;
+  pointer-events: none;
+}
+.anim-dialog[data-state="open"] {
+  animation: dialog-in 0.32s cubic-bezier(0.2, 0.9, 0.3, 1.04) both;
+}
+.anim-dialog[data-state="closed"] {
+  animation: dialog-out 0.2s ease-in forwards;
+  pointer-events: none;
+}
+.anim-fade[data-state="open"] {
+  animation: fade-in 0.25s ease-out both;
+}
+.anim-fade[data-state="closed"] {
+  animation: fade-out 0.2s ease-in forwards;
+  pointer-events: none;
+}
+
+/* Every page eases in when it opens (app/template.tsx remounts per route).
+   Opacity only: a transform on this wrapper would turn it into the
+   containing block for position:fixed children (the index tape, dialogs). */
+@keyframes page-enter {
+  from {
+    opacity: 0;
+  }
+}
+.page-enter {
+  /* The opacity animation makes this wrapper a stacking context; lift it
+     above the homepage's fixed background layer (z-index 0, portaled to the
+     end of <body>) so page content is never drawn underneath it. */
+  position: relative;
+  z-index: 1;
+  animation: page-enter 0.4s ease-out both;
+}
+
+/* Homepage <-> stock page swap (same route) uses the View Transitions API. */
+::view-transition-old(root) {
+  animation: vt-out 0.22s ease-in both;
+}
+::view-transition-new(root) {
+  animation: vt-in 0.38s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+@keyframes vt-out {
+  to {
+    opacity: 0;
+    transform: scale(0.985);
+  }
+}
+@keyframes vt-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+}
+
+/* Tactile press on every button and button-like link. */
+button:not(:disabled),
+a[class*="btn"],
+[role="button"] {
+  transition-property: color, background-color, border-color, box-shadow, opacity, transform, translate, scale, rotate;
+}
+button:not(:disabled):active,
+a[class*="btn"]:active {
+  transform: scale(0.97);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .anim-pop[data-state],
+  .anim-dialog[data-state],
+  .anim-fade[data-state],
+  .page-enter {
+    animation-duration: 0.01ms !important;
+  }
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation: none;
+  }
+  button:not(:disabled):active,
+  a[class*="btn"]:active {
+    transform: none;
+  }
 }

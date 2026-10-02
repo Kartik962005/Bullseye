@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import type { ReactNode } from "react";
 import { cn } from "./cn";
+import { usePresence } from "@/components/motion/usePresence";
 
 export type ModalSize = "sm" | "md" | "lg";
 
@@ -31,17 +32,19 @@ export function Modal({ open, onClose, title, size = "md", children }: ModalProp
     return () => document.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
-  if (!open) return null;
+  const presence = usePresence(open, 220);
+  if (!presence.mounted) return null;
 
   return (
     <>
-      <div className="fixed inset-0 z-[72] bg-slate-950/80 backdrop-blur-sm" onClick={onClose} />
-      <div className="fixed inset-0 z-[73] flex items-start justify-center overflow-y-auto p-3 sm:items-center sm:p-4">
+      <div data-state={presence.state} className="anim-fade nova-modal-backdrop fixed inset-0 z-[72]" onClick={onClose} />
+      <div data-lenis-prevent className="fixed inset-0 z-[73] flex items-start justify-center overflow-y-auto p-3 sm:items-center sm:p-4" onClick={onClose}>
         <div
           role="dialog"
           aria-modal="true"
+          data-state={presence.state}
           className={cn(
-            "my-4 w-full rounded-3xl border border-white/10 bg-slate-950 p-5 text-white shadow-[0_28px_90px_rgba(15,23,42,0.5)] sm:p-6",
+            "anim-dialog nova-auth my-4 w-full rounded-3xl p-5 text-white sm:p-6",
             SIZE[size],
           )}
           onClick={(event) => event.stopPropagation()}

@@ -1,7 +1,7 @@
 'use client';
 import { Suspense, useState, useEffect, useLayoutEffect, useCallback, useId, useRef, useMemo, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react';
 import Link from 'next/link';
-import { createPortal } from 'react-dom';
+import { createPortal, flushSync } from 'react-dom';
 import { usePathname, useSearchParams } from 'next/navigation';
 import useSWR from 'swr';
 import { STOCKS } from './stocks';
@@ -10,6 +10,7 @@ import {
 } from '@/components/home';
 import { NovaExperience } from '@/components/home/nova/NovaExperience';
 import { NovaSearch } from '@/components/home/NovaSearch';
+import { usePresence } from '@/components/motion/usePresence';
 import { BullseyeLogo, BullseyeMark } from '@/components/brand/BullseyeLogo';
 import { TrackRecord } from '@/components/stock/TrackRecord';
 import { PeerComparison } from '@/components/stock/PeerComparison';
@@ -167,19 +168,17 @@ function NotificationSettingsModal({
   onConfirmConsent: () => void;
   onCancelConsent: () => void;
 }) {
-  if (!open) return null;
+  const presence = usePresence(open, 220);
+  if (!presence.mounted) return null;
 
   return (
     <>
-      <div className="fixed inset-0 z-[70] bg-black/80 backdrop-blur-md" onClick={onClose} />
-      <div className="fixed inset-0 z-[71] flex items-start justify-center overflow-y-auto p-3 sm:items-center sm:p-4">
+      <div data-state={presence.state} className="anim-fade nova-modal-backdrop fixed inset-0 z-[70]" onClick={onClose} />
+      <div data-lenis-prevent className="fixed inset-0 z-[71] flex items-start justify-center overflow-y-auto p-3 sm:items-center sm:p-4" onClick={onClose}>
         <div
-          className="my-4 max-h-[calc(100vh-2rem)] w-full max-w-3xl overflow-y-auto rounded-[24px] border border-hairline font-body text-paper"
-          style={{
-            background:
-              'linear-gradient(145deg, rgba(20,22,19,0.97) 0%, rgba(8,10,9,0.99) 55%, rgba(16,18,15,0.97) 100%)',
-            boxShadow: '0 40px 110px rgba(0,0,0,0.7), inset 0 1px 0 rgba(255,79,163,0.12)',
-          }}
+          data-state={presence.state}
+          className="anim-dialog nova-auth my-4 max-h-[calc(100vh-2rem)] w-full max-w-3xl overflow-y-auto rounded-[24px] font-body text-paper"
+          onClick={event => event.stopPropagation()}
           onKeyDown={event => {
             if (
               showConsent ||
@@ -409,16 +408,9 @@ function NotificationSettingsModal({
 
       {showConsent && (
         <>
-          <div className="fixed inset-0 z-[72] bg-black/85 backdrop-blur-md" />
+          <div data-state="open" className="anim-fade nova-modal-backdrop fixed inset-0 z-[72]" />
           <div className="fixed inset-0 z-[73] flex items-start justify-center overflow-y-auto p-3 sm:items-center sm:p-4">
-            <div
-              className="my-4 w-full max-w-lg rounded-[24px] border border-hairline p-7 font-body text-paper"
-              style={{
-                background:
-                  'linear-gradient(145deg, rgba(20,22,19,0.97) 0%, rgba(8,10,9,0.99) 55%, rgba(16,18,15,0.97) 100%)',
-                boxShadow: '0 40px 110px rgba(0,0,0,0.7), inset 0 1px 0 rgba(255,79,163,0.12)',
-              }}
-            >
+            <div data-state="open" className="anim-dialog nova-auth my-4 w-full max-w-lg rounded-[24px] p-7 font-body text-paper">
               <div className="flex items-center gap-3">
                 <span className="h-px w-8 bg-accent/60" />
                 <span className="font-body text-[10px] font-medium uppercase tracking-[0.26em] text-accent">Consent required</span>
@@ -1207,6 +1199,20 @@ const FundamentalsSnapshotCard = ({
 };
 
 /**
+ * Runs a same-page view switch (homepage <-> stock, Overview <-> Financials)
+ * inside a View Transition so it crossfades and settles instead of snapping.
+ * Falls back to an instant switch where the API or motion isn't available.
+ */
+function withViewTransition(update: () => void) {
+  const doc = typeof document !== 'undefined' ? (document as Document & { startViewTransition?: (cb: () => void) => unknown }) : null;
+  if (!doc?.startViewTransition || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    update();
+    return;
+  }
+  doc.startViewTransition(() => flushSync(update));
+}
+
+/**
  * The whole Bullseye client app. Rendered by two routes:
  *   /                  the discovery hub
  *   /stock/[ticker]    a single stock, via `initialTicker`
@@ -1273,6 +1279,11 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
   const [cachedAnalysis, setCachedAnalysis] = useState<any>(undefined);
   const [cachedFundamentals, setCachedFundamentals] = useState<any>(undefined);
   const [showWelcome, setShowWelcome] = useState(false);
+  // Popovers and dialogs stay mounted briefly after closing so they animate out.
+  const suggestionsPresence = usePresence(showSuggestions && suggestions.length > 0, 160);
+  const profilePresence = usePresence(showProfileMenu, 180);
+  const authPresence = usePresence(showAuthModal, 220);
+  const indicatorPresence = usePresence(showIndicatorMenu, 160);
   const [welcomeName, setWelcomeName] = useState('');
   const notificationConsentVersion = process.env.NEXT_PUBLIC_NOTIFICATION_CONSENT_VERSION || '2026-05-29';
   const accountMenuRef = useRef<HTMLDivElement>(null);
@@ -1882,8 +1893,10 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
         setShowProfileMenu(false);
         return;
       }
-      applyUrlState(window.location.search);
-      setShowProfileMenu(false);
+      withViewTransition(() => {
+        applyUrlState(window.location.search);
+        setShowProfileMenu(false);
+      });
     };
 
     window.addEventListener('popstate', handlePopState);
@@ -2172,6 +2185,10 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
   }, [chartData, chartRange, indicatorPanels, ticker, dashboardView, analysis]);
 
   const openStockView = (stock: typeof STOCKS[0], nextView: DashboardView = 'overview') => {
+    withViewTransition(() => openStockViewNow(stock, nextView));
+  };
+
+  const openStockViewNow = (stock: typeof STOCKS[0], nextView: DashboardView = 'overview') => {
     const market = resolveMarket(stock.exchange);
     const resolvedView = canShowDetailedAnalysis(stock) ? nextView : 'overview';
     setCachedQuote(getCache(`quote:${stock.ticker}`));
@@ -2227,10 +2244,12 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
   };
 
   const goHome = () => {
-    setTicker(null);
-    setDashboardView('overview');
-    setCachedFundamentals(undefined);
-    setShowProfileMenu(false);
+    withViewTransition(() => {
+      setTicker(null);
+      setDashboardView('overview');
+      setCachedFundamentals(undefined);
+      setShowProfileMenu(false);
+    });
     window.history.pushState({ view: 'home' }, '', '/');
   };
 
@@ -2547,7 +2566,7 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
       {/* WELCOME — a small toast after sign-in that slides in, then away. */}
       {showWelcome && (
         <div className="nova-toast fixed left-1/2 top-5 z-[9999] font-body" role="status" aria-live="polite">
-          <BullseyeMark size={28} />
+          <BullseyeMark size={28} className="ml-1 text-white" />
           <div className="leading-tight">
             <div className="text-[14px] font-medium text-white">Welcome back, {welcomeName}</div>
             <div className="text-[12.5px] text-[#9f99c2]">You&apos;re signed in.</div>
@@ -2555,7 +2574,9 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
         </div>
       )}
 
-      <div className="min-h-screen overflow-x-clip bg-[#04070f] text-slate-100 selection:bg-cyan-500/20 selection:text-cyan-100 flex flex-col font-body">
+      {/* Transparent on the homepage: the fixed 3D scene paints the ground
+          there and sits beneath this (raised) page layer. */}
+      <div className={`min-h-screen overflow-x-clip ${ticker ? 'bg-[#04070f]' : 'bg-transparent'} text-slate-100 selection:bg-cyan-500/20 selection:text-cyan-100 flex flex-col font-body`}>
 
         {/* IMMERSIVE BACKGROUND — View 2 keeps the Market Globe; View 1's
             background is owned by the Nova scroll scene (its own fixed layer). */}
@@ -2585,7 +2606,7 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
             className="flex shrink-0 items-center text-left"
             aria-label="Bullseye home"
           >
-            <BullseyeLogo size={30} wordClassName="text-[19px]" />
+            <BullseyeLogo size={26} wordClassName="text-[20px]" />
           </button>
 
           <div className="relative order-last w-full min-w-0 lg:order-none lg:w-auto lg:max-w-[420px] lg:flex-1">
@@ -2600,8 +2621,8 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
                 placeholder="Search any stock…"
               />
             </NovaSearch>
-            {showSuggestions && suggestions.length > 0 && (
-              <div data-lenis-prevent className="nova-modal absolute z-50 mt-2 max-h-[72vh] w-full min-w-[min(82vw,320px)] overflow-y-auto overflow-x-hidden rounded-2xl p-1.5 sm:min-w-full" style={{ animationDuration: '0.25s' }}>
+            {suggestionsPresence.mounted && (
+              <div data-lenis-prevent data-state={suggestionsPresence.state} className="anim-pop nova-modal absolute z-50 mt-2 max-h-[72vh] w-full min-w-[min(82vw,320px)] overflow-y-auto overflow-x-hidden rounded-2xl p-1.5 sm:min-w-full">
                 {suggestions.map((stock) => (
                   <div key={stock.ticker} onMouseDown={() => selectStock(stock)} className="group grid cursor-pointer grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-xl px-3 py-2.5 transition-colors hover:bg-white/[0.07] sm:px-4">
                     <span className="min-w-0 truncate font-body text-[14px] text-[#e9e5ff] group-hover:text-white" title={stock.name}>{stock.name}</span>
@@ -2642,7 +2663,7 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
                   setShowProfileMenu(prev => !prev);
                 }
               }}
-              className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-full border border-cyan-200 bg-white text-cyan-700 font-black uppercase shadow-[0_12px_32px_rgba(6,182,212,0.16)] transition-all hover:border-cyan-400 hover:bg-cyan-50 sm:h-12 sm:w-12"
+              className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-full border border-white/15 bg-white/[0.06] text-[15px] font-semibold uppercase text-white transition-all hover:border-white/30 hover:bg-white/[0.1]"
               title={user ? 'Open user dashboard' : 'Open account menu'}
               aria-label={user ? 'Open user dashboard' : 'Open account menu'}
               aria-expanded={showProfileMenu}
@@ -2659,85 +2680,73 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
               )}
             </button>
 
-            {showProfileMenu && (
-              <div className="absolute right-0 top-full mt-3 z-50 w-80 max-w-[calc(100vw-2rem)] max-h-[calc(100vh-9rem)] overflow-y-auto rounded-2xl border border-slate-200 bg-white text-slate-900 shadow-[0_28px_65px_rgba(15,23,42,0.28)] p-4 sm:p-5">
+            {profilePresence.mounted && (
+              <div
+                data-lenis-prevent
+                data-state={profilePresence.state}
+                className="anim-pop nova-auth absolute right-0 top-full z-50 mt-3 w-72 max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl p-1.5 font-body"
+              >
                 {authReady && user ? (
                   <>
-                    <div className="flex items-center gap-3 border-b border-slate-200 pb-4 mb-4">
-                      <div className="w-12 h-12 rounded-full bg-cyan-100 text-cyan-700 font-black flex items-center justify-center overflow-hidden shrink-0">
+                    <div className="flex items-center gap-3 px-3 pb-3 pt-2.5">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white/[0.08] text-[15px] font-semibold uppercase text-white">
                         {user.user_metadata?.avatar_url ? (
-                          <img src={user.user_metadata.avatar_url} alt="avatar" referrerPolicy="no-referrer" className="w-full h-full object-cover" />
+                          <img src={user.user_metadata.avatar_url} alt="" referrerPolicy="no-referrer" className="h-full w-full object-cover" />
                         ) : (
                           (user.user_metadata?.full_name || user.email || 'U').slice(0, 1)
                         )}
                       </div>
                       <div className="min-w-0">
-                        <div className="font-black text-sm truncate font-body">{user.user_metadata?.full_name || 'Signed in user'}</div>
-                        <div className="text-xs text-slate-500 truncate font-numeric">{user.email}</div>
+                        <div className="truncate text-[14px] font-medium text-white">{user.user_metadata?.full_name || 'Signed in'}</div>
+                        <div className="truncate text-[12.5px] text-[#9f99c2]">{user.email}</div>
                       </div>
                     </div>
-                    <div className="mb-4">
-                      <div className="text-[10px] uppercase tracking-widest text-cyan-700 font-black font-body">Dashboard</div>
-                      <div className="text-xs text-slate-500 mt-1 font-numeric">Your signed-in Bullseye workspace</div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-3 mb-4">
-                      <div className="rounded-xl bg-slate-50 border border-slate-200 p-3">
-                        <span className="text-[9px] uppercase tracking-widest text-slate-500 font-bold">Market</span>
-                        <div className="text-sm font-bold">{activeMarket}</div>
-                      </div>
-                      <div className="rounded-xl bg-slate-50 border border-slate-200 p-3">
-                        <span className="text-[9px] uppercase tracking-widest text-slate-500 font-bold">Viewing</span>
-                        <div className="text-sm font-bold truncate">{ticker || 'Overview'}</div>
-                      </div>
-                      <div className="rounded-xl bg-slate-50 border border-slate-200 p-3">
-                        <span className="text-[9px] uppercase tracking-widest text-slate-500 font-bold">Saved scans</span>
-                        <div className="text-sm font-bold">{Object.keys(prefetchCache).length}</div>
-                      </div>
-                      <div className="rounded-xl bg-slate-50 border border-slate-200 p-3">
-                        <span className="text-[9px] uppercase tracking-widest text-slate-500 font-bold">Cache</span>
-                        <div className="text-sm font-bold">{cachedAnalysis ? 'Ready' : 'Live'}</div>
-                      </div>
-                    </div>
+                    <div className="mx-1.5 h-px bg-white/[0.07]" />
                     <button
                       type="button"
                       onClick={() => {
                         setShowProfileMenu(false);
                         setShowNotificationSettings(true);
                       }}
-                      className="mb-3 w-full rounded-xl border border-cyan-200 bg-cyan-50 py-3 text-xs font-black uppercase tracking-widest text-cyan-700 transition-colors hover:border-cyan-300 hover:bg-cyan-100 font-body"
+                      className="mt-1.5 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-[14px] text-[#e9e5ff] transition hover:bg-white/[0.06] hover:text-white"
                     >
-                      Logged-in Alerts
+                      <svg viewBox="0 0 20 20" className="h-4 w-4 text-[#9f99c2]" fill="none" aria-hidden><path d="M10 3a5 5 0 0 0-5 5v3l-1.5 2.5h13L15 11V8a5 5 0 0 0-5-5ZM8 16a2 2 0 0 0 4 0" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                      Daily alerts
                     </button>
+                    <Link
+                      href="/screens"
+                      onClick={() => setShowProfileMenu(false)}
+                      className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-[14px] text-[#e9e5ff] transition hover:bg-white/[0.06] hover:text-white"
+                    >
+                      <svg viewBox="0 0 20 20" className="h-4 w-4 text-[#9f99c2]" fill="none" aria-hidden><path d="M3 5h14M5.5 10h9M8 15h4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></svg>
+                      Screener
+                    </Link>
                     <button
                       type="button"
                       onClick={handleSignOut}
-                      className="force-light-text w-full rounded-xl bg-slate-900 py-3 text-xs font-black uppercase tracking-widest font-body hover:bg-slate-700 transition-colors"
+                      className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-[14px] text-[#ff8aa0] transition hover:bg-[#ff5c7a]/10"
                     >
-                      Sign Out
+                      <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" aria-hidden><path d="M8 4H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3M13 13.5 16.5 10 13 6.5M16.5 10H8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                      Sign out
                     </button>
                   </>
                 ) : !authReady && supabaseAvailable ? (
-                  <div className="flex flex-col items-center justify-center gap-3 py-6">
-                    <div className="w-6 h-6 border-2 border-slate-200 border-t-cyan-500 rounded-full animate-spin" />
-                    <div className="text-center">
-                      <div className="text-[10px] uppercase tracking-widest text-cyan-700 font-black font-body">Loading Account</div>
-                      <div className="text-xs text-slate-500 mt-1 font-numeric">Checking your sign-in session...</div>
-                    </div>
+                  <div className="flex items-center gap-3 px-3 py-4 text-[13.5px] text-[#b9b4d6]">
+                    <span className="nova-spinner" aria-hidden />
+                    Checking your sign-in…
                   </div>
                 ) : (
-                  <>
-                    <div className="mb-4">
-                      <div className="text-[10px] uppercase tracking-widest text-cyan-700 font-black font-body">Account</div>
-                      <div className="text-xs text-slate-500 mt-1 font-numeric">Sign in to open your Bullseye dashboard.</div>
-                    </div>
+                  <div className="p-2">
+                    <div className="px-1 text-[14px] font-medium text-white">Your Bullseye account</div>
+                    <p className="mt-1 px-1 text-[13px] leading-5 text-[#9f99c2]">Sign in to save alerts and get the short list by email.</p>
                     <button
                       type="button"
                       onClick={() => { setShowProfileMenu(false); setShowAuthModal(true); }}
-                      className="force-light-text w-full rounded-xl bg-slate-900 py-3 text-xs font-black uppercase tracking-widest font-body hover:bg-slate-700 transition-colors"
+                      className="mt-3 h-10 w-full rounded-xl bg-white text-[14px] font-medium text-[#0f0b1f] transition hover:bg-white/90"
                     >
-                      Sign In
+                      Sign in
                     </button>
-                  </>
+                  </div>
                 )}
               </div>
             )}
@@ -2870,10 +2879,10 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
                               Indicators
                               {activeIndicators.length > 0 && <span className="sx-count">{activeIndicators.length}</span>}
                             </button>
-                            {showIndicatorMenu && (
+                            {indicatorPresence.mounted && (
                               <>
-                                <div className="fixed inset-0 z-40" onClick={() => setShowIndicatorMenu(false)} />
-                                <div data-lenis-prevent className="sx-menu">
+                                {showIndicatorMenu && <div className="fixed inset-0 z-40" onClick={() => setShowIndicatorMenu(false)} />}
+                                <div data-lenis-prevent data-state={indicatorPresence.state} className="anim-pop sx-menu">
                                   <div className="flex items-center justify-between px-4 pb-2 pt-4">
                                     <div className="text-[15px] font-semibold text-paper">Indicators</div>
                                     <button
@@ -3102,12 +3111,13 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
           the overlay out of that subtree, `isolation` gives it its own stacking
           context, and `translateZ(0)` promotes it to its own compositor layer so
           the blur samples a static snapshot instead of thrashing live content. */}
-      {showAuthModal && typeof document !== 'undefined' && createPortal(
+      {authPresence.mounted && typeof document !== 'undefined' && createPortal(
         <div
           onClick={dismissAuthModal}
           role="presentation"
+          data-state={authPresence.state}
           style={{ isolation: 'isolate', transform: 'translateZ(0)' }}
-          className="nova-modal-backdrop fixed inset-0 z-50 flex items-center justify-center p-4"
+          className="anim-fade nova-modal-backdrop fixed inset-0 z-50 flex items-center justify-center p-4"
         >
           <div
             onClick={event => event.stopPropagation()}
@@ -3115,10 +3125,11 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
             aria-modal="true"
             aria-label="Sign in to Bullseye"
             data-lenis-prevent
-            className="nova-auth w-full max-w-[380px] rounded-2xl p-7 font-body"
+            data-state={authPresence.state}
+            className="anim-dialog nova-auth w-full max-w-[380px] rounded-2xl p-7 font-body"
           >
             <div className="flex items-center justify-between">
-              <BullseyeMark size={34} />
+              <BullseyeMark size={32} className="text-white" />
               <button
                 onClick={dismissAuthModal}
                 aria-label="Close sign-in and continue without an account"

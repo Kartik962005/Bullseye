@@ -326,7 +326,7 @@ function AnswerResult({ result, currency }: { result: any; currency: string }) {
             {showData ? "Hide the data used" : "Show the data used"}
           </button>
           {showData && (
-            <div className="mt-3">
+            <div className="anim-pop mt-3" data-state="open">
               <RowsGrid rows={rows} currency={currency} />
             </div>
           )}
