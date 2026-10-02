@@ -348,10 +348,7 @@ html:has(.nova-canvas) * {
   border-radius: 40px;
 }
 
-/* Sign-in dialog and welcome card share one surface. */
-.nova-modal-backdrop {
-  background: radial-gradient(80% 70% at 50% 45%, rgba(20, 10, 48, 0.72), rgba(4, 2, 12, 0.9));
-}
+/* Shared raised surface (suggestion list, signals panel). */
 .nova-modal {
   position: relative;
   background:
@@ -371,41 +368,78 @@ html:has(.nova-canvas) * {
     transform: translateY(14px) scale(0.98);
   }
 }
-.nova-input {
-  height: 3rem;
+/* Minimal sign-in dialog: one flat surface, hairline border, no decoration. */
+.nova-modal-backdrop {
+  background: rgba(4, 2, 12, 0.72);
+}
+.nova-auth {
+  position: relative;
+  background: #0f0c1d;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow:
+    0 30px 80px -20px rgba(0, 0, 0, 0.85),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  animation: nova-rise 0.32s var(--nova-ease) both;
+}
+@keyframes nova-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.985);
+  }
+}
+.nova-field {
+  display: block;
+  height: 2.75rem;
   width: 100%;
-  border-radius: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(255, 255, 255, 0.04);
-  padding: 0 1rem;
-  font: 400 15px var(--font-inter), system-ui, sans-serif;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.03);
+  padding: 0 0.9rem;
+  font: 400 14px var(--font-inter), system-ui, sans-serif;
   color: #fff;
   outline: none;
   transition:
-    border-color 0.2s,
-    box-shadow 0.2s;
+    border-color 0.15s,
+    box-shadow 0.15s,
+    background-color 0.15s;
 }
-.nova-input::placeholder {
-  color: #8f89ad;
+.nova-field::placeholder {
+  color: #6f6990;
 }
-.nova-input:focus {
-  border-color: rgba(255, 79, 163, 0.7);
-  box-shadow: 0 0 0 4px rgba(255, 46, 151, 0.14);
+.nova-field:hover {
+  border-color: rgba(255, 255, 255, 0.18);
 }
-.nova-welcome {
-  background: radial-gradient(60% 50% at 50% 50%, rgba(7, 5, 20, 0.55), transparent 80%);
-  animation: nova-welcome 2.8s var(--nova-ease) forwards;
+.nova-field:focus {
+  border-color: rgba(255, 79, 163, 0.8);
+  background: rgba(255, 255, 255, 0.05);
+  box-shadow: 0 0 0 3px rgba(255, 79, 163, 0.16);
 }
-@keyframes nova-welcome {
+
+/* Welcome toast after sign-in: slides down, holds, slides away. */
+.nova-toast {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 20px 8px 8px;
+  border-radius: 999px;
+  background: rgba(15, 12, 29, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 20px 50px -16px rgba(0, 0, 0, 0.8);
+  animation: nova-toast 2.8s var(--nova-ease) forwards;
+}
+@keyframes nova-toast {
   0% {
     opacity: 0;
+    transform: translate(-50%, -16px);
   }
   12%,
-  78% {
+  82% {
     opacity: 1;
+    transform: translate(-50%, 0);
   }
   100% {
     opacity: 0;
+    transform: translate(-50%, -10px);
   }
 }
 
@@ -525,45 +559,23 @@ html:has(.nova-canvas) * {
 /* ── Brand mark ───────────────────────────────────────────────────────────── */
 .bx-mark {
   flex: none;
-  overflow: visible;
-  filter: drop-shadow(0 0 10px rgba(255, 46, 151, 0.35));
+  filter: drop-shadow(0 4px 14px rgba(196, 59, 214, 0.35));
 }
 .bx-ring,
 .bx-core,
-.bx-arrow {
+.bx-hit {
   transform-box: view-box;
   transform-origin: 16px 16px;
-  transition: transform 0.5s var(--nova-ease);
+  transition: transform 0.6s var(--nova-ease);
 }
-.bx-logo:hover .bx-arrow {
-  animation: bx-strike 0.6s var(--nova-ease);
-}
-.bx-logo:hover .bx-ring-outer {
-  animation: bx-pulse 0.7s var(--nova-ease) 0.18s;
-}
-.bx-logo:hover .bx-ring-inner {
-  animation: bx-pulse 0.7s var(--nova-ease) 0.1s;
+.bx-logo:hover .bx-ring {
+  transform: rotate(90deg);
 }
 .bx-logo:hover .bx-core {
-  transform: scale(1.18);
+  transform: scale(1.12);
 }
-@keyframes bx-strike {
-  0% {
-    transform: translate(5px, -5px);
-    opacity: 0;
-  }
-  60% {
-    transform: translate(-0.6px, 0.6px);
-    opacity: 1;
-  }
-  100% {
-    transform: none;
-  }
-}
-@keyframes bx-pulse {
-  50% {
-    transform: scale(1.09);
-  }
+.bx-logo:hover .bx-hit {
+  transform: rotate(90deg);
 }
 
 /* ── Header search ────────────────────────────────────────────────────────── */
@@ -791,123 +803,12 @@ html:has(.nova-canvas) * {
 @media (prefers-reduced-motion: reduce) {
   .nova-search:hover::before,
   .nova-search:focus-within::before,
-  .nova-card-bar[data-loading] > i,
-  .bx-logo:hover .bx-arrow,
-  .bx-logo:hover .bx-ring-outer,
-  .bx-logo:hover .bx-ring-inner {
+  .nova-card-bar[data-loading] > i {
     animation: none;
   }
 }
 
-/* ── Dialogs: brand band, spinning border, quick look ─────────────────────── */
-.nova-glow-border::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: 2;
-  border-radius: inherit;
-  padding: 1px;
-  background: conic-gradient(from var(--nova-angle), rgba(0, 229, 255, 0.9), rgba(139, 92, 246, 0.25), rgba(255, 46, 151, 0.9), rgba(255, 181, 71, 0.25), rgba(0, 229, 255, 0.9));
-  -webkit-mask:
-    linear-gradient(#000 0 0) content-box,
-    linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
-  animation: nova-spin 6s linear infinite;
-  pointer-events: none;
-}
-.nova-hero-band {
-  position: relative;
-  display: grid;
-  place-items: center;
-  height: 136px;
-  overflow: hidden;
-  background:
-    radial-gradient(60% 90% at 50% 100%, rgba(255, 46, 151, 0.35), transparent 70%),
-    radial-gradient(50% 80% at 15% 0%, rgba(0, 229, 255, 0.25), transparent 70%),
-    radial-gradient(50% 80% at 85% 0%, rgba(139, 92, 246, 0.4), transparent 70%),
-    #120c2b;
-}
-.nova-hero-band::after {
-  /* faint dot grid, like the particle field */
-  content: "";
-  position: absolute;
-  inset: 0;
-  background-image: radial-gradient(rgba(255, 255, 255, 0.22) 1px, transparent 1.2px);
-  background-size: 14px 14px;
-  -webkit-mask-image: radial-gradient(70% 90% at 50% 50%, #000, transparent 75%);
-  mask-image: radial-gradient(70% 90% at 50% 50%, #000, transparent 75%);
-  opacity: 0.5;
-  pointer-events: none;
-}
-.nova-hero-band .bx-mark {
-  position: relative;
-  z-index: 1;
-  filter: drop-shadow(0 0 18px rgba(255, 46, 151, 0.6));
-}
-.nova-orbit {
-  position: absolute;
-  width: 118px;
-  height: 118px;
-  border-radius: 999px;
-  border: 1px dashed rgba(255, 255, 255, 0.22);
-  animation: nova-orbit 18s linear infinite;
-}
-.nova-orbit::after {
-  content: "";
-  position: absolute;
-  top: -3px;
-  left: 50%;
-  width: 6px;
-  height: 6px;
-  margin-left: -3px;
-  border-radius: 999px;
-  background: #00e5ff;
-  box-shadow: 0 0 10px #00e5ff;
-}
-.nova-orbit-2 {
-  width: 170px;
-  height: 170px;
-  border-style: solid;
-  border-color: rgba(255, 255, 255, 0.08);
-  animation-duration: 28s;
-  animation-direction: reverse;
-}
-.nova-orbit-2::after {
-  background: #ff4fa3;
-  box-shadow: 0 0 10px #ff4fa3;
-}
-@keyframes nova-orbit {
-  to {
-    transform: rotate(360deg);
-  }
-}
-/* The mark assembles as the dialog opens: rings pop, the arrow lands. */
-.bx-land .bx-ring-outer {
-  animation: bx-ring-in 0.7s var(--nova-ease) 0.1s both;
-}
-.bx-land .bx-ring-inner {
-  animation: bx-ring-in 0.7s var(--nova-ease) 0.2s both;
-}
-.bx-land .bx-core {
-  animation: bx-ring-in 0.6s var(--nova-ease) 0.3s both;
-}
-.bx-land .bx-arrow {
-  animation: bx-land 0.55s cubic-bezier(0.3, 1.4, 0.5, 1) 0.45s both;
-}
-@keyframes bx-ring-in {
-  from {
-    transform: scale(0.3);
-    opacity: 0;
-  }
-}
-@keyframes bx-land {
-  from {
-    transform: translate(14px, -14px);
-    opacity: 0;
-  }
-}
-
+/* ── Quick look ─────────────────────────────────────────────────────────── */
 .nova-quicklook-backdrop {
   background: radial-gradient(90% 80% at 50% 45%, rgba(18, 10, 44, 0.72), rgba(4, 2, 12, 0.9));
 }
@@ -929,6 +830,11 @@ html:has(.nova-canvas) * {
   background: rgba(255, 255, 255, 0.035);
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.07);
 }
+@keyframes nova-rotate {
+  to {
+    transform: rotate(360deg);
+  }
+}
 .nova-spinner {
   width: 16px;
   height: 16px;
@@ -936,20 +842,10 @@ html:has(.nova-canvas) * {
   border-radius: 999px;
   border: 2px solid rgba(255, 255, 255, 0.15);
   border-top-color: #ff4fa3;
-  animation: nova-orbit 0.8s linear infinite;
+  animation: nova-rotate 0.8s linear infinite;
 }
 /* Press-in on tap, like a phone icon being touched. */
 .nova-card:active {
   transform: translateY(-2px) scale(0.97);
   transition-duration: 0.12s;
-}
-@media (prefers-reduced-motion: reduce) {
-  .nova-glow-border::before,
-  .nova-orbit,
-  .bx-land .bx-ring-outer,
-  .bx-land .bx-ring-inner,
-  .bx-land .bx-core,
-  .bx-land .bx-arrow {
-    animation: none;
-  }
 }

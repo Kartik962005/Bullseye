@@ -14,7 +14,7 @@ export function SiteFooter() {
       <div className="border-t border-hairline pt-10">
         <div className="flex flex-wrap items-start justify-between gap-10">
           <div className="max-w-[34ch]">
-            <BullseyeLogo size={28} wordClassName="text-[24px]" />
+            <BullseyeLogo size={28} wordClassName="text-[18px]" />
             <p className="mt-4 font-body text-[13px] leading-6 text-paper-muted">
               AI-assisted market research for Indian equities. Not investment advice.
             </p>

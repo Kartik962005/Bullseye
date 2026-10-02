@@ -3536,21 +3536,13 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
         .strategy-row:hover { background: rgba(6,182,212,0.04) !important; }
       `}} />
 
-      {/* WELCOME — a short greeting after sign-in, then it fades away. */}
+      {/* WELCOME — a small toast after sign-in that slides in, then away. */}
       {showWelcome && (
-        <div className="nova-welcome pointer-events-none fixed inset-0 z-[9999] flex items-center justify-center p-6" role="status" aria-live="polite">
-          <div className="nova-welcome-card nova-modal nova-glow-border w-full max-w-[440px] overflow-hidden rounded-[28px] text-center font-body">
-            <div className="nova-hero-band">
-              <span className="nova-orbit" aria-hidden />
-              <span className="nova-orbit nova-orbit-2" aria-hidden />
-              <BullseyeMark size={72} className="bx-land" />
-            </div>
-            <div className="px-8 pb-8">
-            <p className="mt-5 font-display text-[clamp(38px,6vw,52px)] leading-[1] text-paper">
-              Welcome, <em className="nova-gradient-text italic">{welcomeName}.</em>
-            </p>
-            <p className="mt-3 text-[15px] text-[#c9c3e6]">You&apos;re signed in. Your alerts and saved scans are ready.</p>
-            </div>
+        <div className="nova-toast fixed left-1/2 top-5 z-[9999] font-body" role="status" aria-live="polite">
+          <BullseyeMark size={28} />
+          <div className="leading-tight">
+            <div className="text-[14px] font-medium text-white">Welcome back, {welcomeName}</div>
+            <div className="text-[12.5px] text-[#9f99c2]">You&apos;re signed in.</div>
           </div>
         </div>
       )}
@@ -3585,7 +3577,7 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
             className="flex shrink-0 items-center text-left"
             aria-label="Bullseye home"
           >
-            <BullseyeLogo size={32} wordClassName="text-[27px] sm:text-[29px]" />
+            <BullseyeLogo size={30} wordClassName="text-[19px]" />
           </button>
 
           <div className="relative order-last w-full min-w-0 lg:order-none lg:w-auto lg:max-w-[420px] lg:flex-1">
@@ -4261,17 +4253,14 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
             aria-modal="true"
             aria-label="Sign in to Bullseye"
             data-lenis-prevent
-            className="nova-modal nova-glow-border w-full max-w-[420px] overflow-hidden rounded-[28px] font-body"
+            className="nova-auth w-full max-w-[380px] rounded-2xl p-7 font-body"
           >
-            {/* Brand band: the mark lands its arrow as the dialog opens. */}
-            <div className="nova-hero-band">
-              <span className="nova-orbit" aria-hidden />
-              <span className="nova-orbit nova-orbit-2" aria-hidden />
-              <BullseyeMark size={68} className="bx-land" />
+            <div className="flex items-center justify-between">
+              <BullseyeMark size={34} />
               <button
                 onClick={dismissAuthModal}
                 aria-label="Close sign-in and continue without an account"
-                className="absolute right-3 top-3 flex h-9 w-9 items-center justify-center rounded-full bg-black/25 text-[#d6d0f0] transition hover:rotate-90 hover:bg-white/15 hover:text-white"
+                className="-mr-1.5 flex h-8 w-8 items-center justify-center rounded-lg text-[#9f99c2] transition hover:bg-white/[0.06] hover:text-white"
               >
                 <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
                   <path d="M18 6 6 18M6 6l12 12" />
@@ -4279,21 +4268,19 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
               </button>
             </div>
 
-            <div className="px-7 pb-7 sm:px-8 sm:pb-8">
-            <h2 className="mt-5 text-center font-display text-[34px] leading-[1.02] text-paper">
-              {authMode === 'signin' ? <>Welcome <em className="nova-gradient-text italic">back.</em></> : <>Create your <em className="nova-gradient-text italic">account.</em></>}
+            <h2 className="mt-6 text-[22px] font-semibold leading-tight tracking-[-0.02em] text-white">
+              {authMode === 'signin' ? 'Sign in to Bullseye' : 'Create your account'}
             </h2>
-            <p className="mx-auto mt-2 max-w-[34ch] text-center text-[14px] leading-6 text-[#c9c3e6]">
-              Save alerts and get the short list by email. The screener, markets and Ask AI work without an account.
+            <p className="mt-1.5 text-[14px] leading-6 text-[#9f99c2]">
+              Save alerts and get the short list by email.
             </p>
 
-            {/* Google Sign In */}
             <button
               onClick={handleGoogleSignIn}
               disabled={authLoading}
-              className="mt-6 flex h-12 w-full items-center justify-center gap-3 rounded-full bg-white text-[14px] font-semibold text-[#111] transition hover:bg-white/90 disabled:opacity-50"
+              className="mt-6 flex h-11 w-full items-center justify-center gap-2.5 rounded-xl bg-white text-[14px] font-medium text-[#111] transition hover:bg-white/90 disabled:opacity-50"
             >
-              <svg className="h-5 w-5" viewBox="0 0 24 24" aria-hidden>
+              <svg className="h-[18px] w-[18px]" viewBox="0 0 24 24" aria-hidden>
                 <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
                 <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
                 <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
@@ -4302,68 +4289,60 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
               Continue with Google
             </button>
 
-            {/* Divider */}
-            <div className="my-5 flex items-center gap-3">
-              <div className="h-px flex-1 bg-white/10" />
-              <span className="text-[12px] text-[#8f89ad]">or use email</span>
-              <div className="h-px flex-1 bg-white/10" />
+            <div className="my-5 flex items-center gap-3 text-[12px] text-[#6f6990]">
+              <div className="h-px flex-1 bg-white/[0.08]" />
+              or
+              <div className="h-px flex-1 bg-white/[0.08]" />
             </div>
 
-            <div className="grid gap-3">
-              <input
-                type="email"
-                value={authEmail}
-                onChange={e => setAuthEmail(e.target.value)}
-                placeholder="Email address"
-                autoComplete="email"
-                className="nova-input"
-              />
-              <input
-                type="password"
-                value={authPassword}
-                onChange={e => setAuthPassword(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && handleEmailAuth()}
-                placeholder="Password"
-                autoComplete={authMode === 'signin' ? 'current-password' : 'new-password'}
-                className="nova-input"
-              />
-            </div>
+            <label className="block text-[13px] font-medium text-[#c9c3e6]" htmlFor="auth-email">Email</label>
+            <input
+              id="auth-email"
+              type="email"
+              value={authEmail}
+              onChange={e => setAuthEmail(e.target.value)}
+              placeholder="you@example.com"
+              autoComplete="email"
+              className="nova-field mt-1.5"
+            />
+            <label className="mt-4 block text-[13px] font-medium text-[#c9c3e6]" htmlFor="auth-password">Password</label>
+            <input
+              id="auth-password"
+              type="password"
+              value={authPassword}
+              onChange={e => setAuthPassword(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleEmailAuth()}
+              autoComplete={authMode === 'signin' ? 'current-password' : 'new-password'}
+              className="nova-field mt-1.5"
+            />
 
-            {/* Error / success messages */}
             {authError && <p className="mt-3 text-[13px] text-[#ff7a93]">{authError}</p>}
             {authSuccess && <p className="mt-3 text-[13px] text-[#6ff0b5]">{authSuccess}</p>}
 
             <button
               onClick={handleEmailAuth}
               disabled={authLoading}
-              className="nova-btn nova-btn-primary mt-4 w-full disabled:opacity-50"
+              className="mt-5 h-11 w-full rounded-xl bg-[#ff4fa3] text-[14px] font-semibold text-[#14051a] transition hover:bg-[#ff6db3] disabled:opacity-50"
             >
               {authLoading ? 'Please wait…' : authMode === 'signin' ? 'Sign in' : 'Create account'}
             </button>
 
-            <p className="mt-4 text-center text-[13px] text-[#b9b4d6]">
-              {authMode === 'signin' ? 'New to Bullseye? ' : 'Already have an account? '}
+            <div className="mt-5 flex items-center justify-between text-[13px]">
               <button
                 type="button"
                 onClick={() => { setAuthMode(authMode === 'signin' ? 'signup' : 'signin'); setAuthError(''); setAuthSuccess(''); }}
-                className="font-semibold text-white underline-offset-4 hover:underline"
+                className="text-[#c9c3e6] transition hover:text-white"
               >
-                {authMode === 'signin' ? 'Create an account' : 'Sign in'}
+                {authMode === 'signin' ? 'Create an account' : 'I have an account'}
               </button>
-            </p>
-
-            {/* Anonymous escape hatch — sign-in is not required to browse. */}
-            <button
-              onClick={dismissAuthModal}
-              className="mt-5 w-full rounded-full border border-white/15 py-3 text-[14px] font-medium text-[#e9e5ff] transition hover:border-white/30 hover:bg-white/5"
-            >
-              Continue without signing in
-            </button>
-
-            <p className="mt-5 text-center text-[11.5px] leading-5 text-[#8f89ad]">
-              Bullseye is research, not advice, and is not a SEBI-registered adviser.
-            </p>
+              <button onClick={dismissAuthModal} className="text-[#9f99c2] transition hover:text-white">
+                Continue without signing in
+              </button>
             </div>
+
+            <p className="mt-6 border-t border-white/[0.06] pt-4 text-[11.5px] leading-5 text-[#6f6990]">
+              Bullseye is research, not investment advice, and is not a SEBI-registered adviser.
+            </p>
           </div>
         </div>,
         document.body,

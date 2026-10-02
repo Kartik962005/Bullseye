@@ -974,7 +974,7 @@ export default function AskAiPage() {
               Back
             </button>
             <Link href="/" className="group flex items-center gap-2.5">
-              <BullseyeLogo size={30} wordClassName="text-[22px]" />
+              <BullseyeLogo size={28} wordClassName="text-[18px]" />
               <div className="leading-tight">
                 <div className="text-[9px] font-bold uppercase tracking-[0.18em] text-paper-muted">Ask AI · Backtest · Scan</div>
               </div>

@@ -660,7 +660,7 @@ export default function ScreensPage() {
         <header className="relative z-40 border-b border-hairline bg-black/55 backdrop-blur-xl">
           <div className="mx-auto grid max-w-[1400px] grid-cols-1 items-center gap-4 px-5 py-5 sm:px-8 md:grid-cols-[auto_minmax(240px,1fr)_auto]">
             <Link href="/" className="flex min-w-0 items-center gap-2.5">
-              <BullseyeLogo size={30} wordClassName="text-[26px]" />
+              <BullseyeLogo size={28} wordClassName="text-[18px]" />
             </Link>
             <StockSearch compact />
             <div className="hidden items-center gap-6 md:flex">

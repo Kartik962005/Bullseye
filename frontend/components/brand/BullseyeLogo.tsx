@@ -1,48 +1,42 @@
 "use client";
 
-// Bullseye brand mark + wordmark. The mark is a target (two gradient rings and
-// a glowing centre) with an arrow landing in the middle. On hover the arrow
-// strikes and the rings pulse (CSS in globals.css, `.bx-logo`).
+// Bullseye brand mark + wordmark. The mark is an app-icon squircle in the
+// brand gradient holding a minimal target: an open ring, a centre point and a
+// single "hit" sitting in the ring's gap. On hover the ring turns a quarter
+// and the hit settles into place (CSS in globals.css, `.bx-logo`).
 
 import { useId } from "react";
 
 export function BullseyeMark({ size = 30, className = "" }: { size?: number; className?: string }) {
   const id = useId().replace(/:/g, "");
   return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 32 32"
-      fill="none"
-      aria-hidden
-      className={`bx-mark ${className}`}
-    >
+    <svg width={size} height={size} viewBox="0 0 32 32" fill="none" aria-hidden className={`bx-mark ${className}`}>
       <defs>
-        <linearGradient id={`${id}-ring`} x1="3" y1="3" x2="29" y2="29" gradientUnits="userSpaceOnUse">
-          <stop offset="0" stopColor="#00e5ff" />
-          <stop offset="0.5" stopColor="#8b5cf6" />
+        <linearGradient id={`${id}-bg`} x1="2" y1="2" x2="30" y2="30" gradientUnits="userSpaceOnUse">
+          <stop offset="0" stopColor="#7c5cff" />
+          <stop offset="0.55" stopColor="#c43bd6" />
           <stop offset="1" stopColor="#ff2e97" />
         </linearGradient>
-        <radialGradient id={`${id}-core`} cx="0.5" cy="0.5" r="0.5">
-          <stop offset="0" stopColor="#ffffff" />
-          <stop offset="0.45" stopColor="#ffd1e8" />
-          <stop offset="1" stopColor="#ff2e97" />
+        <radialGradient id={`${id}-sheen`} cx="0.2" cy="0.1" r="0.8">
+          <stop offset="0" stopColor="#00e5ff" stopOpacity="0.55" />
+          <stop offset="1" stopColor="#00e5ff" stopOpacity="0" />
         </radialGradient>
       </defs>
-      <circle className="bx-ring bx-ring-outer" cx="16" cy="16" r="13.5" stroke={`url(#${id}-ring)`} strokeWidth="2.2" />
-      <circle className="bx-ring bx-ring-inner" cx="16" cy="16" r="8.5" stroke={`url(#${id}-ring)`} strokeWidth="2" opacity="0.9" />
-      <circle className="bx-core" cx="16" cy="16" r="3.8" fill={`url(#${id}-core)`} />
-      <g className="bx-arrow" stroke="#ffffff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M28.5 3.5 18.2 13.8" />
-        <path d="M28.5 3.5v4.6M28.5 3.5h-4.6" />
+      <rect x="1" y="1" width="30" height="30" rx="9" fill={`url(#${id}-bg)`} />
+      <rect x="1" y="1" width="30" height="30" rx="9" fill={`url(#${id}-sheen)`} />
+      <rect x="1.5" y="1.5" width="29" height="29" rx="8.5" stroke="#ffffff" strokeOpacity="0.18" />
+      <g className="bx-ring">
+        <path d="M24.37 14.52A8.5 8.5 0 1 1 17.48 7.63" stroke="#ffffff" strokeWidth="2.6" strokeLinecap="round" />
       </g>
+      <circle className="bx-core" cx="16" cy="16" r="3.2" fill="#ffffff" />
+      <circle className="bx-hit" cx="22.01" cy="9.99" r="1.7" fill="#ffffff" />
     </svg>
   );
 }
 
 export function BullseyeLogo({
   size = 30,
-  wordClassName = "text-[26px]",
+  wordClassName = "text-[19px]",
   className = "",
 }: {
   size?: number;
@@ -52,7 +46,7 @@ export function BullseyeLogo({
   return (
     <span className={`bx-logo inline-flex items-center gap-2.5 ${className}`}>
       <BullseyeMark size={size} />
-      <span className={`font-display leading-none tracking-[-0.01em] text-paper ${wordClassName}`}>Bullseye</span>
+      <span className={`font-body font-semibold leading-none tracking-[-0.035em] text-paper ${wordClassName}`}>Bullseye</span>
     </span>
   );
 }
