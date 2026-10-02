@@ -13,11 +13,11 @@ import { NovaSearch } from '@/components/home/NovaSearch';
 import { BullseyeLogo, BullseyeMark } from '@/components/brand/BullseyeLogo';
 import { TrackRecord } from '@/components/stock/TrackRecord';
 import { PeerComparison } from '@/components/stock/PeerComparison';
-import { RangeBar } from '@/components/stock/RangeBar';
+import { StockHeader } from '@/components/stock/StockHeader';
+import { VerdictPanel } from '@/components/stock/VerdictPanel';
 import { AboutSection } from '@/components/home/AboutSection';
 import { LiveScanSection } from '@/components/home/LiveScanSection';
 import { SiteFooter } from '@/components/home/SiteFooter';
-import { HomeAmbientBackground } from '@/components/home/HomeAmbientBackground';
 
 import { BACKEND, fetcher, getCache, setCache } from '@/lib/client-cache';
 import {
@@ -2031,33 +2031,26 @@ const FundamentalsSnapshotCard = ({
   ];
 
   return (
-    <aside className="order-1 rounded-3xl border border-slate-200 bg-white p-4 shadow-[0_22px_70px_rgba(15,23,42,0.12)] sm:p-5 xl:order-2">
-      <div className="mb-4 flex items-start justify-between gap-3 border-b border-slate-200 pb-3">
-        <div className="min-w-0">
-          <div className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 font-body">Key Fundamentals</div>
-          <h2 className="mt-1 truncate text-lg font-black text-slate-950 font-body">{stock?.name || stock?.symbol || 'Stock'}</h2>
-        </div>
-        {quote?.change_percent !== undefined && (
-          <span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-black font-numeric ${quote.change_percent >= 0 ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'}`}>
-            {quote.change_percent >= 0 ? '+' : ''}{quote.change_percent.toFixed(2)}%
-          </span>
-        )}
+    <section className="sx-card p-5 sm:p-6">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="text-[16px] font-semibold tracking-[-0.01em] text-paper">Key stats</h2>
+        <span className="text-[12px] text-[#8f89ad]">Latest reported figures</span>
       </div>
       {isLoading && !fundamentals ? (
-        <div className="flex min-h-[240px] items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 text-center text-xs font-bold uppercase tracking-widest text-slate-400 font-numeric">
-          Loading fundamentals
+        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {items.map(item => <div key={item.label} className="sx-skeleton h-[62px]" />)}
         </div>
       ) : (
-        <div className="grid grid-cols-2 gap-2">
+        <div className="mt-4 grid grid-cols-2 gap-px overflow-hidden rounded-2xl bg-white/[0.06] sm:grid-cols-4">
           {items.map(item => (
-            <div key={item.label} className="min-w-0 rounded-2xl bg-slate-50 px-3 py-3">
-              <div className="text-[10px] font-semibold text-slate-500">{item.label}</div>
-              <div className="mt-1 truncate text-sm font-black text-slate-950 font-numeric" title={item.value}>{item.value}</div>
+            <div key={item.label} className="min-w-0 bg-[#100c22] px-4 py-3.5">
+              <div className="text-[12px] text-[#9f99c2]">{item.label}</div>
+              <div className="mt-1 truncate font-numeric text-[15px] text-paper" title={item.value}>{item.value}</div>
             </div>
           ))}
         </div>
       )}
-    </aside>
+    </section>
   );
 };
 
@@ -3021,8 +3014,8 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
         height: initH,
         // Axis labels need real contrast against the dark panel — #c6c6cd was
         // washing out, which is why dates/prices read as invisible.
-        layout: { background: { color: 'transparent' }, textColor: '#e8e8ea', fontSize: 12 },
-        grid: { vertLines: { color: 'rgba(255,255,255,0.07)' }, horzLines: { color: 'rgba(255,255,255,0.07)' } },
+        layout: { background: { color: 'transparent' }, textColor: '#c9c3e6', fontSize: 12 },
+        grid: { vertLines: { color: 'rgba(255,255,255,0.04)' }, horzLines: { color: 'rgba(255,255,255,0.05)' } },
         crosshair: {
           mode: 1,
           vertLine: { color: 'rgba(255,79,163,0.55)', labelBackgroundColor: '#ff4fa3' },
@@ -3031,17 +3024,17 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
         timeScale: {
           timeVisible: chartRange === '1d' || chartRange === '1w',
           secondsVisible: false,
-          borderColor: 'rgba(255,255,255,0.18)',
+          borderColor: 'rgba(255,255,255,0.08)',
           fixLeftEdge: chartRange !== 'max',
           fixRightEdge: true,
           rightOffset: 5,
         },
-        rightPriceScale: { borderColor: 'rgba(255,255,255,0.18)' },
+        rightPriceScale: { borderColor: 'rgba(255,255,255,0.08)' },
       });
 
       const candleSeries = chart.addSeries(CandlestickSeries, {
-        upColor: '#34d399', downColor: '#fb7185',
-        borderVisible: false, wickUpColor: '#34d399', wickDownColor: '#fb7185'
+        upColor: '#2fe0a0', downColor: '#ff5c7a',
+        borderVisible: false, wickUpColor: '#2fe0a0', wickDownColor: '#ff5c7a'
       });
       const isIntraday = chartRange === '1d' || chartRange === '1w';
       const formattedData = chartData
@@ -3065,7 +3058,7 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
           const indicatorChart = createChart(pane, {
             width: paneWidth,
             height: indicatorHeight,
-            layout: { background: { color: 'transparent' }, textColor: '#c6c6cd' },
+            layout: { background: { color: 'transparent' }, textColor: '#9f99c2' },
             grid: { vertLines: { color: 'rgba(255,255,255,0.04)' }, horzLines: { color: 'rgba(255,255,255,0.05)' } },
             crosshair: { mode: 1 },
             rightPriceScale: {
@@ -3551,7 +3544,7 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
 
         {/* IMMERSIVE BACKGROUND — View 2 keeps the Market Globe; View 1's
             background is owned by the Nova scroll scene (its own fixed layer). */}
-        {ticker && <HomeAmbientBackground />}
+        {ticker && <div aria-hidden className="sx-backdrop" />}
 
         {/* FIXED INDEX TAPE — pinned to the very top of the homepage so live
             index levels are visible the moment the page loads and stay there. */}
@@ -3798,341 +3791,192 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
 
           {/* ── VIEW 2: STOCK DASHBOARD ── */}
           {ticker && (
-            <div className="bullseye-night animate-in fade-in slide-in-from-bottom-8 duration-700 w-full min-w-0 flex flex-col gap-6">
+            <div className="sx bullseye-night mx-auto flex w-full min-w-0 max-w-[1320px] flex-col gap-5">
 
               {/* Header */}
-              <div className="flex flex-col sm:flex-row items-start sm:items-end justify-between border-b border-white/10 pb-5 gap-3 relative">
-                <div className="absolute inset-x-0 bottom-0 h-[1px] bg-gradient-to-r from-transparent via-[rgba(255,79,163,0.4)] to-transparent" />
-                <div>
-                  <button onClick={goHome}
-                    className="mb-4 inline-flex items-center gap-2 rounded-full border border-hairline bg-glass px-3.5 py-1.5 font-body text-[11px] font-medium text-paper-muted backdrop-blur-md transition duration-300 hover:border-accent/50 hover:text-accent">
-                    ← Overview
-                  </button>
-                  <h1 className="break-words font-numeric text-4xl font-bold uppercase tracking-tight text-paper sm:text-5xl lg:text-6xl">{ticker}</h1>
-                  {selectedStock?.name && (
-                    <div className="mt-2 font-display text-xl text-paper-muted">{selectedStock.name}</div>
-                  )}
-                </div>
-                <div className="flex flex-col sm:items-end gap-3">
-                  {canOpenDetailedAnalysis && (
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        onClick={openOverview}
-                        className={`px-4 py-2 rounded-full border text-[10px] font-black uppercase tracking-[0.2em] font-body transition-all ${
-                          dashboardView === 'overview'
-                            ? 'stock-view-toggle-active'
-                            : 'stock-view-toggle-idle'
-                        }`}
-                      >
-                        Overview
-                      </button>
-                      <button
-                        type="button"
-                        onClick={openDetailedAnalysis}
-                        className={`px-4 py-2 rounded-full border text-[10px] font-black uppercase tracking-[0.2em] font-body transition-all ${
-                          dashboardView === 'details'
-                            ? 'stock-view-toggle-active'
-                            : 'stock-view-toggle-idle'
-                        }`}
-                      >
-                        Financials
-                      </button>
-                    </div>
-                  )}
-                {quote?.price && (
-                  <div className="text-left sm:text-right">
-                    <div className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest mb-1">Live Price</div>
-                    <span className="text-3xl sm:text-4xl font-numeric font-bold text-white tracking-tight">{currency}{quote.price.toLocaleString()}</span>
-                    <div className={`text-sm font-numeric font-bold mt-1 tracking-wider ${quote.change_percent > 0 ? 'text-green-400' : 'text-red-500'}`}>
-                      {quote.change_percent > 0 ? '▲' : '▼'} {Math.abs(quote.change_percent).toFixed(2)}%
-                    </div>
-                  </div>
-                )}
-                </div>
-              </div>
+              <StockHeader
+                ticker={ticker}
+                name={selectedStock?.name}
+                exchange={selectedStock?.exchange}
+                currency={currency}
+                price={quote?.price ?? null}
+                changePercent={quote?.change_percent ?? null}
+                view={dashboardView === 'details' ? 'details' : 'overview'}
+                canShowFinancials={Boolean(canOpenDetailedAnalysis)}
+                onBack={goHome}
+                onOverview={openOverview}
+                onFinancials={openDetailedAnalysis}
+              />
 
               {/* Chart + fundamentals snapshot — shown in Overview only. The
                   Financials tab renders its own ratios and statement tables, so
                   these boxes would otherwise duplicate there. */}
               {dashboardView === 'overview' && (
               <div className="flex flex-col gap-5">
-
-              {/* Verdict-first: the actual product output (verdict + entry /
-                  target / stop / confidence) surfaced above the chart. */}
-              {(() => {
-                const v = getAnalysisPresentation(analysis);
-                if (!v) return null;
-                const tone = v.isBullish ? 'text-primary' : v.isBearish ? 'text-rose-300' : 'text-paper';
-                const upside = v.entry ? Math.abs(((v.target - v.entry) / v.entry) * 100) : 0;
-                const downside = v.entry ? Math.abs(((v.entry - v.stop_loss) / v.entry) * 100) : 0;
-                const rr = downside > 0 ? (upside / downside).toFixed(2) : '—';
-                const stats: Array<[string, string]> = [
-                  ['Entry', `${currency}${Number(v.entry).toLocaleString()}`],
-                  ['Target', `${currency}${Number(v.target).toLocaleString()}`],
-                  ['Stop loss', `${currency}${Number(v.stop_loss).toLocaleString()}`],
-                  ['Confidence', `${v.confidenceLevel}/100`],
-                  ['Reward : risk', rr],
-                ];
-                return (
-                  <div
-                    className="rounded-[24px] border border-accent/35 p-6 sm:p-8"
-                    style={{
-                      background:
-                        'linear-gradient(145deg, rgba(20,22,19,0.94) 0%, rgba(8,10,9,0.97) 55%, rgba(16,18,15,0.94) 100%)',
-                      boxShadow: '0 26px 70px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,79,163,0.16)',
-                    }}
-                  >
-                    <div className="flex flex-wrap items-end justify-between gap-6">
-                      <div>
-                        <div className="font-body text-[10px] font-medium uppercase tracking-[0.26em] text-accent">
-                          FISO verdict
+                <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_400px]">
+                  <div className="flex min-w-0 flex-col gap-5">
+                    {/* Price chart */}
+                    <section className="sx-card min-w-0 p-4 sm:p-5">
+                      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                        <div className="flex items-center gap-2.5">
+                          <span className="sx-live" aria-hidden />
+                          <h2 className="text-[16px] font-semibold tracking-[-0.01em] text-paper">Price chart</h2>
                         </div>
-                        <div className={`mt-3 font-display text-[clamp(2.2rem,5vw,3.4rem)] leading-none ${tone}`}>
-                          {v.displayVerdict}
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <div className="h-2 w-40 overflow-hidden rounded-full bg-white/10">
-                          <div
-                            className="h-full rounded-full bg-accent"
-                            style={{ width: `${Math.min(100, Math.max(0, Number(v.confidenceLevel)))}%` }}
-                          />
-                        </div>
-                        <span className="font-numeric text-[13px] text-accent">{v.confidenceLevel}</span>
-                      </div>
-                    </div>
-                    <div className="mt-7 flex flex-wrap gap-x-12 gap-y-5 border-t border-hairline pt-6">
-                      {stats.map(([label, value]) => (
-                        <div key={label}>
-                          <div className="font-body text-[10px] font-medium uppercase tracking-[0.22em] text-paper-muted">
-                            {label}
-                          </div>
-                          <div className="mt-1.5 font-numeric text-lg leading-none text-paper">{value}</div>
-                        </div>
-                      ))}
-                    </div>
-
-                    {/* Why the engine landed here. Every one of these is already
-                        computed and returned by /analyze — it was just never
-                        surfaced, so the verdict read as an assertion rather than
-                        a result. `historical_hit_rate` carries its own sample
-                        size because a hit rate over 3 trades is not a hit rate. */}
-                    {(() => {
-                      const pct = (value: any) =>
-                        typeof value === 'number' ? `${Math.round(value * 100)}%` : null;
-                      const trades = Number(analysis?.historical_hit_rate_trades ?? 0);
-                      const why: Array<[string, string, string]> = [];
-                      const modelP = pct(analysis?.model_probability);
-                      if (modelP) why.push(['Model win probability', modelP, 'from the trained win-probability model']);
-                      const hit = pct(analysis?.historical_hit_rate);
-                      if (hit) {
-                        why.push([
-                          'This setup historically',
-                          hit,
-                          trades > 0 ? `over ${trades} recorded trade${trades === 1 ? '' : 's'}` : 'no recorded trades yet — treat as a prior',
-                        ]);
-                      }
-                      if (typeof analysis?.expected_r === 'number') {
-                        why.push(['Expected R', analysis.expected_r.toFixed(2), 'net of costs and slippage']);
-                      }
-                      const quality = pct(analysis?.chart_setup_quality);
-                      if (quality) why.push(['Chart setup quality', quality, 'trend, breakout, volume and momentum checks']);
-                      if (!why.length) return null;
-                      return (
-                        <div className="mt-6 border-t border-hairline pt-5">
-                          <div className="font-body text-[10px] font-medium uppercase tracking-[0.24em] text-accent">
-                            Why this call
-                          </div>
-                          <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                            {why.map(([label, value, note]) => (
-                              <div key={label}>
-                                <div className="font-numeric text-xl leading-none text-paper">{value}</div>
-                                <div className="mt-1.5 font-body text-[11px] text-paper">{label}</div>
-                                <div className="mt-0.5 font-body text-[10px] leading-relaxed text-paper-muted">{note}</div>
-                              </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <div className="sx-seg sx-seg-sm" role="tablist" aria-label="Chart range">
+                            {([
+                              ['1d', '1D'],
+                              ['1w', '1W'],
+                              ['1mo', '1M'],
+                              ['1y', '1Y'],
+                              ['max', 'All'],
+                            ] as Array<[ChartRange, string]>).map(([range, label]) => (
+                              <button
+                                key={range}
+                                type="button"
+                                role="tab"
+                                aria-selected={chartRange === range}
+                                onClick={() => setChartRange(range)}
+                              >
+                                {label}
+                              </button>
                             ))}
                           </div>
-                          {analysis?.signal_status === 'no_trade' && (
-                            <p className="mt-4 rounded-xl border border-accent/25 bg-accent/[0.06] px-4 py-3 font-body text-[11px] leading-relaxed text-paper-muted">
-                              This setup did not clear Bullseye&apos;s risk, reward and data-quality
-                              gates, so no target or stop is issued. The honest call is to sit this one out.
-                            </p>
-                          )}
-                        </div>
-                      );
-                    })()}
-
-                    {/* Where the price sits in its yearly range — context the
-                        entry/target/stop numbers above cannot give on their own. */}
-                    <div className="mt-6 border-t border-hairline pt-5">
-                      <RangeBar
-                        low={fundamentals?.summary?.low_52_week}
-                        high={fundamentals?.summary?.high_52_week}
-                        current={quote?.price ?? analysis?.current_price}
-                        currency={currency}
-                      />
-                    </div>
-                  </div>
-                );
-              })()}
-
-              <div
-                className="relative min-w-0 rounded-[24px] border border-hairline p-5 sm:p-6"
-                style={{
-                  background:
-                    'linear-gradient(145deg, rgba(18,20,17,0.9) 0%, rgba(7,9,8,0.95) 55%, rgba(14,16,13,0.9) 100%)',
-                  boxShadow: '0 24px 64px rgba(0,0,0,0.5)',
-                }}
-              >
-                <div className="flex items-center justify-between gap-3 mb-4 border-b border-slate-200 pb-3 flex-wrap">
-                  <span className="font-bold text-xs text-slate-500 uppercase tracking-[0.2em] font-body flex items-center gap-2 shrink-0">
-                    <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse inline-block" />
-                    Chart Geometry
-                  </span>
-                  <div className="flex flex-wrap items-center gap-2 sm:ml-auto sm:gap-3">
-                    <div className="chart-controls-pill flex items-center gap-1 rounded-full border border-slate-200 bg-white/80 p-1">
-                      {([
-                        ['1d',  '1D'],
-                        ['1w',  '1W'],
-                        ['1mo', '1M'],
-                        ['1y',  '1Y'],
-                        ['max', 'ALL'],
-                      ] as Array<[ChartRange, string]>).map(([range, label]) => (
-                        <button
-                          key={range}
-                          type="button"
-                          onClick={() => setChartRange(range)}
-                          className={`h-8 min-w-10 rounded-full px-3 text-[10px] font-black font-numeric transition-all duration-200 ${
-                            chartRange === range
-                              ? range === 'max'
-                                ? 'bg-cyan-600 shadow-md chart-range-btn-active ring-1 ring-cyan-500/50'
-                                : 'bg-slate-950 shadow-md chart-range-btn-active ring-1 ring-slate-800/50'
-                              : 'text-slate-500 hover:bg-slate-100 hover:text-slate-800'
-                          }`}
-                        >
-                          {label}
-                        </button>
-                      ))}
-                    </div>
-                    <div className="relative">
-                      <button
-                        type="button"
-                        onClick={() => setShowIndicatorMenu(value => !value)}
-                        className="h-10 rounded-full border border-slate-200 bg-white px-4 text-[10px] font-black uppercase tracking-widest text-slate-800 shadow-sm transition-all hover:border-cyan-300 hover:bg-cyan-50 font-body"
-                      >
-                        Indicators
-                      </button>
-                      {showIndicatorMenu && (
-                        <>
-                        <div className="fixed inset-0 z-40" onClick={() => setShowIndicatorMenu(false)} />
-                        <div className="fixed left-1/2 top-20 z-50 w-[min(92vw,420px)] -translate-x-1/2 overflow-hidden rounded-2xl border border-slate-200 bg-white text-slate-950 shadow-[0_28px_80px_rgba(15,23,42,0.28)] sm:absolute sm:left-auto sm:right-0 sm:top-12 sm:translate-x-0">
-                          <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
-                            <div className="text-lg font-black font-body">Indicators</div>
+                          <div className="relative">
                             <button
                               type="button"
-                              onClick={() => setShowIndicatorMenu(false)}
-                              className="h-9 w-9 rounded-xl border border-slate-200 text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-950"
-                              aria-label="Close indicators"
+                              onClick={() => setShowIndicatorMenu(value => !value)}
+                              aria-expanded={showIndicatorMenu}
+                              className="sx-btn-ghost"
                             >
-                              X
+                              <svg viewBox="0 0 20 20" fill="none" className="h-4 w-4" aria-hidden>
+                                <path d="M3 14l4-5 3 3 5-7" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+                              </svg>
+                              Indicators
+                              {activeIndicators.length > 0 && <span className="sx-count">{activeIndicators.length}</span>}
                             </button>
-                          </div>
-                          <div className="border-b border-slate-100 p-3">
-                            <input
-                              value={indicatorQuery}
-                              onChange={event => setIndicatorQuery(event.target.value)}
-                              placeholder="Search"
-                              className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm font-bold text-slate-800 outline-none transition-all placeholder:text-slate-400 focus:border-cyan-300 focus:bg-white font-body"
-                            />
-                          </div>
-                          <div className="max-h-[min(55vh,420px)] overflow-y-auto py-2">
-                            {filteredIndicators.map(name => {
-                              const selected = activeIndicators.includes(name);
-                              return (
-                                <button
-                                  key={name}
-                                  type="button"
-                                  onClick={() => toggleIndicator(name)}
-                                  className={`flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm font-bold transition-colors font-body ${
-                                    selected ? 'bg-slate-100 text-slate-950' : 'text-slate-700 hover:bg-slate-50'
-                                  }`}
-                                >
-                                  <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md border text-[10px] ${
-                                    selected ? 'border-cyan-400 bg-cyan-50 text-cyan-700' : 'border-slate-200 text-slate-400'
-                                  }`}>
-                                    {selected ? '+' : ''}
-                                  </span>
-                                  <span>{name}</span>
-                                </button>
-                              );
-                            })}
+                            {showIndicatorMenu && (
+                              <>
+                                <div className="fixed inset-0 z-40" onClick={() => setShowIndicatorMenu(false)} />
+                                <div data-lenis-prevent className="sx-menu">
+                                  <div className="flex items-center justify-between px-4 pb-2 pt-4">
+                                    <div className="text-[15px] font-semibold text-paper">Indicators</div>
+                                    <button
+                                      type="button"
+                                      onClick={() => setShowIndicatorMenu(false)}
+                                      className="flex h-8 w-8 items-center justify-center rounded-lg text-[#9f99c2] transition hover:bg-white/[0.06] hover:text-white"
+                                      aria-label="Close indicators"
+                                    >
+                                      <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
+                                        <path d="M18 6 6 18M6 6l12 12" />
+                                      </svg>
+                                    </button>
+                                  </div>
+                                  <div className="px-4 pb-3">
+                                    <input
+                                      value={indicatorQuery}
+                                      onChange={event => setIndicatorQuery(event.target.value)}
+                                      placeholder="Search indicators"
+                                      className="nova-field"
+                                    />
+                                  </div>
+                                  <div className="max-h-[min(55vh,380px)] overflow-y-auto border-t border-white/[0.06] p-1.5">
+                                    {filteredIndicators.map(name => {
+                                      const selected = activeIndicators.includes(name);
+                                      return (
+                                        <button
+                                          key={name}
+                                          type="button"
+                                          onClick={() => toggleIndicator(name)}
+                                          className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-[14px] transition-colors ${
+                                            selected ? 'bg-white/[0.07] text-white' : 'text-[#c9c3e6] hover:bg-white/[0.04] hover:text-white'
+                                          }`}
+                                        >
+                                          <span className={`flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-md border ${
+                                            selected ? 'border-[#ff4fa3] bg-[#ff4fa3] text-[#14051a]' : 'border-white/20'
+                                          }`}>
+                                            {selected ? (
+                                              <svg viewBox="0 0 12 12" className="h-3 w-3" fill="none" aria-hidden>
+                                                <path d="M2.5 6.2 5 8.5l4.5-5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                                              </svg>
+                                            ) : null}
+                                          </span>
+                                          <span>{name}</span>
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              </>
+                            )}
                           </div>
                         </div>
-                        </>
+                      </div>
+
+                      {chartError && !chartData ? (
+                        <div className="sx-empty h-[320px] sm:h-[420px]">
+                          <div className="text-[15px] font-semibold text-paper">Chart unavailable</div>
+                          <div className="mt-1 max-w-[46ch] text-[13px] text-[#9f99c2]">{chartError.message || 'The chart service returned an error. Try again in a moment.'}</div>
+                        </div>
+                      ) : !chartData ? (
+                        <div className="sx-empty h-[320px] sm:h-[420px]">
+                          <span className="nova-spinner" aria-hidden />
+                          <div className="mt-3 text-[13px] text-[#9f99c2]">Loading price history…</div>
+                        </div>
+                      ) : !chartRowsAvailable ? (
+                        <div className="sx-empty h-[320px] sm:h-[420px]">
+                          <div className="text-[15px] font-semibold text-paper">No chart data yet</div>
+                          <div className="mt-1 text-[13px] text-[#9f99c2]">The data service didn&apos;t return candles for this symbol. Refresh in a moment.</div>
+                        </div>
+                      ) : (
+                        <div className="w-full overflow-hidden rounded-2xl" style={{ background: 'rgba(7,5,20,0.45)' }}>
+                          <div ref={chartRef} className="h-[340px] w-full overflow-hidden sm:h-[440px]" />
+                          {indicatorPanels.length > 0 && (
+                            <div className="border-t border-white/[0.06]">
+                              {indicatorPanels.map(panel => (
+                                <IndicatorChartPane
+                                  key={panel.name}
+                                  panel={panel}
+                                  setPaneRef={(name, element) => {
+                                    indicatorPaneRefs.current[name] = element;
+                                  }}
+                                />
+                              ))}
+                            </div>
+                          )}
+                        </div>
                       )}
-                    </div>
-                    {analysis && !analysis.error && (
-                      <span className={`hidden text-xs font-black uppercase tracking-widest font-body shrink-0 sm:inline ${accentColor}`}>{dashboardAnalysisView?.displayVerdict}</span>
-                    )}
+                      {indicatorPanels.length === 0 && chartRowsAvailable && (
+                        <p className="mt-3 text-[12.5px] text-[#8f89ad]">Add an indicator to open a study pane under the chart.</p>
+                      )}
+                    </section>
+
+                    <FundamentalsSnapshotCard
+                      stock={selectedStock}
+                      currency={currency}
+                      fundamentals={fundamentals}
+                      quote={quote}
+                      isLoading={fundamentalsLoading}
+                    />
+                  </div>
+
+                  <div className="xl:sticky xl:top-6">
+                    <VerdictPanel
+                      analysis={analysis}
+                      currency={currency}
+                      price={quote?.price ?? null}
+                      low52={fundamentals?.summary?.low_52_week ?? null}
+                      high52={fundamentals?.summary?.high_52_week ?? null}
+                    />
                   </div>
                 </div>
-                {chartError && !chartData ? (
-                  <div className="h-[260px] sm:h-[360px] flex flex-col items-center justify-center rounded-2xl border border-dashed border-red-200 bg-red-50 px-6 text-center font-numeric text-xs text-red-500 sm:text-sm">
-                    <div className="mb-2 font-black uppercase tracking-widest text-red-500">Chart unavailable</div>
-                    <div>{chartError.message || 'The chart service returned an error. Try again in a moment.'}</div>
-                  </div>
-                ) : !chartData ? (
-                  <div className="h-[260px] sm:h-[360px] flex flex-col items-center justify-center font-numeric text-zinc-500 gap-4 text-xs sm:text-sm uppercase tracking-widest">
-                    <div className="w-8 h-8 border-2 border-zinc-700 border-t-cyan-400 rounded-full animate-spin"></div>
-                    Loading Data Stream...
-                  </div>
-                ) : !chartRowsAvailable ? (
-                  <div className="flex h-[260px] flex-col items-center justify-center rounded-2xl border border-dashed border-hairline px-6 text-center sm:h-[360px]">
-                    <div className="mb-2 font-body text-[10px] font-medium uppercase tracking-[0.22em] text-accent">No chart data</div>
-                    <div className="font-body text-[13px] leading-6 text-paper-muted">The backend did not return candle rows for this symbol yet. Refresh in a moment.</div>
-                  </div>
-                ) : (
-                  <div className="w-full overflow-hidden rounded-2xl border border-hairline bg-black/30">
-                    <div ref={chartRef} className="w-full h-[340px] sm:h-[440px] overflow-hidden" />
-                    {indicatorPanels.length > 0 && (
-                      <div>
-                        {indicatorPanels.map(panel => (
-                          <IndicatorChartPane
-                            key={panel.name}
-                            panel={panel}
-                            setPaneRef={(name, element) => {
-                              indicatorPaneRefs.current[name] = element;
-                            }}
-                          />
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-                {indicatorPanels.length === 0 && chartRowsAvailable && (
-                  <div className="mt-3 rounded-2xl border border-dashed border-hairline bg-white/[0.02] px-4 py-3 font-numeric text-xs text-paper-muted">
-                    Select an indicator to add a study pane below the stock chart.
-                  </div>
-                )}
-              </div>
 
-              <FundamentalsSnapshotCard
-                stock={selectedStock}
-                currency={currency}
-                fundamentals={fundamentals}
-                quote={quote}
-                isLoading={fundamentalsLoading}
-              />
-
-              {/* Context for the verdict above: how our previous calls on this
-                  stock actually resolved, and how its fundamentals sit against
-                  the sector. Both answer "compared to what?", which the raw
-                  numbers on their own do not. */}
-              <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
-                <TrackRecord symbol={selectedStock?.symbol ?? ticker} currency={currency} />
-                <PeerComparison ticker={ticker} />
-              </div>
+                {/* How past calls on this stock resolved, and how it sits against
+                    its sector: both answer "compared to what?". */}
+                <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+                  <TrackRecord symbol={selectedStock?.symbol ?? ticker} currency={currency} />
+                  <PeerComparison ticker={ticker} />
+                </div>
               </div>
               )}
 
@@ -4163,15 +4007,17 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
 
               {/* ── DISCLAIMER ── shown after every analysis */}
               {((dashboardView === 'overview' && analysis && !analysis.error) || dashboardView === 'details') && (
-                <div className="flex gap-3 rounded-2xl border border-accent/20 bg-accent/[0.04] p-4">
-                  <span className="mt-0.5 shrink-0 text-lg text-accent">⚠️</span>
-                  <p className="font-body text-[11px] leading-relaxed text-paper-muted">
-                    <span className="font-semibold text-paper">Disclaimer: </span>
-                    Bullseye is an AI-powered predictive tool and is NOT a SEBI-registered investment advisor.
-                    Predictions generated by the app are for educational and informational purposes only,
-                    and should not be construed as financial or investment advice. Invest at your own risk.
+                <aside className="sx-card flex gap-3 p-5">
+                  <svg viewBox="0 0 20 20" fill="none" className="mt-0.5 h-5 w-5 shrink-0 text-[#ffb547]" aria-hidden>
+                    <circle cx="10" cy="10" r="8" stroke="currentColor" strokeWidth="1.6" />
+                    <path d="M10 6v5M10 13.5v.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                  </svg>
+                  <p className="text-[13px] leading-6 text-[#b9b4d6]">
+                    <span className="font-semibold text-paper">Disclaimer. </span>
+                    Bullseye is a research tool, not investment advice, and is not a SEBI-registered investment adviser.
+                    Signals come from statistical models and can be wrong. Invest at your own risk.
                   </p>
-                </div>
+                </aside>
               )}
 
             </div>

@@ -42,19 +42,19 @@ export function RangeBar({
   return (
     <div>
       <div className="flex items-baseline justify-between gap-3">
-        <span className="font-body text-[10px] font-medium uppercase tracking-[0.22em] text-paper-muted">
+        <span className="sx-label">
           52-week range
         </span>
-        <span className="font-body text-[11px] text-paper-muted">{label}</span>
+        <span className="text-[12px] text-[#9f99c2]">{label}</span>
       </div>
 
       <div
-        className="relative mt-3 h-2 rounded-full bg-white/10"
+        className="relative mt-3 h-2 rounded-full bg-white/[0.08]"
         role="img"
         aria-label={`Price ${fmt(now)} is ${Math.round(pct)}% of the way between the 52-week low of ${fmt(lo)} and the high of ${fmt(hi)} — ${label}.`}
       >
         <div
-          className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-primary/40 to-accent/70"
+          className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-[#7c5cff]/60 to-[#ff4fa3]"
           style={{ width: `${pct}%` }}
         />
         {/* Marker sits ON the fill edge, so the eye lands on the current price
@@ -65,7 +65,7 @@ export function RangeBar({
         />
       </div>
 
-      <div className="mt-2 flex items-center justify-between font-numeric text-[11px] text-paper-muted">
+      <div className="mt-2 flex items-center justify-between font-numeric text-[12px] text-[#9f99c2]">
         <span>{fmt(lo)}</span>
         <span className="text-paper">{fmt(now)}</span>
         <span>{fmt(hi)}</span>

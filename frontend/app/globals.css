@@ -849,3 +849,229 @@ html:has(.nova-canvas) * {
   transform: translateY(-2px) scale(0.97);
   transition-duration: 0.12s;
 }
+
+/* ── Stock page (.sx) ─────────────────────────────────────────────────────── */
+.sx-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(55% 45% at 85% 0%, rgba(139, 92, 246, 0.22), transparent 70%),
+    radial-gradient(45% 40% at 0% 25%, rgba(255, 46, 151, 0.11), transparent 70%),
+    radial-gradient(60% 45% at 50% 100%, rgba(0, 229, 255, 0.07), transparent 70%),
+    #070514;
+}
+.sx-card {
+  position: relative;
+  border-radius: 24px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.012)),
+    rgba(16, 12, 34, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow:
+    0 24px 60px -32px rgba(0, 0, 0, 0.9),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+.sx-verdict {
+  border-color: color-mix(in srgb, var(--verdict, #ff4fa3) 28%, transparent);
+  background:
+    radial-gradient(120% 55% at 100% 0%, color-mix(in srgb, var(--verdict, #ff4fa3) 14%, transparent), transparent 60%),
+    rgba(16, 12, 34, 0.86);
+}
+.sx-label {
+  font: 500 11px/1.3 var(--font-jbmono), ui-monospace, monospace;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: #9f99c2;
+}
+.sx-head {
+  padding-block: 4px 12px;
+}
+.sx-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 14px 0 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  font: 500 13px var(--font-inter), system-ui, sans-serif;
+  color: #c9c3e6;
+  transition:
+    background-color 0.2s,
+    color 0.2s,
+    transform 0.2s;
+}
+.sx-back:hover {
+  background: rgba(255, 255, 255, 0.09);
+  color: #fff;
+  transform: translateX(-2px);
+}
+.sx-chip {
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.07);
+  padding: 4px 10px;
+  font-size: 13px;
+  color: #fff;
+}
+.sx-change {
+  display: inline-flex;
+  border-radius: 999px;
+  padding: 4px 12px;
+  font: 500 13px var(--font-jbmono), ui-monospace, monospace;
+}
+.sx-change.is-up {
+  background: rgba(61, 255, 162, 0.12);
+  color: #6ff0b5;
+}
+.sx-change.is-down {
+  background: rgba(255, 92, 122, 0.12);
+  color: #ff8aa0;
+}
+.sx-seg {
+  display: inline-flex;
+  gap: 2px;
+  padding: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+.sx-seg button {
+  height: 34px;
+  padding: 0 16px;
+  border-radius: 999px;
+  font: 500 13px var(--font-inter), system-ui, sans-serif;
+  color: #b9b4d6;
+  transition:
+    background-color 0.25s var(--nova-ease),
+    color 0.2s;
+}
+.sx-seg button:hover {
+  color: #fff;
+}
+.sx-seg button[aria-selected="true"] {
+  background: #fff;
+  color: #0f0b1f;
+}
+.sx-seg-sm button {
+  height: 30px;
+  padding: 0 12px;
+  font: 500 12px var(--font-jbmono), ui-monospace, monospace;
+}
+.sx-btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 38px;
+  padding: 0 14px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  font: 500 13px var(--font-inter), system-ui, sans-serif;
+  color: #e9e5ff;
+  transition:
+    background-color 0.2s,
+    border-color 0.2s;
+}
+.sx-btn-ghost:hover {
+  background: rgba(255, 255, 255, 0.09);
+  border-color: rgba(255, 79, 163, 0.5);
+}
+.sx-count {
+  display: grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: #ff4fa3;
+  color: #14051a;
+  font: 600 11px var(--font-jbmono), ui-monospace, monospace;
+}
+.sx-live {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #3dffa2;
+  box-shadow: 0 0 0 4px rgba(61, 255, 162, 0.15);
+}
+.sx-menu {
+  position: absolute;
+  right: 0;
+  top: 46px;
+  z-index: 50;
+  width: min(92vw, 360px);
+  overflow: hidden;
+  border-radius: 18px;
+  background: #0f0c1d;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 30px 80px -20px rgba(0, 0, 0, 0.9);
+  animation: nova-rise 0.2s var(--nova-ease) both;
+}
+.sx-level {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 14px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.035);
+}
+.sx-level dt {
+  font-size: 13px;
+  color: #b9b4d6;
+}
+.sx-level dd {
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 15px;
+}
+.sx-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border-radius: 16px;
+  background: rgba(7, 5, 20, 0.45);
+  text-align: center;
+  padding: 0 24px;
+}
+.sx-skeleton {
+  border-radius: 14px;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.04));
+  background-size: 200% 100%;
+  animation: sx-shimmer 1.4s linear infinite;
+}
+@keyframes sx-shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sx-skeleton {
+    animation: none;
+  }
+}
+
+/* The detailed analysis panels below the overview predate this design and use
+   their own inline card styles. Inside .sx they adopt the same card surface,
+   so the whole page reads as one system without rewriting those panels. */
+.sx [style*="rgba(20,22,19"],
+.sx [style*="rgba(18,20,17"] {
+  background: rgba(16, 12, 34, 0.8) !important;
+  border-color: rgba(255, 255, 255, 0.08) !important;
+  box-shadow: 0 24px 60px -32px rgba(0, 0, 0, 0.9) !important;
+}
+.sx :is([class~="rounded-3xl"], [class~="rounded-[24px]"], [class~="rounded-[22px]"])[class*="border"] {
+  border-color: rgba(255, 255, 255, 0.08) !important;
+}
+.sx :is([class~="bg-white"], [class~="bg-white/85"], [class~="bg-white/80"]) {
+  background-color: rgba(16, 12, 34, 0.72) !important;
+}
+.sx [class*="font-black"] {
+  font-weight: 600;
+}

@@ -37,10 +37,10 @@ type PeerResponse = {
 
 function Shell({ subtitle, children }: { subtitle: string; children: React.ReactNode }) {
   return (
-    <section className="rounded-[22px] border border-hairline bg-white/[0.02] p-6 sm:p-7">
-      <div className="mb-5 border-b border-hairline pb-4">
-        <h3 className="font-display text-xl leading-none text-paper">Against its sector</h3>
-        <p className="mt-2 font-body text-[11px] leading-relaxed text-paper-muted">{subtitle}</p>
+    <section className="sx-card p-6 sm:p-7">
+      <div className="mb-5">
+        <h3 className="text-[18px] font-semibold tracking-[-0.01em] text-paper">Against its sector</h3>
+        <p className="mt-1.5 text-[13px] leading-relaxed text-[#9f99c2]">{subtitle}</p>
       </div>
       {children}
     </section>
@@ -104,10 +104,10 @@ export function PeerComparison({ ticker }: { ticker?: string | null }) {
                   {formatValue(metric.key, metric.median)} median
                 </span>
               </div>
-              <div className="relative mt-2 h-1.5 rounded-full bg-white/10">
+              <div className="relative mt-2 h-1.5 rounded-full bg-white/[0.08]">
                 <div
                   className={`absolute inset-y-0 left-0 rounded-full ${
-                    metric.better_than_median ? 'bg-primary/70' : 'bg-accent/60'
+                    metric.better_than_median ? 'bg-[#3dffa2]/70' : 'bg-[#ff4fa3]/70'
                   }`}
                   style={{ width: `${pct}%` }}
                 />
@@ -126,14 +126,14 @@ export function PeerComparison({ ticker }: { ticker?: string | null }) {
 
       {data.peers?.length ? (
         <div className="mt-6 border-t border-hairline pt-4">
-          <div className="font-body text-[10px] font-medium uppercase tracking-[0.22em] text-paper-muted">
+          <div className="sx-label">
             Largest peers compared
           </div>
           <div className="mt-2 flex flex-wrap gap-2">
             {data.peers.map(peer => (
               <span
                 key={peer.symbol}
-                className="rounded-full border border-hairline bg-white/[0.03] px-3 py-1 font-numeric text-[11px] text-paper-muted"
+                className="rounded-full bg-white/[0.05] px-3 py-1 font-numeric text-[12px] text-[#c9c3e6]"
               >
                 {peer.symbol}
               </span>
