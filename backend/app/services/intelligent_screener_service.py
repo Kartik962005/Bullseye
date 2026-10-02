@@ -19,13 +19,15 @@ Both go through the same validate-then-execute path:
    of the snapshot** — the query can never reach the real Postgres, so even a
    hostile query only sees a throwaway list of dicts.
 
-If the LLM is unavailable or produces SQL we cannot run, we fall back to the
-existing ``smart_search`` router so the screener never hard-fails.
+If the LLM is unavailable or produces SQL we cannot run even after one repair
+round, the response says so plainly rather than guessing.
 """
 
 from __future__ import annotations
 
+import json
 import re
+import time
 from typing import Any
 
 import sqlglot
@@ -33,7 +35,6 @@ from sqlglot import expressions as exp
 from sqlglot.executor import execute as sqlglot_execute
 
 from app.services import llm_client
-from app.services.smart_search_service import smart_search
 from app.services.stock_snapshot_service import frontend_metric_row, get_snapshot_rows
 
 TABLE = "stock_snapshot"
@@ -58,7 +59,7 @@ COLUMN_DOC = {
     "price_to_book": "P/B ratio",
     "market_cap": "market cap, INR (absolute)",
     "market_cap_cr": "market cap in INR crore (use THIS for cap buckets)",
-    "roe": "return on equity, % (e.g. 15 = 15%)",
+    "roe": "return on equity, % (e.g. 15 = 15%); reported, or P/B divided by P/E where not reported",
     "roce": "return on capital employed, % — not provided by the data source, always NULL; use roe instead",
     "roa": "return on assets, %",
     "debt_to_equity": "debt/equity RATIO (0 = debt-free, <1 = low debt, 1 = 1x, 2 = 2x). For 'low debt' use < 1, 'debt-free' use < 0.1",
@@ -168,6 +169,8 @@ def validate_sql(sql: str) -> exp.Expression:
                 f"Only the '{TABLE}' table is available (got '{table.name}')."
             )
 
+    node = _normalise_for_executor(node)
+
     # Enforce a hard row cap.
     limit = node.args.get("limit")
     if limit is None:
@@ -179,6 +182,45 @@ def validate_sql(sql: str) -> exp.Expression:
                 node = node.limit(MAX_LIMIT)
         except Exception:  # noqa: BLE001 - non-integer LIMIT, leave as-is
             pass
+    return node
+
+
+def _normalise_for_executor(node: exp.Select) -> exp.Select:
+    """Make valid Postgres run the same way in the in-memory executor.
+
+    * Text matching is case-insensitive (ILIKE isn't implemented, and names
+      are stored as "HDFC Bank Ltd", so LIKE '%bank%' would miss them).
+    * Sorting a column that has blanks crashes Python's sort, and Postgres
+      would put the blanks first in a DESC list anyway. A stock with no value
+      for the sort key can't rank on it, so plain queries drop those rows;
+      grouped queries sort blanks last.
+    """
+    def _case_insensitive(n: exp.Expression) -> exp.Expression:
+        if not isinstance(n, (exp.Like, exp.ILike)) or isinstance(n.this, exp.Lower):
+            return n
+        like = exp.Like(this=exp.Lower(this=n.this.copy()), expression=exp.Lower(this=n.expression.copy()))
+        # sqlglot stores NOT LIKE as a flag on the node, not as a NOT parent.
+        if n.args.get("negate"):
+            return exp.Not(this=like)
+        return like
+
+    node = node.transform(_case_insensitive)
+
+    order = node.args.get("order")
+    if not order:
+        return node
+    grouped = bool(node.args.get("group")) or any(
+        isinstance(e.unalias(), exp.AggFunc) for e in node.expressions
+    )
+    aliases = {e.alias: e.unalias() for e in node.expressions if isinstance(e, exp.Alias)}
+    for ordered in order.expressions:
+        key = ordered.this
+        if grouped:
+            sentinel = exp.Literal.number(-1e18 if ordered.args.get("desc") else 1e18)
+            ordered.set("this", exp.Coalesce(this=key.copy(), expressions=[sentinel]))
+            continue
+        target = aliases.get(key.name, key) if isinstance(key, exp.Column) and not key.table else key
+        node = node.where(exp.Not(this=exp.Is(this=target.copy(), expression=exp.Null())), copy=False)
     return node
 
 
@@ -228,6 +270,7 @@ def _payload(
         "generated_sql": generated_sql,
         "mode": mode,
         "count": len(cards) if cards else len(dicts),
+        "columns": columns,
     }
     if provider:
         payload["llm_provider"] = provider
@@ -241,62 +284,155 @@ def _payload(
 
 
 # ── natural language → SQL (Groq) ─────────────────────────────────────────────
+NIFTY_50 = (
+    "ADANIENT ADANIPORTS APOLLOHOSP ASIANPAINT AXISBANK BAJAJ-AUTO BAJFINANCE BAJAJFINSV BEL "
+    "BHARTIARTL CIPLA COALINDIA DRREDDY EICHERMOT ETERNAL GRASIM HCLTECH HDFCBANK HDFCLIFE "
+    "HINDALCO HINDUNILVR ICICIBANK INDIGO INFY ITC JIOFIN JSWSTEEL KOTAKBANK LT M&M MARUTI "
+    "MAXHEALTH NESTLEIND NTPC ONGC POWERGRID RELIANCE SBILIFE SBIN SHRIRAMFIN SUNPHARMA "
+    "TATACONSUM TMPV TATASTEEL TCS TECHM TITAN TRENT ULTRACEMCO WIPRO"
+).split()
+PSU_BANKS = "SBIN PNB BANKBARODA CANBK UNIONBANK BANKINDIA INDIANB IOB UCOBANK CENTRALBK MAHABANK PSB".split()
+# Indian themes that cut across Yahoo's broad sectors ("defence" is not a
+# sector, and Industrials alone ranks L&T and Adani Ports first).
+THEMES = {
+    "PSU banks": PSU_BANKS,
+    "defence": "HAL BEL BDL MAZDOCK COCHINSHIP GRSE BEML DATAPATTNS MTARTECH PARAS ASTRAMICRO SOLARINDS ZENTEC DCXINDIA".split(),
+    "hospitals": "APOLLOHOSP MAXHEALTH FORTIS NH MEDANTA KIMS RAINBOW ASTERDM YATHARTH".split(),
+    "gold loans": "MUTHOOTFIN MANAPPURAM IIFL".split(),
+    "carmakers / two-wheelers / trucks": "MARUTI M&M TMPV TMCV BAJAJ-AUTO HEROMOTOCO EICHERMOT TVSMOTOR ASHOKLEY ESCORTS FORCEMOT OLAELEC ATHERENERG".split(),
+    "auto ancillaries / auto parts": (
+        "BOSCHLTD MOTHERSON UNOMINDA SONACOMS BHARATFORG EXIDEIND ARE&M MRF APOLLOTYRE BALKRISIND CEATLTD "
+        "ENDURANCE SUNDRMFAST SCHAEFFLER TIINDIA ZFCVINDIA JBMA MINDACORP CRAFTSMAN GABRIEL"
+    ).split(),
+    "Tata group": (
+        "TCS TATASTEEL TMPV TMCV TATAPOWER TATACONSUM TATACOMM TATAELXSI TATACHEM TITAN TRENT VOLTAS "
+        "INDHOTEL TATAINVEST TATATECH NELCO RALLIS"
+    ).split(),
+    "Adani group": "ADANIENT ADANIPORTS ADANIPOWER ADANIGREEN ADANIENSOL ATGL AWL ACC AMBUJACEM NDTV".split(),
+    "IT services": (
+        "TCS INFY HCLTECH WIPRO TECHM LTIM PERSISTENT COFORGE MPHASIS OFSS KPITTECH TATAELXSI LTTS CYIENT "
+        "SONATSOFTW ZENSARTECH BSOFT MASTEK HAPPSTMNDS"
+    ).split(),
+}
+
+
+def _sql_list(symbols: list[str]) -> str:
+    return ", ".join(f"'{s}'" for s in symbols)
+
+
 def _nl_system_prompt(sectors: list[str]) -> str:
     cols = "\n".join(f"  {name}: {doc}" for name, doc in COLUMN_DOC.items())
-    sector_line = ", ".join(sectors) if sectors else "(various Yahoo sectors)"
+    sector_line = ", ".join(s for s in sectors if s) or "(various Yahoo sectors)"
     return (
-        "You translate a retail investor's plain-English stock screen into ONE "
-        "valid PostgreSQL SELECT over a single table named stock_snapshot.\n"
-        "Return ONLY the SQL — no markdown, no backticks, no explanation.\n\n"
-        "Hard rules:\n"
-        "- Exactly one statement, a SELECT, FROM stock_snapshot only.\n"
-        "- Never write/modify data; SELECT only.\n"
-        "- Always include symbol and name in the projection, plus the columns the "
-        "user cares about.\n"
-        "- Add an ORDER BY that matches the intent (e.g. best momentum -> ORDER BY "
-        "ret_1m DESC; cheapest -> trailing_pe ASC).\n"
-        "- Always add LIMIT (default 50 unless the user asks for a specific count).\n"
-        "- Data coverage: price + technical columns (price, change_pct, rsi14, mfi14, "
-        "ret_1w..ret_1y, sma*, ema20, atr14, vol_ratio, volume) cover all ~2045 "
-        "stocks. Fundamentals (trailing_pe, roe, debt_to_equity, growth, margins, "
-        "dividend_yield, sector) come from Yahoo and may be missing for some illiquid "
-        "names. roce is always NULL. Mind the exact units below.\n"
-        "- Use ONLY these columns:\n"
-        f"{cols}\n\n"
-        f"Available sector values (match exactly, or use name LIKE '%word%'): {sector_line}\n\n"
-        "Examples:\n"
-        "Q: cheap profitable companies with low debt\n"
-        "A: SELECT symbol, name, price, trailing_pe, roe, debt_to_equity FROM "
-        "stock_snapshot WHERE trailing_pe < 20 AND roe > 15 AND debt_to_equity < 1 "
-        "ORDER BY roe DESC LIMIT 50\n"
-        "Q: oversold smallcaps that fell this month\n"
-        "A: SELECT symbol, name, price, rsi14, ret_1m, market_cap_cr FROM "
-        "stock_snapshot WHERE rsi14 < 35 AND market_cap_cr < 5000 AND ret_1m < 0 "
-        "ORDER BY rsi14 ASC LIMIT 50\n"
-        "Q: top 10 IT stocks by 1 year return\n"
-        "A: SELECT symbol, name, ret_1y, sector FROM stock_snapshot WHERE sector "
-        "LIKE '%Tech%' ORDER BY ret_1y DESC LIMIT 10"
+        "You turn an Indian retail investor's request into a stock screen over ONE table, "
+        "stock_snapshot (one row per NSE stock, latest close).\n"
+        "Reply with ONE JSON object and nothing else, in one of two shapes:\n"
+        '  {"kind":"screen","sql":"SELECT ...","summary":"...","caveat":"..." or null}\n'
+        '  {"kind":"answer","text":"..."}\n\n'
+        "Use kind=answer ONLY for a greeting, a definition of a term (what is RSI?), or a request "
+        "for buy/sell advice (what should I buy, best stocks to buy now, is X a good investment). "
+        "text is 2-4 plain-English sentences, never facts or numbers about a specific company; "
+        "for advice say you can't recommend what to buy and suggest one concrete screen in words. "
+        "Everything else is a screen, including: a company name (tell me about TCS -> its row), "
+        "a number from the data (P/E of Infosys -> its row; how many stocks have RSI below 30 -> "
+        "SELECT COUNT(*) AS stocks ...), a comparison of named companies, and sector questions.\n\n"
+        "summary: one short sentence saying how you read the request, with the thresholds you "
+        "chose, e.g. \"Small caps (under ₹30,000 cr) ranked by 1-week return.\"\n"
+        "caveat: one short sentence ONLY if the request needs data this table doesn't have and "
+        "you used the closest substitute (all-time high -> 52-week high; 10-year or 3/5-year "
+        "history, quarterly trend, FII/promoter holding, free cash flow, ROCE, order book -> "
+        "not available). Otherwise null.\n\n"
+        "SQL rules:\n"
+        "- One PostgreSQL SELECT FROM stock_snapshot. No other tables, no writes. Functions "
+        "available: COUNT, AVG, SUM, MIN, MAX, ROUND, ABS, COALESCE, LOWER. There is no MEDIAN or "
+        "PERCENTILE: use AVG and call it the average in summary.\n"
+        "- Select symbol and name first, then the columns the request is about.\n"
+        "- Put parentheses around every OR group.\n"
+        "- ORDER BY what the request ranks on; if it ranks on nothing, ORDER BY market_cap_cr DESC.\n"
+        "- LIMIT 50 unless a number is asked for.\n"
+        "- Size (approximate AMFI cut-offs, market_cap_cr): large cap >= 100000; mid cap "
+        "30000 to 100000; small cap < 30000; micro cap < 5000. Penny stock: price < 20.\n"
+        "- For vague value or quality words (undervalued, cheap, quality, good, strong, "
+        "multibagger) use concrete thresholds, require trailing_pe > 0, and skip tiny "
+        "illiquid names with market_cap_cr > 500.\n"
+        "- N DMA means smaN exactly: 20 DMA = sma20, 50 DMA = sma50, 200 DMA = sma200. Price "
+        "crossing above N DMA: price > smaN AND previous_close <= smaN (below: the reverse).\n"
+        "- 'Low on 10 year average earnings' / Graham value: trailing_pe > 0 AND trailing_pe < 15 "
+        "AND debt_to_equity < 1 AND roe > 15 (caveat: uses trailing earnings, not a 10-year average).\n"
+        "- Streaks (up 3 days in a row) aren't stored: use change_pct > 0 AND ret_1w > 0 and say so in caveat.\n"
+        "- Volatility: atr14 / price * 100 AS atr_pct. Near 52-week high: price >= 0.95 * high_52w. "
+        "Near 52-week low: price <= 1.05 * low_52w. Golden cross: sma50 > sma200 with sma50 "
+        "within 2% of sma200 (recent crossover). Breakout: price >= high_52w * 0.98 with vol_ratio > 1.5. "
+        "Loss making: trailing_pe IS NULL AND profit_margin < 0.\n"
+        "- Sectors are Yahoo sectors: " + sector_line + ". Indian terms map like this: "
+        "banks -> sector = 'Financial Services' AND name LIKE '%bank%'; NBFCs -> "
+        "sector = 'Financial Services' AND name NOT LIKE '%bank%' AND name NOT LIKE '%insurance%' "
+        "AND (name LIKE '%financ%' OR name LIKE '%capital%' OR name LIKE '%credit%' OR name LIKE "
+        "'%housing%' OR name LIKE '%leasing%'); tech (broad) -> 'Technology'; "
+        "pharma -> 'Healthcare'; FMCG -> 'Consumer Defensive'; retail, hotels, textiles -> "
+        "'Consumer Cyclical'; metals, cement, chemicals -> 'Basic Materials' "
+        "(narrow with name LIKE '%steel%' / '%cement%' / '%chem%' when asked); capital goods, "
+        "infra -> 'Industrials'; power -> 'Utilities'; oil and gas -> 'Energy'; telecom, "
+        "media -> 'Communication Services'; realty -> 'Real Estate'. Other business groups: "
+        "name LIKE '%bajaj%', '%birla%', '%mahindra%'.\n"
+        "- Nifty 50 (list as of late 2025): symbol IN (" + _sql_list(NIFTY_50) + ").\n"
+        "- Themes that aren't Yahoo sectors; use the symbol list (IT companies/IT stocks "
+        "means the IT services list, not the whole Technology sector):\n"
+        + "".join(f"  {name}: symbol IN ({_sql_list(symbols)})\n" for name, symbols in THEMES.items())
+        + "- Questions about sectors (which sector did best, average P/E by sector) GROUP BY "
+        "sector with COUNT(*) AS stocks and the averaged metric, WHERE sector IS NOT NULL, "
+        "returning every sector ranked (no LIMIT 1). For P/E averages add trailing_pe > 0 AND "
+        "trailing_pe < 200.\n"
+        "- \"This year\" means ret_1y (trailing 12 months; say so in caveat). Hinglish is fine.\n"
+        "- Use ONLY these columns:\n" + cols + "\n\n"
+        "Example:\n"
+        "Q: cheap profitable midcaps with low debt\n"
+        '{"kind":"screen","sql":"SELECT symbol, name, price, trailing_pe, roe, debt_to_equity, '
+        "market_cap_cr FROM stock_snapshot WHERE market_cap_cr >= 30000 AND market_cap_cr < 100000 "
+        "AND trailing_pe > 0 AND trailing_pe < 20 AND roe > 15 AND debt_to_equity < 1 ORDER BY "
+        'roe DESC LIMIT 50","summary":"Mid caps with P/E under 20, ROE above 15% and debt below '
+        'equity, highest ROE first.","caveat":null}'
     )
 
 
 def _clean_sql(text: str) -> str:
     text = (text or "").strip()
-    text = re.sub(r"^```(?:sql)?\s*|\s*```$", "", text, flags=re.IGNORECASE).strip()
+    text = re.sub(r"^```(?:sql|json)?\s*|\s*```$", "", text, flags=re.IGNORECASE).strip()
     # Keep only up to the first statement terminator, and drop a trailing ';'.
     if ";" in text:
         text = text.split(";", 1)[0].strip()
     return text
 
 
-def nl_to_sql(prompt: str, sectors: list[str], *, repair_hint: str | None = None) -> tuple[str, str | None]:
+def _parse_plan(text: str) -> dict[str, Any]:
+    """The model's JSON plan; bare SQL (older prompt style) is still accepted."""
+    raw = re.sub(r"^```(?:json|sql)?\s*|\s*```$", "", (text or "").strip(), flags=re.IGNORECASE).strip()
+    match = re.search(r"\{.*\}", raw, re.DOTALL)
+    if match:
+        try:
+            plan = json.loads(match.group(0))
+            if isinstance(plan, dict):
+                if plan.get("sql"):
+                    plan["sql"] = _clean_sql(str(plan["sql"]))
+                return plan
+        except ValueError:
+            pass
+    return {"kind": "screen", "sql": _clean_sql(raw)}
+
+
+def nl_to_plan(prompt: str, sectors: list[str], *, repair_hint: str | None = None) -> tuple[dict[str, Any], str | None]:
     messages = [{"role": "system", "content": _nl_system_prompt(sectors)}]
     user = prompt if not repair_hint else (
-        f"{prompt}\n\n(Your previous SQL was invalid: {repair_hint}. "
-        "Return corrected SQL only.)"
+        f"{prompt}\n\n(Your previous SQL failed: {repair_hint}. Return the corrected JSON.)"
     )
     messages.append({"role": "user", "content": user})
-    response = llm_client.chat(messages, temperature=0, max_tokens=300, prefer="groq")
-    return _clean_sql(response["text"]), response.get("model")
+    response = llm_client.chat(messages, temperature=0, max_tokens=600, prefer="groq")
+    return _parse_plan(response["text"]), response.get("model")
+
+
+def nl_to_sql(prompt: str, sectors: list[str], *, repair_hint: str | None = None) -> tuple[str, str | None]:
+    plan, provider = nl_to_plan(prompt, sectors, repair_hint=repair_hint)
+    return str(plan.get("sql") or ""), provider
 
 
 # ── orchestration ─────────────────────────────────────────────────────────────
@@ -340,51 +476,144 @@ def _sql_path(prompt: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
     )
 
 
+# Translated plans keyed by the normalised question. The SQL is re-run on every
+# request, so a cached plan still reads the latest snapshot; it only saves the
+# LLM call. Groq's free tier allows roughly 60 screener translations a day per
+# model, and most visitors click the same example prompts.
+_PLAN_CACHE: dict[str, tuple[float, dict[str, Any], str | None]] = {}
+_PLAN_TTL = 7 * 24 * 3600
+_PLAN_MAX = 1000
+
+
+def _plan_key(prompt: str) -> str:
+    return re.sub(r"\s+", " ", re.sub(r"[^\w%<>=.\s-]", " ", prompt.lower())).strip()
+
+
+def _cached_plan(prompt: str, sectors: list[str]) -> tuple[dict[str, Any], str | None]:
+    key = _plan_key(prompt)
+    hit = _PLAN_CACHE.get(key)
+    if hit and time.time() - hit[0] < _PLAN_TTL:
+        return dict(hit[1]), hit[2]
+    return nl_to_plan(prompt, sectors)
+
+
+def _remember_plan(prompt: str, plan: dict[str, Any], provider: str | None) -> None:
+    if len(_PLAN_CACHE) >= _PLAN_MAX:
+        _PLAN_CACHE.pop(next(iter(_PLAN_CACHE)))
+    _PLAN_CACHE[_plan_key(prompt)] = (time.time(), dict(plan), provider)
+
+
 def _nl_path(prompt: str, rows: list[dict[str, Any]]) -> dict[str, Any] | None:
     sectors = _distinct_sectors(rows)
     try:
-        sql, provider = nl_to_sql(prompt, sectors)
+        plan, provider = _cached_plan(prompt, sectors)
     except Exception as exc:  # noqa: BLE001 - Groq down / rate-limited
         print(f"[IntelligentScreener] NL->SQL generation failed: {exc}")
         return None
 
-    node = None
+    if plan.get("kind") == "answer" and plan.get("text"):
+        _remember_plan(prompt, plan, provider)
+        return {
+            "rows": [],
+            "matchedRules": [],
+            "explanation": str(plan["text"]).strip(),
+            "answer": str(plan["text"]).strip(),
+            "source": "Bullseye AI",
+            "mode": "answer",
+            "llm_provider": provider,
+        }
+
+    # Validate and run; one repair round covers both invalid SQL and SQL the
+    # executor can't run (an unsupported function, a typo'd column).
     for attempt in range(2):
+        sql = str(plan.get("sql") or "")
         try:
             node = validate_sql(sql)
+            columns, data_rows = _execute(node, rows)
             break
-        except SqlValidationError as exc:
-            if attempt == 0:
-                try:
-                    sql, provider = nl_to_sql(prompt, sectors, repair_hint=str(exc))
-                    continue
-                except Exception:  # noqa: BLE001
-                    return None
-            print(f"[IntelligentScreener] LLM SQL invalid after repair: {exc}")
-            return None
-    if node is None:
-        return None
+        except Exception as exc:  # noqa: BLE001
+            if attempt == 1:
+                print(f"[IntelligentScreener] LLM SQL unusable after repair: {exc}")
+                return None
+            try:
+                plan, provider = nl_to_plan(prompt, sectors, repair_hint=str(exc)[:300])
+            except Exception:  # noqa: BLE001
+                return None
+    _remember_plan(prompt, plan, provider)
 
-    try:
-        columns, data_rows = _execute(node, rows)
-    except Exception as exc:  # noqa: BLE001
-        print(f"[IntelligentScreener] LLM SQL failed to execute: {exc}")
-        return None
-
-    return _payload(
+    summary = str(plan.get("summary") or "").strip()
+    caveat = str(plan.get("caveat") or "").strip() or None
+    if caveat and caveat.lower() in {"null", "none"}:
+        caveat = None
+    payload = _payload(
         columns,
         data_rows,
         rows,
         generated_sql=node.sql(),
         mode="nl",
-        explanation=(
-            f'Understood "{prompt.strip()}" and ran it as SQL — {len(data_rows)} match(es).'
-            if data_rows
-            else f'Understood "{prompt.strip()}", but no stock matched. Try loosening it.'
+        explanation=summary or (
+            f'Read "{prompt.strip()}" as a screen.' if data_rows else f'No stock matched "{prompt.strip()}".'
         ),
         source="AI (Groq) natural-language → SQL over stock_snapshot",
         provider=provider,
     )
+    payload["summary"] = summary or None
+    payload["caveat"] = caveat
+    return payload
+
+
+def _median(values: list[float]) -> float | None:
+    clean = sorted(v for v in values if isinstance(v, (int, float)))
+    if not clean:
+        return None
+    mid = len(clean) // 2
+    return clean[mid] if len(clean) % 2 else (clean[mid - 1] + clean[mid]) / 2
+
+
+def sector_overview() -> dict[str, Any]:
+    """Per-sector counts and medians for the screener's sector directory."""
+    rows = _load_rows()
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        if row.get("sector"):
+            groups.setdefault(str(row["sector"]), []).append(row)
+    sectors = []
+    for name, members in groups.items():
+        by_size = sorted(members, key=lambda r: r.get("market_cap_cr") or 0, reverse=True)
+        sectors.append({
+            "sector": name,
+            "stocks": len(members),
+            "median_ret_1y": _median([r.get("ret_1y") for r in members]),
+            "median_ret_1m": _median([r.get("ret_1m") for r in members]),
+            "median_pe": _median([r.get("trailing_pe") for r in members if (r.get("trailing_pe") or 0) > 0]),
+            "median_roe": _median([r.get("roe") for r in members]),
+            "market_cap_cr": sum(r.get("market_cap_cr") or 0 for r in members),
+            "leaders": [{"symbol": r.get("symbol"), "name": r.get("name")} for r in by_size[:3]],
+        })
+    sectors.sort(key=lambda s: s["market_cap_cr"], reverse=True)
+    dates = sorted(str(r.get("latest_date") or "")[:10] for r in rows if r.get("latest_date"))
+    return {
+        "sectors": sectors,
+        "unclassified": sum(1 for r in rows if not r.get("sector")),
+        "universe": len(rows),
+        "as_of": dates[-1] if dates else None,
+    }
+
+
+def run_screen_sql(sql: str) -> dict[str, Any]:
+    """Run a preset screen or sector query (validated, sandboxed, no LLM)."""
+    rows = _load_rows()
+    if not rows:
+        return {
+            "rows": [],
+            "error": "snapshot_unavailable",
+            "explanation": "The market snapshot is temporarily unavailable.",
+        }
+    result = _sql_path(sql, rows)
+    dates = sorted(str(r.get("latest_date") or "")[:10] for r in rows if r.get("latest_date"))
+    result["as_of"] = dates[-1] if dates else None
+    result["universe"] = len(rows)
+    return result
 
 
 def intelligent_smart_search(
@@ -429,7 +658,18 @@ def intelligent_smart_search(
         if nl is not None:
             return nl
 
-    legacy = smart_search(prompt, stocks, screeners, sectors)
-    if isinstance(legacy, dict):
-        legacy.setdefault("mode", "legacy")
-    return legacy
+    # The old keyword router returned empty "sector" results for most requests
+    # in testing, so a failed translation now says so plainly instead.
+    return {
+        "rows": [],
+        "matchedRules": [],
+        "mode": "unavailable",
+        "source": "Bullseye AI",
+        "explanation": (
+            "I couldn't turn that into a screen right now. Try rephrasing it with a concrete "
+            "condition (for example \"P/E under 20 and ROE above 15\"), pick a preset screen, "
+            "or write the SQL yourself."
+            if rows
+            else "The market snapshot is temporarily unavailable. Please try again in a minute."
+        ),
+    }

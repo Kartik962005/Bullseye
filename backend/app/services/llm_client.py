@@ -55,7 +55,9 @@ def _get_groq():
             return None
         from groq import Groq
 
-        _groq_client = Groq(api_key=api_key)
+        # No SDK retries: a 429 here is usually the daily token cap, and the
+        # retry backoff only delayed the switch to the next model by ~15s.
+        _groq_client = Groq(api_key=api_key, max_retries=0)
     return _groq_client
 
 
@@ -100,7 +102,10 @@ def _groq_chat(messages, temperature: float, max_tokens: int, model: str | None)
             return _groq_complete(client, messages, temperature, max_tokens, candidate)
         except Exception as exc:  # noqa: BLE001
             status = getattr(exc, "status_code", None)
-            if status not in (404, 429):
+            # A bad request (400/401) fails the same on every model; rate
+            # limits, retired models, server errors and dropped connections
+            # (no status) are worth one try on the next model.
+            if status is not None and status not in (404, 429, 500, 502, 503):
                 raise
             print(f"[LLM] groq {candidate} unavailable ({status}), trying next Groq model")
             last_exc = exc

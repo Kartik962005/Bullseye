@@ -85,6 +85,10 @@ def frontend_metric_row(
     )
     return {
         "stock": _stock_from_snapshot(row, fallback_stock),
+        "sector": row.get("sector"),
+        "priceToBook": _num(row.get("price_to_book")),
+        "beta": _num(row.get("beta")),
+        "profitMargin": _num(row.get("profit_margin")),
         "cmp": cmp_value,
         "pe": pe,
         "marketCapCr": market_cap_cr,
@@ -217,6 +221,58 @@ def enrich_metric_rows(
     return enriched_rows
 
 
+def _with_derived_fields(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Fill market cap and ROE where Yahoo leaves them blank.
+
+    Market cap = enterprise value - debt + cash; on the stocks that report
+    both it matches within 0.6% (median).
+
+    Yahoo reports ROE for only ~5% of NSE names, which made every ROE screen
+    return a handful of large caps. P/B divided by P/E is exactly
+    EPS / book value per share, i.e. ROE on closing equity; on the stocks that
+    do report ROE it lands within about one percentage point (median).
+
+    Trailing P/E is set aside (kept as trailing_pe_raw) when the earnings
+    behind it look broken or one-off; see _earnings_unreliable.
+    """
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        if row.get("market_cap_cr") is None:
+            # Yahoo drops marketCap for some names (TCS and Reliance among
+            # them) while still reporting enterprise value, debt and cash.
+            ev, debt, cash = (_num(row.get(k)) for k in ("enterprise_value", "total_debt", "total_cash"))
+            if ev and debt is not None and cash is not None and ev - debt + cash > 0:
+                cap = ev - debt + cash
+                row = {**row, "market_cap": cap, "market_cap_cr": round(cap / 1e7, 4)}
+        pe = _num(row.get("trailing_pe"))
+        if pe is not None and _earnings_unreliable(row, pe):
+            # Keep the raw figure for reference, but don't let one-off or
+            # broken earnings top every "cheap" screen (ZF CV at P/E 2.5
+            # against a forward P/E of 34; net margins of several thousand %).
+            row = {**row, "trailing_pe": None, "trailing_pe_raw": pe}
+            pe = None
+        if row.get("roe") is None:
+            pb = _num(row.get("price_to_book"))
+            # Above ~100% the inputs are almost always distorted (one-off
+            # income, tiny equity); Colgate and Nestle sit around 75-85%.
+            if pb and pe and pe > 0 and pb > 0 and pb / pe * 100 <= 100:
+                row = {**row, "roe": round(pb / pe * 100, 3)}
+        out.append(row)
+    return out
+
+
+def _earnings_unreliable(row: dict[str, Any], pe: float) -> bool:
+    if 0 <= pe < 3:
+        return True
+    forward = _num(row.get("forward_pe"))
+    if forward and forward > 0 and pe > 0 and pe < forward / 3:
+        return True
+    # Profit above revenue means one-off gains, except at holding and
+    # investment companies whose income is mostly dividends and associates.
+    margin = _num(row.get("profit_margin"))
+    return margin is not None and margin > 100 and row.get("sector") != "Financial Services"
+
+
 def snapshot_available() -> bool:
     return supabase is not None
 
@@ -251,8 +307,11 @@ def get_snapshot_rows(
                     if len(page) < page_size:
                         break
                     start += page_size
+                rows = _with_derived_fields(rows)
                 _cache["rows"] = rows
                 _cache["ts"] = now
+            if tickers:
+                rows = _with_derived_fields(rows)
         except Exception as exc:
             print(f"[Snapshot] stock_snapshot read failed: {exc}")
             return []

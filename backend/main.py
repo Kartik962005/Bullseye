@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from dotenv import load_dotenv
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Any
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
@@ -53,7 +53,7 @@ app.add_middleware(
 from app.services.data_service import get_latest_quote, get_latest_quotes_batch, get_historical_data, get_fundamentals_data, get_chart_data
 from app.services.screener_service import screen_stocks
 from app.services.smart_search_service import smart_search
-from app.services.intelligent_screener_service import intelligent_smart_search
+from app.services.intelligent_screener_service import intelligent_smart_search, run_screen_sql, sector_overview
 from app.services.stock_ai_service import run_stock_ai_search
 from app.services.ask_ai_service import run_ask_ai, movers_snapshot_status
 from app.services.ask_ai_history_service import (
@@ -359,6 +359,10 @@ class ScreenerEnrichRequest(BaseModel):
     rows: list[dict[str, Any]] = []
 
 
+class ScreenerRunRequest(BaseModel):
+    sql: str = Field(..., max_length=2000)
+
+
 class StockAiRequest(BaseModel):
     prompt: str
     current_ticker: str
@@ -469,6 +473,25 @@ async def smart_screener_search(request: Request, body: SmartScreenerRequest):
             for stock in body.stocks
         ]
         return intelligent_smart_search(body.prompt, stocks, body.screeners, body.sectors, body.mode)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/v1/screener/run")
+@limiter.limit("60/minute")
+async def screener_run(request: Request, body: ScreenerRunRequest):
+    """Run a preset screen's SQL. Same sandbox as SQL mode, no LLM involved."""
+    try:
+        return run_screen_sql(body.sql)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/v1/screener/sectors")
+@limiter.limit("60/minute")
+async def screener_sectors(request: Request):
+    try:
+        return sector_overview()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
