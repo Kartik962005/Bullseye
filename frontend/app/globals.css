@@ -1079,6 +1079,281 @@ html:has(.nova-canvas) * {
   padding: 10px 12px 2px 14px;
 }
 
+/* ── Screener (.scr) ─────────────────────────────────────────────────────── */
+.scr-filter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  width: min(100%, 220px);
+  padding: 0 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #8e88b3;
+  transition: border-color 0.2s;
+}
+.scr-filter:focus-within {
+  border-color: rgba(255, 79, 163, 0.55);
+  color: #ff79c0;
+}
+.scr-filter input {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  background: transparent;
+  font: 400 13px var(--font-inter), system-ui, sans-serif;
+  color: #fff;
+  outline: none;
+}
+.scr-filter input::placeholder {
+  color: #7d7799;
+}
+.scr-check {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  border-radius: 5px;
+  border: 1.5px solid rgba(255, 255, 255, 0.25);
+  transition:
+    background-color 0.2s,
+    border-color 0.2s;
+}
+.scr-check.is-on {
+  border-color: #ff4fa3;
+  background: #ff4fa3 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 8.5l2.5 2.5L12 5.5' fill='none' stroke='%2314051a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/100% no-repeat;
+}
+.scr-scroll {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+.scr-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+.scr-table th {
+  padding: 12px 16px;
+  text-align: right;
+  white-space: nowrap;
+  background: #120e27;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  font: 500 11px/1 var(--font-jbmono), ui-monospace, monospace;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #8e88b3;
+}
+.scr-table th button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  text-transform: inherit;
+  letter-spacing: inherit;
+  transition: color 0.2s;
+}
+.scr-table th button:hover,
+.scr-table th button.is-active {
+  color: #fff;
+}
+.scr-table th button.is-active .scr-arrow {
+  color: #ff79c0;
+  opacity: 1;
+}
+.scr-arrow {
+  font-size: 10px;
+  opacity: 0.35;
+}
+.scr-table td {
+  padding: 12px 16px;
+  text-align: right;
+  white-space: nowrap;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.045);
+  font: 400 13px var(--font-jbmono), ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  color: #ece8ff;
+  transition: background-color 0.15s;
+}
+.scr-table td.is-up {
+  color: #6ff0b5;
+}
+.scr-table td.is-down {
+  color: #ff8aa0;
+}
+.scr-table .scr-sticky {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  text-align: left;
+  font-family: var(--font-inter), system-ui, sans-serif;
+  background: #110d25;
+  box-shadow: 1px 0 0 rgba(255, 255, 255, 0.05);
+}
+.scr-table th.scr-sticky {
+  background: #120e27;
+}
+.scr-row {
+  cursor: pointer;
+  animation: scr-row-in 0.35s var(--nova-ease) both;
+}
+.scr-row:hover td {
+  background: #1a1535;
+}
+@keyframes scr-row-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+.scr-tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  border-radius: 20px;
+  padding: 18px 18px 16px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.01)),
+    rgba(16, 12, 34, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  transition:
+    transform 0.35s var(--nova-ease),
+    border-color 0.3s,
+    box-shadow 0.35s var(--nova-ease);
+}
+.scr-tile:hover,
+.scr-tile:focus-visible {
+  transform: translateY(-3px);
+  border-color: rgba(255, 79, 163, 0.35);
+  box-shadow: 0 24px 50px -28px rgba(255, 46, 151, 0.55);
+}
+.scr-tile:active {
+  transform: translateY(-1px) scale(0.985);
+  transition-duration: 0.12s;
+}
+.scr-tile-arrow {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #d6d0f0;
+  font-size: 12px;
+  transition:
+    transform 0.35s var(--nova-ease),
+    background-color 0.3s,
+    color 0.3s;
+}
+.scr-tile:hover .scr-tile-arrow {
+  transform: rotate(-45deg);
+  background: #ff4fa3;
+  color: #14051a;
+}
+.scr-rule {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  padding: 6px 12px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 13px;
+  color: #e9e5ff;
+}
+.scr-rule::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: #ff4fa3;
+}
+.scr-note {
+  display: flex;
+  gap: 10px;
+  border-radius: 16px;
+  padding: 12px 14px;
+  background: rgba(255, 181, 71, 0.07);
+  border: 1px solid rgba(255, 181, 71, 0.22);
+  font-size: 13px;
+  line-height: 1.6;
+  color: #f3dcb6;
+}
+.scr-console {
+  position: relative;
+  isolation: isolate;
+  border-radius: 26px;
+  background: rgba(13, 10, 31, 0.82);
+  box-shadow: 0 30px 80px -40px rgba(0, 0, 0, 0.9);
+}
+.scr-console::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  padding: 1px;
+  background: conic-gradient(from var(--nova-angle), #00e5ff, #8b5cf6, #ff2e97, #ffb547, #00e5ff);
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  opacity: 0.35;
+  transition: opacity 0.35s var(--nova-ease);
+}
+.scr-console:focus-within::before {
+  opacity: 1;
+  animation: nova-spin 4s linear infinite;
+}
+.scr-console:focus-within {
+  box-shadow:
+    0 0 0 4px rgba(255, 46, 151, 0.12),
+    0 30px 80px -30px rgba(139, 92, 246, 0.55);
+}
+.scr-console textarea {
+  display: block;
+  width: 100%;
+  resize: none;
+  border: 0;
+  background: transparent;
+  padding: 20px 22px 8px;
+  font: 400 16px/1.55 var(--font-inter), system-ui, sans-serif;
+  color: #fff;
+  outline: none;
+}
+.scr-console textarea.is-sql {
+  font: 400 14px/1.6 var(--font-jbmono), ui-monospace, monospace;
+}
+.scr-console textarea::placeholder {
+  color: #7d7799;
+}
+.scr-example {
+  border-radius: 999px;
+  padding: 7px 13px;
+  background: rgba(255, 255, 255, 0.045);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 12.5px;
+  color: #cfc9ea;
+  transition:
+    background-color 0.2s,
+    border-color 0.2s,
+    color 0.2s;
+}
+.scr-example:hover {
+  background: rgba(255, 79, 163, 0.1);
+  border-color: rgba(255, 79, 163, 0.4);
+  color: #fff;
+}
+.scr-reveal {
+  animation: dialog-in 0.4s cubic-bezier(0.2, 0.9, 0.3, 1.04) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .scr-row,
+  .scr-reveal,
+  .scr-console:focus-within::before {
+    animation: none;
+  }
+}
+
 /* ── Motion system: one set of open/close animations for the whole site ─────
    Pair with usePresence(): data-state="open" plays in, "closed" plays out
    before the element unmounts. Only opacity / transform animate. */

@@ -2,237 +2,145 @@
 
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { useEffect, useMemo, useState } from 'react';
-import { ALL_SCREENS, buildCustomQueryResult, getRowsForScreen, getScreenBySlug } from '../screen-data';
-import ScreenMetricTable from '../ScreenMetricTable';
-import StockSearch from '../StockSearch';
-import { enrichScreenRows } from '../enrichRows';
-import { BullseyeLogo } from '@/components/brand/BullseyeLogo';
+import { useEffect, useState } from 'react';
+import { RETIRED_SCREENS, SCREENS, getScreenBySlug, median, runScreenSql, type RunResult } from '../screen-data';
+import ResultsTable from '../ResultsTable';
+import ScreensShell, { Eyebrow } from '../ScreensShell';
 
-/** Median ignores nulls — and beats the mean on skewed financials like P/E. */
-function median(values: Array<number | null | undefined>): number | null {
-  const clean = values
-    .filter((value): value is number => typeof value === 'number' && Number.isFinite(value))
-    .sort((a, b) => a - b);
-  if (!clean.length) return null;
-  const mid = Math.floor(clean.length / 2);
-  return clean.length % 2 ? clean[mid] : (clean[mid - 1] + clean[mid]) / 2;
-}
-
-function formatStat(value: number | null, suffix = '') {
+function stat(value: number | null, suffix = '') {
   return value === null ? '—' : `${value.toFixed(1)}${suffix}`;
 }
 
 export default function ScreenDetailPage() {
-  const params = useParams<{ slug: string }>();
-  const screen = getScreenBySlug(params.slug);
-  const initialRows = useMemo(() => getRowsForScreen(params.slug), [params.slug]);
-  const [query, setQuery] = useState(screen?.query ?? '');
-  const [rows, setRows] = useState(initialRows);
-  const [activeTitle, setActiveTitle] = useState(screen?.title ?? 'Stock screen');
-
-  // Newest snapshot date across the rows — states plainly how old the data is.
-  const snapshotDate = useMemo(() => {
-    const dates = rows
-      .map(row => row.technical?.latestDate)
-      .filter((value): value is string => typeof value === 'string' && value.length >= 8);
-    return dates.length ? dates.sort().at(-1) ?? null : null;
-  }, [rows]);
+  const { slug } = useParams<{ slug: string }>();
+  const screen = getScreenBySlug(slug);
+  const [data, setData] = useState<{ slug: string; result: RunResult | null; error?: string } | null>(null);
 
   useEffect(() => {
-    let cancelled = false;
-    setRows(initialRows);
-    enrichScreenRows(initialRows).then(nextRows => {
-      if (!cancelled) setRows(nextRows);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [initialRows]);
+    if (!screen) return;
+    const controller = new AbortController();
+    runScreenSql(screen.sql, controller.signal)
+      .then(result => setData({ slug: screen.slug, result }))
+      .catch(error => {
+        if ((error as Error).name !== 'AbortError') {
+          setData({ slug: screen.slug, result: null, error: 'The screener is not responding. It may be waking up; refresh in a few seconds.' });
+        }
+      });
+    return () => controller.abort();
+  }, [screen]);
 
   if (!screen) {
+    const retired = RETIRED_SCREENS[slug];
+    const instead = retired ? getScreenBySlug(retired.instead) : undefined;
     return (
-      <main className="flex min-h-screen flex-col items-start justify-center bg-black px-8 font-body text-paper">
-        <div className="flex items-center gap-3">
-          <span aria-hidden className="h-px w-8 bg-accent/60" />
-          <span className="font-body text-[11px] font-medium uppercase tracking-[0.28em] text-accent">404</span>
-        </div>
-        <h1 className="mt-5 font-display text-[clamp(2rem,4vw,3rem)] leading-tight text-paper">Screen not found</h1>
-        <p className="mt-3 max-w-[48ch] font-body text-[14px] leading-7 text-paper-muted">
-          That screen slug doesn&apos;t match anything in the library.
-        </p>
-        <Link
-          href="/screens"
-          className="mt-7 inline-flex h-12 items-center justify-center rounded-full bg-accent px-7 font-body text-[13px] font-semibold text-black transition duration-300 hover:bg-accent-dim"
-        >
-          Back to screens
-        </Link>
-      </main>
-    );
-  }
-
-  const runCustomQuery = async () => {
-    const result = buildCustomQueryResult(query);
-    setRows(result.rows);
-    setActiveTitle('Custom query result');
-    setRows(await enrichScreenRows(result.rows));
-  };
-
-  return (
-    <main className="bullseye-night relative min-h-screen bg-black font-body text-paper selection:bg-accent/25">
-      {/* Ambient scene — same language as the homepage and screener index. */}
-      <div aria-hidden className="pointer-events-none fixed inset-0 z-0">
-        <div className="absolute inset-0 bg-black" />
-        <div
-          className="absolute inset-0"
-          style={{
-            background:
-              'radial-gradient(820px 520px at 20% 4%, rgba(52,211,153,0.10), transparent 62%), radial-gradient(680px 460px at 84% 10%, rgba(255,79,163,0.07), transparent 58%)',
-          }}
-        />
-        <div
-          className="absolute inset-0"
-          style={{
-            background:
-              'linear-gradient(180deg, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.74) 45%, rgba(0,0,0,0.93) 100%)',
-          }}
-        />
-      </div>
-
-      <div className="relative z-10 min-h-screen">
-        <header className="relative z-40 border-b border-hairline bg-black/55 backdrop-blur-xl">
-          <div className="mx-auto grid max-w-[1400px] grid-cols-1 items-center gap-4 px-5 py-5 sm:px-8 md:grid-cols-[auto_minmax(240px,1fr)_auto]">
-            <Link href="/" className="flex min-w-0 items-center gap-2.5">
-              <BullseyeLogo size={24} wordClassName="text-[18px]" />
-            </Link>
-            <StockSearch compact />
-            <Link
-              href="/screens"
-              className="hidden h-10 items-center justify-center rounded-full bg-accent px-5 font-body text-[13px] font-semibold text-black transition duration-300 hover:bg-accent-dim md:inline-flex"
-            >
+      <ScreensShell>
+        <div className="mx-auto max-w-[640px] py-16 text-center">
+          <Eyebrow>{retired ? 'Screen retired' : 'Not found'}</Eyebrow>
+          <h1 className="mt-4 text-[clamp(1.8rem,4vw,2.6rem)] font-semibold tracking-[-0.02em] text-white">
+            {retired ? retired.title : 'There is no screen here'}
+          </h1>
+          <p className="mt-4 text-[15px] leading-7 text-[#b9b4d6]">
+            {retired && retired.needs
+              ? `This screen needs ${retired.needs}, which Bullseye's data doesn't include yet. Rather than show a made-up list, it has been removed.`
+              : retired
+                ? 'This screen was replaced by a version that runs on real data.'
+                : "That link doesn't match any screen in the library."}
+          </p>
+          <div className="mt-8 flex flex-wrap justify-center gap-3">
+            {instead && (
+              <Link href={`/screens/${instead.slug}`} className="nova-btn nova-btn-primary !h-11 !text-[14px]">
+                Try {instead.title}
+              </Link>
+            )}
+            <Link href="/screens" className="nova-btn nova-btn-ghost !h-11 !text-[14px]">
               All screens
             </Link>
           </div>
-        </header>
+        </div>
+      </ScreensShell>
+    );
+  }
 
-        <section className="relative z-10 mx-auto flex w-full max-w-[1200px] flex-col gap-10 px-5 py-14 sm:px-8">
-          {/* Screen header — editorial title with the numbers as a stat rail
-              rather than three boxed cards. */}
-          <div>
-            <Link
-              href="/screens"
-              className="inline-flex items-center gap-2 font-body text-[12px] text-paper-muted transition hover:text-accent"
-            >
-              <span aria-hidden>←</span> All screens
-            </Link>
+  const current = data?.slug === screen.slug ? data : null;
+  const rows = current?.result?.rows ?? [];
+  const loading = !current;
+  const related = SCREENS.filter(s => s.category === screen.category && s.slug !== screen.slug)
+    .concat(SCREENS.filter(s => s.category !== screen.category))
+    .slice(0, 3);
 
-            <div className="mt-6 flex items-center gap-3">
-              <span aria-hidden className="h-px w-8 bg-accent/60" />
-              <span className="font-body text-[11px] font-medium uppercase tracking-[0.28em] text-accent">
-                Preset screen
-              </span>
+  return (
+    <ScreensShell>
+      <Link href="/screens" className="sx-back">
+        <span aria-hidden>←</span> Screener
+      </Link>
+
+      <header className="mt-6 grid gap-8 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+        <div>
+          <Eyebrow>{screen.category} screen</Eyebrow>
+          <h1 className="mt-3 text-[clamp(2rem,5vw,3.2rem)] font-semibold leading-[1.05] tracking-[-0.03em] text-white">
+            {screen.title}
+          </h1>
+          <p className="mt-3 max-w-[58ch] text-[16px] leading-7 text-[#b9b4d6]">{screen.description}</p>
+        </div>
+        <dl className="grid grid-cols-3 gap-6 sm:gap-8">
+          {[
+            ['Matches', loading ? '…' : String(rows.length)],
+            ['Median P/E', loading ? '…' : stat(median(rows.map(r => (r.pe && r.pe > 0 ? r.pe : null))))],
+            ['Median ROE', loading ? '…' : stat(median(rows.map(r => r.roe)), '%')],
+          ].map(([label, value]) => (
+            <div key={label}>
+              <dt className="text-[12px] text-[#9f99c2]">{label}</dt>
+              <dd className="mt-1 font-numeric text-[22px] text-white">{value}</dd>
             </div>
+          ))}
+        </dl>
+      </header>
 
-            <h1 className="mt-5 max-w-[20ch] font-display text-[clamp(2.2rem,5vw,3.6rem)] font-normal leading-[1.02] text-paper">
-              {activeTitle}
-            </h1>
-            <p className="mt-4 max-w-[62ch] font-body text-[15px] leading-8 text-paper-muted">
-              {screen.description}
-            </p>
+      <section className="mt-8 flex flex-col gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="mr-1 text-[13px] text-[#9f99c2]">Rules</span>
+          {screen.rules.map(rule => (
+            <span key={rule} className="scr-rule">
+              {rule}
+            </span>
+          ))}
+          <Link href={`/screens?sql=${encodeURIComponent(screen.sql)}`} className="sx-btn-ghost ml-auto !h-9">
+            Tweak in SQL
+          </Link>
+        </div>
+        {screen.note && (
+          <p className="scr-note">
+            <span aria-hidden>⚑</span>
+            {screen.note}
+          </p>
+        )}
+      </section>
 
-            {/* Honest stat rail. "Avg score" was dropped: the score is a
-                derived 50-99 number, so averaging it says nothing about the
-                stocks. Medians beat means on skewed financials like P/E. */}
-            <div className="mt-8 flex flex-wrap gap-x-12 gap-y-5 border-y border-hairline py-5">
-              {[
-                ['Results', String(rows.length)],
-                ['Median P/E', formatStat(median(rows.map(row => row.pe)))],
-                ['Median ROE', formatStat(median(rows.map(row => row.roe)), '%')],
-                ['Data as of', snapshotDate ?? '—'],
-              ].map(([label, value]) => (
-                <div key={label}>
-                  <div className="font-body text-[10px] font-medium uppercase tracking-[0.22em] text-paper-muted">
-                    {label}
-                  </div>
-                  <div className="mt-1.5 font-numeric text-lg leading-none text-paper">{value}</div>
-                </div>
-              ))}
-            </div>
-          </div>
+      <section className="mt-6">
+        {current?.error ? (
+          <div className="sx-card p-8 text-center text-[15px] text-white">{current.error}</div>
+        ) : (
+          <ResultsTable rows={rows} columns={screen.columns} title={screen.title} loading={loading} asOf={current?.result?.as_of} />
+        )}
+      </section>
 
-          {/* ── DEFINITION ── moved ABOVE the results. This is what the screen
-              IS; you should be able to read and edit the rules without first
-              scrolling past a long table, and re-running is the main loop. */}
-          <section className="rounded-[22px] border border-hairline p-6 sm:p-7">
-            <div className="flex flex-wrap items-baseline justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <span aria-hidden className="h-px w-8 bg-accent/60" />
-                <span className="font-body text-[10px] font-medium uppercase tracking-[0.24em] text-accent">
-                  Screen definition
+      <section className="mt-16">
+        <Eyebrow>Try another angle</Eyebrow>
+        <div className="mt-4 grid gap-3 sm:grid-cols-3">
+          {related.map(item => (
+            <Link key={item.slug} href={`/screens/${item.slug}`} className="scr-tile">
+              <div className="flex items-start justify-between gap-3">
+                <span className="sx-label !text-[10px]">{item.category}</span>
+                <span className="scr-tile-arrow" aria-hidden>
+                  →
                 </span>
               </div>
-              <button
-                type="button"
-                onClick={runCustomQuery}
-                className="inline-flex h-10 items-center justify-center rounded-full bg-accent px-6 font-body text-[12px] font-semibold text-black transition duration-300 hover:bg-accent-dim"
-              >
-                Re-run screen
-              </button>
-            </div>
-            <p className="mt-3 max-w-[62ch] font-body text-[13px] leading-7 text-paper-muted">
-              These are the rules this screen applies. Edit them and re-run against the Bullseye
-              universe — the results below update in place.
-            </p>
-            <textarea
-              value={query}
-              onChange={event => setQuery(event.target.value)}
-              spellCheck={false}
-              className="mt-5 h-32 w-full resize-y rounded-2xl border border-hairline bg-black/40 p-4 font-numeric text-[13px] leading-6 text-paper outline-none transition placeholder:text-paper-muted/60 focus:border-accent/55"
-            />
-            <div className="mt-3 font-body text-[11px] leading-6 text-paper-muted/70">
-              Columns you can use:{' '}
-              <span className="font-numeric text-paper-muted">
-                price · trailing_pe · roe · roce · market_cap_cr · debt_to_equity · operating_margin
-                · dividend_yield · revenue_growth · profit_growth · rsi14 · ret_1m · vol_ratio
-              </span>
-            </div>
-          </section>
-
-          <ScreenMetricTable rows={rows} query={query} title={activeTitle} />
-
-          {/* Related screens belong AFTER the results — that's when you'd
-              reach for a different angle. Was a stub list wedged in a sidebar. */}
-          <section>
-            <div className="flex items-center gap-3">
-              <span aria-hidden className="h-px w-8 bg-accent/60" />
-              <span className="font-body text-[11px] font-medium uppercase tracking-[0.28em] text-accent">
-                Try another angle
-              </span>
-            </div>
-            <div className="mt-6 grid grid-cols-1 gap-x-10 sm:grid-cols-2 lg:grid-cols-3">
-              {ALL_SCREENS.filter(item => item.slug !== screen.slug)
-                .slice(0, 9)
-                .map(item => (
-                  <Link
-                    key={item.slug}
-                    href={`/screens/${item.slug}`}
-                    className="group flex items-baseline justify-between gap-4 border-b border-hairline py-3.5 transition duration-200 hover:border-accent/40"
-                  >
-                    <span className="font-body text-[13.5px] leading-6 text-paper-muted transition group-hover:text-accent">
-                      {item.title}
-                    </span>
-                    <span
-                      aria-hidden
-                      className="shrink-0 font-body text-[14px] text-paper-muted/40 transition-transform duration-300 group-hover:translate-x-0.5 group-hover:text-accent"
-                    >
-                      →
-                    </span>
-                  </Link>
-                ))}
-            </div>
-          </section>
-        </section>
-      </div>
-    </main>
+              <h3 className="mt-3 text-[16px] font-semibold text-white">{item.title}</h3>
+              <p className="mt-1 text-[13px] leading-6 text-[#b9b4d6]">{item.description}</p>
+            </Link>
+          ))}
+        </div>
+      </section>
+    </ScreensShell>
   );
 }

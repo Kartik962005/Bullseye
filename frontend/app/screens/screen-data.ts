@@ -1,693 +1,413 @@
-import { STOCKS } from '../stocks';
+import type { STOCKS } from '../stocks';
 
 export type Stock = typeof STOCKS[number];
 
-export type ScreenItem = {
-  slug: string;
-  title: string;
-  description: string;
-  query: string;
-  tags: string[];
-};
-
-export type ScreenSection = {
-  title: string;
-  subtitle: string;
-  items: ScreenItem[];
-};
-
+/** One stock row as the backend returns it (stock_snapshot_service.frontend_metric_row). */
 export type ScreenMetricRow = {
   stock: Stock;
+  sector?: string | null;
+  priceToBook?: number | null;
+  beta?: number | null;
+  profitMargin?: number | null;
   cmp: number | null;
   pe: number | null;
   marketCapCr: number | null;
-  marketCapitalization: number | null;
   divYield: number | null;
-  avgDividendPayout3Yr: number | null;
-  qtrSalesCr: number | null;
   qtrProfitVar: number | null;
-  qtrSalesVar: number | null;
   revenueGrowth3Yr: number | null;
   profitGrowth3Yr: number | null;
-  profitGrowth5Yr: number | null;
   roe: number | null;
-  roce: number | null;
-  avgRoce7Yr: number | null;
   debtToEquity: number | null;
   operatingMargin: number | null;
-  piotroskiScore: number | null;
-  avgPat10Yrs: number | null;
   score: number;
   reason: string;
   technical?: {
     latestDate?: string;
-    gainStreakDays?: number;
-    recentVolumeAvg?: number;
-    previousWeekVolumeAvg?: number;
-    volumeRatioVsPreviousWeek?: number;
-    recentReturnPct?: number;
-    return1wPct?: number;
-    return1mPct?: number;
-    return3mPct?: number;
-    return6mPct?: number;
-    return1yPct?: number;
-    todayReturnPct?: number;
-    gapPct?: number;
-    rsi14?: number;
-    mfi14?: number;
-    sma20?: number;
-    sma50?: number;
-    sma200?: number;
-    ema20?: number;
-    atr14?: number;
-    atrChange5d?: number;
-    latestVolume?: number;
-    volumeSma10?: number;
-    volumeSma20?: number;
-    volumeRatio10?: number;
-    volumeRatio20?: number;
-    high52Week?: number;
-    low52Week?: number;
-    priceVs52WeekHighPct?: number;
-    priceVs52WeekLowPct?: number;
-    higherHighsLows10d?: boolean;
-    lowerHighsLows10d?: boolean;
-    requestedMetrics?: string[];
+    return1wPct?: number | null;
+    return1mPct?: number | null;
+    return3mPct?: number | null;
+    return6mPct?: number | null;
+    return1yPct?: number | null;
+    todayReturnPct?: number | null;
+    gapPct?: number | null;
+    rsi14?: number | null;
+    mfi14?: number | null;
+    sma20?: number | null;
+    sma50?: number | null;
+    sma200?: number | null;
+    ema20?: number | null;
+    atr14?: number | null;
+    latestVolume?: number | null;
+    volumeRatio20?: number | null;
+    high52Week?: number | null;
+    low52Week?: number | null;
+    priceVs52WeekHighPct?: number | null;
+    priceVs52WeekLowPct?: number | null;
   };
 };
 
-type MetricOverride = Partial<Omit<ScreenMetricRow, 'stock'>>;
+export type ScreenCategory = 'Value' | 'Quality' | 'Growth' | 'Momentum' | 'Technical' | 'Income';
 
-const nseStocks = STOCKS.filter(stock => stock.exchange === 'NSE');
-const indianStockBySymbol = new Map(nseStocks.map(stock => [stock.symbol, stock]));
+export type ScreenItem = {
+  slug: string;
+  title: string;
+  category: ScreenCategory;
+  description: string;
+  /** The rules in plain English, shown as chips. */
+  rules: string[];
+  /** Read-only SELECT over stock_snapshot, run by /api/v1/screener/run. */
+  sql: string;
+  /** Column ids (see COLUMNS in ResultsTable) to show after the name. */
+  columns: string[];
+  /** Set when the textbook version needs data Bullseye doesn't have. */
+  note?: string;
+};
 
-export const SCREEN_SECTIONS: ScreenSection[] = [
+const BASE = 'SELECT symbol, name FROM stock_snapshot';
+
+export const SCREENS: ScreenItem[] = [
+  // ── Value ────────────────────────────────────────────────────────────────
   {
-    title: 'Popular themes',
-    subtitle: 'Popular investing themes',
-    items: [
-      {
-        slug: 'low-10-year-average-earnings',
-        title: 'Low on 10 year average earnings',
-        description: 'Graham-style value screen using long-term average earnings.',
-        query: 'Market Capitalization / Average Earnings 10Year < 15 AND Debt to equity < 2 AND Average return on capital employed 7Years > 20',
-        tags: ['value', 'graham', 'earnings'],
-      },
-      {
-        slug: 'capacity-expansion',
-        title: 'Capacity expansion',
-        description: 'Companies where fixed assets or CWIP have expanded sharply.',
-        query: 'Fixed assets 3Years growth > 100 OR CWIP 1Year growth > 50',
-        tags: ['capex', 'expansion'],
-      },
-      {
-        slug: 'debt-reduction',
-        title: 'Debt reduction...',
-        description: 'Companies reducing leverage while continuing expansion.',
-        query: 'Debt to equity < Debt to equity preceding year AND Sales growth 3Years > 8',
-        tags: ['debt', 'balance sheet'],
-      },
-      {
-        slug: 'companies-creating-new-high',
-        title: 'Companies creating new high',
-        description: 'Companies with current price around 52 week high.',
-        query: 'Current price > 0.9 * High price all time AND Market Capitalization > 5000',
-        tags: ['momentum', '52 week high'],
-      },
-      {
-        slug: 'growth-without-dilution',
-        title: 'Growth without dilution',
-        description: 'Growth companies with low equity dilution over many years.',
-        query: 'Sales growth 10Years > 10 AND Equity dilution 10Years < 10',
-        tags: ['growth', 'dilution'],
-      },
-      {
-        slug: 'fii-buying',
-        title: 'FII Buying',
-        description: 'Stocks where foreign institutional investors are accumulating.',
-        query: 'FII holding latest quarter > FII holding preceding quarter',
-        tags: ['fii', 'ownership'],
-      },
-    ],
+    slug: 'low-10-year-average-earnings',
+    title: 'Graham value',
+    category: 'Value',
+    description: 'Cheap on earnings, modest debt and a high return on equity.',
+    rules: ['P/E between 0 and 15', 'Debt / equity under 1', 'ROE above 15%', 'Market cap above ₹500 cr'],
+    sql: `${BASE} WHERE trailing_pe > 0 AND trailing_pe < 15 AND debt_to_equity < 1 AND roe > 15 AND market_cap_cr > 500 ORDER BY roe DESC LIMIT 100`,
+    columns: ['price', 'pe', 'roe', 'de', 'mcap', 'ret1y'],
+    note: 'Graham used 10-year average earnings. Bullseye has the last 12 months of earnings, so this uses the trailing P/E.',
   },
   {
-    title: 'Popular formulas',
-    subtitle: 'Screening formulas based on books',
-    items: [
-      {
-        slug: 'piotroski-scan',
-        title: 'Piotroski Scan',
-        description: 'Companies with Piotroski score of 9 across profitability, leverage, and efficiency.',
-        query: 'Piotroski score = 9 AND Market Capitalization > 1000',
-        tags: ['quality', 'piotroski'],
-      },
-      {
-        slug: 'magic-formula',
-        title: 'Magic Formula',
-        description: 'High earnings yield plus high return on capital.',
-        query: 'Return on capital employed > 20 AND Earnings yield > 8',
-        tags: ['quality', 'value'],
-      },
-      {
-        slug: 'coffee-can-portfolio',
-        title: 'Coffee Can Portfolio',
-        description: 'High quality compounders with durable sales growth.',
-        query: 'ROCE 10Years > 15 AND Sales growth 10Years > 10',
-        tags: ['quality', 'compounders'],
-      },
-    ],
+    slug: 'magic-formula',
+    title: 'Magic Formula',
+    category: 'Value',
+    description: "Greenblatt's idea: good businesses at cheap prices. High earnings yield, high returns.",
+    rules: ['Earnings yield above 8% (P/E under 12.5)', 'ROE above 20%', 'Market cap above ₹500 cr'],
+    sql: `${BASE} WHERE trailing_pe > 0 AND trailing_pe < 12.5 AND roe > 20 AND market_cap_cr > 500 ORDER BY roe DESC LIMIT 100`,
+    columns: ['price', 'pe', 'roe', 'mcap', 'ret1y'],
+    note: 'The original uses return on capital (ROCE), which the data source does not provide, so ROE stands in.',
   },
   {
-    title: 'Price or Volume',
-    subtitle: 'Screens based on price or volume action',
-    items: [
-      {
-        slug: 'darvas-scan',
-        title: 'Darvas Scan',
-        description: 'Within 10 percent of 52w high, volume above 100000, and price above 10.',
-        query: 'Current price > 0.9 * High price 52week AND Volume > 100000 AND Current price > 10',
-        tags: ['darvas', 'volume'],
-      },
-      {
-        slug: 'golden-crossover',
-        title: 'Golden Crossover',
-        description: 'When 50 DMA moves above 200 DMA from below.',
-        query: 'DMA 50 > DMA 200 AND DMA 50 preceding day <= DMA 200 preceding day',
-        tags: ['technical', 'crossover'],
-      },
-      {
-        slug: 'bearish-crossovers',
-        title: 'Bearish Crossovers',
-        description: '50 day moving average cuts the 200 day moving average from above.',
-        query: 'DMA 50 < DMA 200 AND DMA 50 preceding day >= DMA 200 preceding day',
-        tags: ['technical', 'bearish'],
-      },
-      {
-        slug: 'price-volume-action',
-        title: 'Price Volume Action',
-        description: 'Weekly volumes are sharply higher and price movement is positive.',
-        query: 'Volume 1Week > 5 * Volume average 20Days AND Price change 1Week > 0',
-        tags: ['volume', 'momentum'],
-      },
-      {
-        slug: 'rsi-oversold-stocks',
-        title: 'RSI - Oversold Stocks',
-        description: 'Stocks with RSI less than 30.',
-        query: 'RSI < 30 AND Market Capitalization > 1000',
-        tags: ['rsi', 'oversold'],
-      },
-    ],
+    slug: 'below-book-value',
+    title: 'Below book value',
+    category: 'Value',
+    description: 'Profitable companies the market values at less than their net assets.',
+    rules: ['Price / book under 1', 'Profitable (P/E above 0)', 'Market cap above ₹500 cr'],
+    sql: `${BASE} WHERE price_to_book > 0 AND price_to_book < 1 AND trailing_pe > 0 AND market_cap_cr > 500 ORDER BY price_to_book ASC LIMIT 100`,
+    columns: ['price', 'pb', 'pe', 'roe', 'mcap', 'ret1y'],
   },
   {
-    title: 'Quarterly results',
-    subtitle: 'Screens around latest quarterly results',
-    items: [
-      {
-        slug: 'the-bull-cartel',
-        title: 'The Bull Cartel',
-        description: 'Companies with strong latest quarterly growth.',
-        query: 'Sales latest quarter growth > 15 AND Profit latest quarter growth > 15',
-        tags: ['quarterly', 'growth'],
-      },
-      {
-        slug: 'quarterly-growers',
-        title: 'Quarterly Growers',
-        description: 'Q0 > Q1 > Q2 > Q3.',
-        query: 'Profit latest quarter > Profit preceding quarter > Profit 2quarters back > Profit 3quarters back',
-        tags: ['quarterly', 'trend'],
-      },
-      {
-        slug: 'best-of-latest-quarter',
-        title: 'Best of latest quarter',
-        description: 'Companies with the best latest quarterly numbers.',
-        query: 'Profit growth latest quarter > 25 AND Sales growth latest quarter > 15',
-        tags: ['quarterly', 'results'],
-      },
-      {
-        slug: 'all-latest-qtr-results-date-wise',
-        title: 'All Latest QTR Results [Date Wise]',
-        description: 'Latest quarterly results with profits.',
-        query: 'Net profit latest quarter > 0 ORDER BY Result date DESC',
-        tags: ['quarterly', 'profits'],
-      },
-    ],
+    slug: 'cash-rich',
+    title: 'More cash than debt',
+    category: 'Value',
+    description: 'Companies whose cash pile is larger than everything they owe.',
+    rules: ['Total cash above total debt', 'Profitable', 'Market cap above ₹1,000 cr'],
+    sql: `${BASE} WHERE total_cash > total_debt AND trailing_pe > 0 AND market_cap_cr > 1000 ORDER BY market_cap_cr DESC LIMIT 100`,
+    columns: ['price', 'mcap', 'de', 'pe', 'roe', 'ret1y'],
+  },
+
+  // ── Quality ──────────────────────────────────────────────────────────────
+  {
+    slug: 'coffee-can-portfolio',
+    title: 'Coffee Can',
+    category: 'Quality',
+    description: 'Steady compounders: high returns on equity, growing sales, little debt.',
+    rules: ['ROE above 15%', 'Revenue growth above 10%', 'Debt / equity under 1', 'Market cap above ₹1,000 cr'],
+    sql: `${BASE} WHERE roe > 15 AND revenue_growth > 10 AND debt_to_equity < 1 AND market_cap_cr > 1000 ORDER BY market_cap_cr DESC LIMIT 100`,
+    columns: ['price', 'roe', 'revg', 'de', 'mcap', 'ret1y'],
+    note: 'The book version wants 10 straight years of ROCE and sales growth. Bullseye has the latest figures only.',
   },
   {
-    title: 'Valuation Screens',
-    subtitle: 'Screens based on stock valuations',
-    items: [
-      {
-        slug: 'highest-dividend-yield-shares',
-        title: 'Highest Dividend Yield Shares',
-        description: 'Dividend stocks sorted by highest yield.',
-        query: 'Dividend yield > 2 AND Dividend payout average 3Years > 20 ORDER BY Dividend yield DESC',
-        tags: ['dividend', 'yield'],
-      },
-      {
-        slug: 'loss-to-profit-companies',
-        title: 'Loss to Profit Companies',
-        description: 'Companies that turned from loss to profit.',
-        query: 'Net profit latest quarter > 0 AND Net profit preceding year quarter < 0',
-        tags: ['turnaround', 'profits'],
-      },
-      {
-        slug: 'fcf-yield',
-        title: 'FCF yield',
-        description: 'Companies with good free cash flow yield and growth.',
-        query: 'Free cash flow yield > 5 AND Sales growth 5Years > 8',
-        tags: ['fcf', 'valuation'],
-      },
-      {
-        slug: 'high-ratio-of-market-value-of-investments',
-        title: 'High Ratio of Market Value of Investments',
-        description: 'Companies with high market value of investments.',
-        query: 'Market value of quoted investments / Market Capitalization > 0.25',
-        tags: ['investments', 'holding'],
-      },
-      {
-        slug: 'book-value-over-5-times-price',
-        title: 'Book value over 5 times price',
-        description: 'High book value compared with price.',
-        query: 'Book value > 5 * Current price',
-        tags: ['book value', 'deep value'],
-      },
-    ],
+    slug: 'debt-free-compounders',
+    title: 'Debt-free compounders',
+    category: 'Quality',
+    description: 'Practically no debt, a high ROE and profits still growing.',
+    rules: ['Debt / equity under 0.1', 'ROE above 15%', 'Profit growth above 10%', 'Market cap above ₹500 cr'],
+    sql: `${BASE} WHERE debt_to_equity < 0.1 AND roe > 15 AND profit_growth > 10 AND market_cap_cr > 500 ORDER BY roe DESC LIMIT 100`,
+    columns: ['price', 'de', 'roe', 'profg', 'mcap', 'ret1y'],
   },
   {
-    title: 'Popular stock screens',
-    subtitle: 'Popular screens commonly used by investors.',
-    items: [
-      {
-        slug: 'growth-stocks',
-        title: 'Growth Stocks',
-        description: 'High growth companies at reasonable valuations.',
-        query: 'Sales growth 5Years > 12 AND ROCE > 15 AND PEG ratio < 2',
-        tags: ['growth'],
-      },
-    ],
+    slug: 'high-margin-leaders',
+    title: 'High-margin leaders',
+    category: 'Quality',
+    description: 'Businesses that keep a large share of every rupee of sales.',
+    rules: ['Operating margin above 25%', 'ROE above 15%', 'Market cap above ₹1,000 cr'],
+    sql: `${BASE} WHERE operating_margin > 25 AND roe > 15 AND market_cap_cr > 1000 ORDER BY operating_margin DESC LIMIT 100`,
+    columns: ['price', 'opm', 'roe', 'pe', 'mcap', 'ret1y'],
+  },
+
+  // ── Growth ───────────────────────────────────────────────────────────────
+  {
+    slug: 'growth-stocks',
+    title: 'Growth at a fair price',
+    category: 'Growth',
+    description: 'Fast-growing companies whose P/E is still under twice their profit growth.',
+    rules: ['Revenue and profit growth above 12%', 'ROE above 15%', 'PEG under 2', 'Market cap above ₹1,000 cr'],
+    sql: `${BASE} WHERE revenue_growth > 12 AND profit_growth > 12 AND roe > 15 AND trailing_pe > 0 AND trailing_pe < 2 * profit_growth AND market_cap_cr > 1000 ORDER BY profit_growth DESC LIMIT 100`,
+    columns: ['price', 'pe', 'profg', 'revg', 'roe', 'mcap'],
+  },
+  {
+    slug: 'the-bull-cartel',
+    title: 'The Bull Cartel',
+    category: 'Growth',
+    description: 'Sales and earnings both up more than 15% in the latest reported quarter.',
+    rules: ['Quarterly revenue growth above 15%', 'Quarterly earnings growth above 15%', 'Market cap above ₹500 cr'],
+    sql: `${BASE} WHERE revenue_growth > 15 AND earnings_quarterly_growth > 15 AND market_cap_cr > 500 ORDER BY revenue_growth DESC LIMIT 100`,
+    columns: ['price', 'revg', 'qeg', 'pe', 'mcap', 'ret3m'],
+  },
+  {
+    slug: 'best-of-latest-quarter',
+    title: 'Best of the latest quarter',
+    category: 'Growth',
+    description: 'The strongest year-on-year jumps in quarterly earnings.',
+    rules: ['Quarterly earnings growth above 25%', 'Revenue growth above 15%', 'Market cap above ₹500 cr'],
+    sql: `${BASE} WHERE earnings_quarterly_growth > 25 AND revenue_growth > 15 AND market_cap_cr > 500 ORDER BY earnings_quarterly_growth DESC LIMIT 100`,
+    columns: ['price', 'qeg', 'revg', 'pe', 'mcap', 'ret3m'],
+  },
+
+  // ── Momentum ─────────────────────────────────────────────────────────────
+  {
+    slug: 'companies-creating-new-high',
+    title: 'Near 52-week high',
+    category: 'Momentum',
+    description: 'Larger companies trading within 5% of their highest price in a year.',
+    rules: ['Price within 5% of the 52-week high', 'Market cap above ₹5,000 cr'],
+    sql: `${BASE} WHERE price >= 0.95 * high_52w AND market_cap_cr > 5000 ORDER BY market_cap_cr DESC LIMIT 100`,
+    columns: ['price', 'vs52h', 'ret1m', 'ret1y', 'mcap'],
+  },
+  {
+    slug: 'darvas-scan',
+    title: 'Darvas box',
+    category: 'Momentum',
+    description: "Nicolas Darvas's filter: near the yearly high, liquid and not a penny stock.",
+    rules: ['Within 10% of the 52-week high', 'Volume above 1 lakh shares', 'Price above ₹10'],
+    sql: `${BASE} WHERE price >= 0.9 * high_52w AND latest_volume > 100000 AND price > 10 ORDER BY ret_1m DESC LIMIT 100`,
+    columns: ['price', 'vs52h', 'volume', 'ret1m', 'mcap'],
+  },
+  {
+    slug: 'price-volume-action',
+    title: 'Volume surge',
+    category: 'Momentum',
+    description: 'Trading at least twice its usual volume while the price rose this week.',
+    rules: ['Volume above 2× its 20-day average', 'Up over the past week', 'Market cap above ₹500 cr'],
+    sql: `${BASE} WHERE vol_ratio > 2 AND ret_1w > 0 AND market_cap_cr > 500 ORDER BY vol_ratio DESC LIMIT 100`,
+    columns: ['price', 'change', 'volx', 'ret1w', 'mcap'],
+  },
+  {
+    slug: 'top-1y-performers',
+    title: 'Top 1-year performers',
+    category: 'Momentum',
+    description: 'The biggest gainers of the past 12 months among established companies.',
+    rules: ['Market cap above ₹1,000 cr', 'Ranked by 1-year return'],
+    sql: `${BASE} WHERE market_cap_cr > 1000 ORDER BY ret_1y DESC LIMIT 100`,
+    columns: ['price', 'ret1y', 'ret3m', 'pe', 'mcap'],
+  },
+
+  // ── Technical ────────────────────────────────────────────────────────────
+  {
+    slug: 'golden-crossover',
+    title: 'Golden crossover',
+    category: 'Technical',
+    description: 'The 50-day average has just moved above the 200-day average.',
+    rules: ['50-DMA above 200-DMA', '…by less than 2%', 'Market cap above ₹1,000 cr'],
+    sql: `${BASE} WHERE sma50 > sma200 AND sma50 < 1.02 * sma200 AND market_cap_cr > 1000 ORDER BY market_cap_cr DESC LIMIT 100`,
+    columns: ['price', 'sma50', 'sma200', 'ret1m', 'mcap'],
+    note: "Bullseye stores today's averages, not yesterday's, so a fresh cross is read as the 50-DMA sitting less than 2% above the 200-DMA.",
+  },
+  {
+    slug: 'bearish-crossovers',
+    title: 'Death cross',
+    category: 'Technical',
+    description: 'The 50-day average has just slipped below the 200-day average.',
+    rules: ['50-DMA below 200-DMA', '…by less than 2%', 'Market cap above ₹1,000 cr'],
+    sql: `${BASE} WHERE sma50 < sma200 AND sma50 > 0.98 * sma200 AND market_cap_cr > 1000 ORDER BY market_cap_cr DESC LIMIT 100`,
+    columns: ['price', 'sma50', 'sma200', 'ret1m', 'mcap'],
+    note: "A fresh cross is read as the 50-DMA sitting less than 2% below the 200-DMA, since only today's averages are stored.",
+  },
+  {
+    slug: 'above-all-averages',
+    title: 'Above every average',
+    category: 'Technical',
+    description: 'Price above its 20, 50 and 200-day averages, with each average stacked in order.',
+    rules: ['Price > 20-DMA > 50-DMA > 200-DMA', 'Market cap above ₹1,000 cr'],
+    sql: `${BASE} WHERE price > sma20 AND sma20 > sma50 AND sma50 > sma200 AND market_cap_cr > 1000 ORDER BY ret_3m DESC LIMIT 100`,
+    columns: ['price', 'sma20', 'sma50', 'sma200', 'ret3m', 'mcap'],
+  },
+  {
+    slug: 'rsi-oversold-stocks',
+    title: 'RSI oversold',
+    category: 'Technical',
+    description: 'Sold off hard enough that the 14-day RSI is under 30.',
+    rules: ['RSI (14) below 30', 'Market cap above ₹1,000 cr'],
+    sql: `${BASE} WHERE rsi14 < 30 AND market_cap_cr > 1000 ORDER BY rsi14 ASC LIMIT 100`,
+    columns: ['price', 'rsi', 'ret1m', 'vs52h', 'mcap'],
+  },
+  {
+    slug: 'rsi-overbought-stocks',
+    title: 'RSI overbought',
+    category: 'Technical',
+    description: 'Run up hard enough that the 14-day RSI is above 70.',
+    rules: ['RSI (14) above 70', 'Market cap above ₹1,000 cr'],
+    sql: `${BASE} WHERE rsi14 > 70 AND market_cap_cr > 1000 ORDER BY rsi14 DESC LIMIT 100`,
+    columns: ['price', 'rsi', 'ret1m', 'vs52h', 'mcap'],
+  },
+  {
+    slug: 'near-52-week-low',
+    title: 'Near 52-week low',
+    category: 'Technical',
+    description: 'Established companies within 5% of their lowest price in a year.',
+    rules: ['Price within 5% of the 52-week low', 'Market cap above ₹1,000 cr'],
+    sql: `${BASE} WHERE price <= 1.05 * low_52w AND market_cap_cr > 1000 ORDER BY market_cap_cr DESC LIMIT 100`,
+    columns: ['price', 'vs52l', 'ret1y', 'pe', 'mcap'],
+  },
+
+  // ── Income ───────────────────────────────────────────────────────────────
+  {
+    slug: 'highest-dividend-yield-shares',
+    title: 'Highest dividend yield',
+    category: 'Income',
+    description: 'Profitable companies paying the most dividend for their share price.',
+    rules: ['Dividend yield above 2%', 'Profitable', 'Market cap above ₹1,000 cr'],
+    sql: `${BASE} WHERE dividend_yield > 2 AND trailing_pe > 0 AND market_cap_cr > 1000 ORDER BY dividend_yield DESC LIMIT 100`,
+    columns: ['price', 'dy', 'pe', 'roe', 'mcap', 'ret1y'],
+    note: 'Payout history is not in the data, so check that a high yield is not a one-off special dividend.',
+  },
+  {
+    slug: 'steady-dividend-low-beta',
+    title: 'Calm dividend payers',
+    category: 'Income',
+    description: 'Dividend payers that move less than the market.',
+    rules: ['Dividend yield above 1.5%', 'Beta under 0.8', 'Market cap above ₹5,000 cr'],
+    sql: `${BASE} WHERE dividend_yield > 1.5 AND beta < 0.8 AND market_cap_cr > 5000 ORDER BY dividend_yield DESC LIMIT 100`,
+    columns: ['price', 'dy', 'beta', 'pe', 'mcap', 'ret1y'],
   },
 ];
 
-export const ALL_SCREENS = SCREEN_SECTIONS.flatMap(section => section.items);
-
-const SECTOR_RULES: Array<[string, string[]]> = [
-  ['Banks', ['bank', 'banks', 'banking', 'lender', 'lenders', 'sbi', 'hdfc', 'icici', 'axis', 'kotak', 'indusind', 'federal', 'canara', 'pnb']],
-  ['Finance', ['finance', 'finserv', 'financiers', 'credit', 'capital', 'housing', 'muthoot', 'bajaj', 'rec', 'pfc']],
-  ['Capital Markets', ['bse', 'mcx', 'cdsl', 'cams', 'angel', 'amc', 'securities']],
-  ['IT - Services', ['tcs', 'infosys', 'wipro', 'hcl', 'tech', 'software', 'systems', 'mindtree', 'coforge', 'persistent', 'mphasis']],
-  ['Automobiles', ['motors', 'auto', 'maruti', 'mahindra', 'eicher', 'tvs', 'ashok']],
-  ['Auto Components', ['bosch', 'motherson', 'mrf', 'balkrishna', 'cummins', 'tube']],
-  ['Pharmaceuticals & Biotechnology', ['pharma', 'cipla', 'lupin', 'biocon', 'zydus', 'glenmark', 'laurus', 'granules']],
-  ['Healthcare Services', ['hospital', 'health', 'apollo', 'max healthcare']],
-  ['Oil & Gas', ['oil', 'ongc', 'bpcl', 'hpcl', 'ioc', 'gail', 'gas']],
-  ['Power', ['power', 'ntpc', 'grid', 'energy']],
-  ['Metals & Mining', ['steel', 'metal', 'hindalco', 'vedanta', 'nmdc', 'sail', 'zinc', 'nalco']],
-  ['Cement & Construction Materials', ['cement', 'ultratech', 'ambuja', 'shree', 'acc', 'ramco']],
-  ['Chemicals', ['chemical', 'srf', 'pidilite', 'upl', 'linde', 'deepak', 'aarti']],
-  ['Aerospace & Defense', ['hal', 'bel', 'mazagon', 'cochin', 'dynamics', 'bemo', 'beml', 'mtar', 'data patterns']],
-  ['Realty', ['realty', 'properties', 'dlf', 'lodha', 'oberoi', 'prestige', 'sobha', 'brigade']],
-  ['Retailing', ['trent', 'dmart']],
-  ['Telecom - Services', ['communications', 'vodafone', 'idea', 'tata comm', 'indus towers']],
-  ['Food & FMCG', ['britannia', 'nestle', 'tata consumer', 'itc', 'hindustan unilever', 'dabur', 'marico', 'colgate', 'emami']],
-  ['Beverages', ['united breweries', 'spirits', 'varun', 'radico']],
-  ['Media & Entertainment', ['sun tv', 'pvr', 'zee', 'network']],
-  ['Insurance', ['insurance', 'lombard', 'star health', 'gic']],
-  ['Construction', ['larsen', 'lt', 'irb', 'nbcc']],
+export const CATEGORIES: Array<{ id: ScreenCategory; blurb: string }> = [
+  { id: 'Value', blurb: 'Cheap against earnings, assets or cash' },
+  { id: 'Quality', blurb: 'High returns, little debt' },
+  { id: 'Growth', blurb: 'Sales and profits rising fast' },
+  { id: 'Momentum', blurb: 'Prices and volume moving up' },
+  { id: 'Technical', blurb: 'Moving averages and RSI' },
+  { id: 'Income', blurb: 'Dividends' },
 ];
 
-export function getStockSector(stock: Stock) {
-  const haystack = `${stock.name} ${stock.symbol}`.toLowerCase();
-  return SECTOR_RULES.find(([, words]) => words.some(word => haystack.includes(word)))?.[0] ?? 'Diversified';
-}
-
-export function getAvailableSectors() {
-  const counts = new Map<string, number>();
-  nseStocks.forEach(stock => {
-    const sector = getStockSector(stock);
-    counts.set(sector, (counts.get(sector) ?? 0) + 1);
-  });
-  return [...counts.entries()]
-    .map(([name, count]) => ({ name, count }))
-    .sort((a, b) => a.name.localeCompare(b.name));
-}
-
-function makeRow(symbol: string, index: number, overrides: MetricOverride = {}): ScreenMetricRow | null {
-  const stock = indianStockBySymbol.get(symbol);
-  if (!stock) return null;
-  const row: ScreenMetricRow = {
-    stock,
-    cmp: null,
-    pe: null,
-    marketCapCr: null,
-    marketCapitalization: null,
-    divYield: null,
-    avgDividendPayout3Yr: null,
-    qtrSalesCr: null,
-    qtrProfitVar: null,
-    qtrSalesVar: null,
-    revenueGrowth3Yr: null,
-    profitGrowth3Yr: null,
-    profitGrowth5Yr: null,
-    roe: null,
-    roce: null,
-    avgRoce7Yr: null,
-    debtToEquity: null,
-    operatingMargin: null,
-    piotroskiScore: null,
-    avgPat10Yrs: null,
-    score: 92 - index * 3,
-    reason: 'Preset screen match. Metrics load from the backend snapshot when available.',
-    ...overrides,
-  };
-  if (overrides.marketCapCr !== undefined && overrides.marketCapCr !== null && overrides.marketCapitalization === undefined) {
-    row.marketCapitalization = overrides.marketCapCr * 10000000;
-  }
-  return row;
-}
-
-const screenSymbols: Record<string, string[]> = {
-  'low-10-year-average-earnings': ['COALINDIA', 'ONGC', 'GAIL', 'POWERGRID', 'TATASTEEL', 'NMDC', 'SAIL', 'NATIONALUM', 'SUNTV'],
-  'capacity-expansion': ['HAL', 'BEL', 'MAZDOCK', 'COCHINSHIP', 'BDL', 'BEML', 'CUMMINSIND', 'LT', 'TATAPOWER'],
-  'debt-reduction': ['TATAMOTORS', 'VEDL', 'JSWSTEEL', 'NTPC', 'POWERGRID', 'BANKBARODA', 'CANBK', 'PNB'],
-  'companies-creating-new-high': ['TRENT', 'HAL', 'BEL', 'BSE', 'COCHINSHIP', 'MAZDOCK', 'PFC', 'RECLTD', 'TATAPOWER'],
-  'growth-without-dilution': ['TCS', 'INFY', 'HCLTECH', 'PIDILITIND', 'NESTLEIND', 'BRITANNIA', 'DMART', 'LTIM'],
-  'fii-buying': ['HDFCBANK', 'ICICIBANK', 'KOTAKBANK', 'TCS', 'RELIANCE', 'SUNPHARMA', 'LT', 'AXISBANK'],
-  'piotroski-scan': ['COALINDIA', 'POWERGRID', 'TCS', 'INFY', 'HCLTECH', 'SUNPHARMA', 'CIPLA', 'PIDILITIND'],
-  'magic-formula': ['COALINDIA', 'TCS', 'INFY', 'HCLTECH', 'POWERGRID', 'PIDILITIND', 'BRITANNIA', 'SUNTV'],
-  'coffee-can-portfolio': ['TCS', 'INFY', 'HCLTECH', 'PIDILITIND', 'NESTLEIND', 'BRITANNIA', 'TATACONSUM', 'MARICO'],
-  'darvas-scan': ['HAL', 'BEL', 'MAZDOCK', 'COCHINSHIP', 'TRENT', 'BSE', 'PFC', 'RECLTD'],
-  'golden-crossover': ['RELIANCE', 'TATAMOTORS', 'ICICIBANK', 'SBIN', 'LT', 'NTPC', 'POWERGRID', 'SUNPHARMA'],
-  'bearish-crossovers': ['WIPRO', 'TECHM', 'BIOCON', 'BANDHANBNK', 'IDEA', 'UPL', 'ZEEL', 'INDUSTOWER'],
-  'price-volume-action': ['TATAMOTORS', 'HAL', 'BEL', 'BSE', 'COCHINSHIP', 'ADANIPORTS', 'TRENT', 'SBIN'],
-  'rsi-oversold-stocks': ['WIPRO', 'TECHM', 'UPL', 'BIOCON', 'BANDHANBNK', 'IDEA', 'FEDERALBNK', 'MOTHERSON'],
-  'the-bull-cartel': ['HAL', 'BEL', 'MAZDOCK', 'COCHINSHIP', 'BSE', 'PFC', 'RECLTD', 'TRENT'],
-  'quarterly-growers': ['TATAMOTORS', 'LT', 'SUNPHARMA', 'CIPLA', 'COFORGE', 'PERSISTENT', 'CUMMINSIND', 'BSE'],
-  'best-of-latest-quarter': ['HAL', 'BEL', 'BSE', 'COCHINSHIP', 'MAZDOCK', 'TRENT', 'PFC', 'RECLTD'],
-  'all-latest-qtr-results-date-wise': ['RELIANCE', 'TCS', 'INFY', 'HDFCBANK', 'ICICIBANK', 'SBIN', 'SUNPHARMA', 'LT'],
-  'highest-dividend-yield-shares': ['COALINDIA', 'ONGC', 'POWERGRID', 'GAIL', 'VEDL', 'BPCL', 'HINDPETRO', 'IOC'],
-  'loss-to-profit-companies': ['TATAMOTORS', 'IDEA', 'BANDHANBNK', 'BIOCON', 'PNB', 'BANKBARODA', 'SAIL', 'VEDL'],
-  'fcf-yield': ['COALINDIA', 'TCS', 'INFY', 'POWERGRID', 'ONGC', 'HCLTECH', 'CIPLA', 'SUNPHARMA'],
-  'high-ratio-of-market-value-of-investments': ['BAJAJFINSV', 'ICICIBANK', 'HDFCBANK', 'SBIN', 'RELIANCE', 'TATACONSUM', 'ITC', 'ABCAPITAL'],
-  'book-value-over-5-times-price': ['BANKBARODA', 'PNB', 'CANBK', 'BANKINDIA', 'UNIONBANK', 'SAIL', 'NMDC', 'VEDL'],
-  'growth-stocks': ['TRENT', 'PERSISTENT', 'COFORGE', 'KPITTECH', 'HAL', 'BEL', 'TATACONSUM', 'PIDILITIND'],
+/**
+ * Screens that used to be listed but need data Bullseye doesn't have. They
+ * showed a fixed, hand-picked list of stocks; their old links now explain
+ * that and point to the closest real screen.
+ */
+export const RETIRED_SCREENS: Record<string, { title: string; needs: string; instead: string }> = {
+  'capacity-expansion': { title: 'Capacity expansion', needs: 'fixed-asset and capital work-in-progress history', instead: 'growth-stocks' },
+  'debt-reduction': { title: 'Debt reduction', needs: "last year's debt to compare against", instead: 'debt-free-compounders' },
+  'growth-without-dilution': { title: 'Growth without dilution', needs: 'ten years of share-count history', instead: 'growth-stocks' },
+  'fii-buying': { title: 'FII buying', needs: 'quarterly shareholding patterns', instead: 'price-volume-action' },
+  'piotroski-scan': { title: 'Piotroski scan', needs: 'two years of balance sheets to score each test', instead: 'coffee-can-portfolio' },
+  'quarterly-growers': { title: 'Quarterly growers', needs: 'four quarters of profit history', instead: 'the-bull-cartel' },
+  'all-latest-qtr-results-date-wise': { title: 'Latest results, date-wise', needs: 'a results calendar', instead: 'best-of-latest-quarter' },
+  'loss-to-profit-companies': { title: 'Loss to profit', needs: 'the year-ago quarter to compare against', instead: 'best-of-latest-quarter' },
+  'fcf-yield': { title: 'FCF yield', needs: 'cash-flow statements', instead: 'cash-rich' },
+  'high-ratio-of-market-value-of-investments': { title: 'Market value of investments', needs: 'holdings of listed investments', instead: 'below-book-value' },
+  'book-value-over-5-times-price': { title: 'Book value over 5× price', needs: '', instead: 'below-book-value' },
 };
 
 export function getScreenBySlug(slug: string) {
-  return ALL_SCREENS.find(screen => screen.slug === slug);
+  return SCREENS.find(screen => screen.slug === slug);
 }
 
-export function getRowsForScreen(slug: string) {
-  const symbols = screenSymbols[slug] ?? screenSymbols['growth-stocks'];
-  return symbols
-    .map((symbol, index) => makeRow(symbol, index))
-    .filter((row): row is ScreenMetricRow => Boolean(row))
-    .sort((a, b) => b.score - a.score);
-}
-
-export function getRowsForSector(sector: string) {
-  return nseStocks
-    .filter(stock => getStockSector(stock) === sector)
-    .slice(0, 40)
-    .map((stock, index) => makeRow(stock.symbol, index, {
-      score: 88 - index,
-      reason: `Included in ${sector} from the loaded Bullseye stock universe.`,
-    }))
-    .filter((row): row is ScreenMetricRow => Boolean(row));
-}
-
-export function buildCustomQueryResult(prompt: string, selectedSector?: string) {
-  const lower = prompt.toLowerCase();
-  const sectors = getAvailableSectors();
-  const normalizedLower = normalizePrompt(lower);
-  const sector = selectedSector ?? sectors.find(item => {
-    const sectorName = item.name.toLowerCase();
-    return normalizedLower.includes(sectorName) || normalizedLower.includes(sectorName.split(' ')[0]);
-  })?.name ?? inferSectorFromPrompt(normalizedLower);
-  const wantsUs = /\bus|nasdaq|nyse\b/.test(lower);
-  const base = (wantsUs ? STOCKS.filter(stock => ['NASDAQ', 'NYSE'].includes(stock.exchange)) : nseStocks)
-    .filter(stock => !sector || getStockSector(stock) === sector);
-
-  const universe = base
-    .map((stock, index) => makeRow(stock.symbol, index, {
-      score: 90 - (index % 40),
-      reason: 'Matched the custom SQL/plain-English query against the loaded Bullseye fundamentals universe.',
-    }))
-    .filter((row): row is ScreenMetricRow => Boolean(row));
-
-  const metricRequests = inferRequestedTechnicalMetrics(normalizedLower);
-  const universeWithRequestedMetrics = universe.map((row, index) => attachRequestedTechnicalMetrics(row, index, metricRequests));
-
-  const parsed = parseSqlLikeQuery(prompt);
-  const rowsAfterSql = parsed.conditions.length
-    ? universeWithRequestedMetrics.filter(row => parsed.conditions.every(condition => condition(row)))
-    : [];
-
-  const plainEnglish = filterPlainEnglishRows(universeWithRequestedMetrics, normalizedLower, metricRequests);
-  const rowsAfterPlainEnglish = rowsAfterSql.length ? rowsAfterSql : plainEnglish.rows;
-  const sortedRows = sortRows(rowsAfterPlainEnglish, parsed.orderBy);
-  const rows = sortedRows.slice(0, 60);
-
-  const recognizedRules = [
-    ...parsed.labels,
-    ...plainEnglish.labels,
-    sector ? `Sector matched: ${sector}` : '',
-  ].filter(Boolean);
-
-  const querySummary = recognizedRules.length
-    ? recognizedRules.join('\n')
-    : 'No supported local rule was recognized. The live AI screener can still handle price/volume prompts when the backend is available.';
-
-  return {
-    rows,
-    query: querySummary,
-    explanation: rows.length
-      ? `Matched ${rows.length} stocks using local preset metadata; metric values require backend snapshot data.`
-      : 'No stocks matched, or the prompt needs backend snapshot data that is not available in the local fallback.',
-    matchedRules: recognizedRules,
-  };
-}
-
-type QueryCondition = (row: ScreenMetricRow) => boolean;
-type OrderBy = { field: string; direction: 'ASC' | 'DESC' } | null;
-
-const FIELD_ALIASES: Record<string, string> = {
-  stock_name: 'stock',
-  name: 'stock',
-  symbol: 'stock',
-  revenue_growth_3yr: 'revenueGrowth3Yr',
-  revenue_growth_3y: 'revenueGrowth3Yr',
-  sales_growth_3yr: 'revenueGrowth3Yr',
-  profit_growth_3yr: 'profitGrowth3Yr',
-  profit_growth_5yr: 'profitGrowth5Yr',
-  roe: 'roe',
-  roce: 'roce',
-  avg_roce_7yr: 'avgRoce7Yr',
-  average_roce_7yr: 'avgRoce7Yr',
-  debt_to_equity: 'debtToEquity',
-  debt_equity: 'debtToEquity',
-  operating_margin: 'operatingMargin',
-  piotroski_score: 'piotroskiScore',
-  dividend_yield: 'divYield',
-  div_yield: 'divYield',
-  avg_dividend_payout_3yr: 'avgDividendPayout3Yr',
-  dividend_payout_3yr: 'avgDividendPayout3Yr',
-  market_capitalization: 'marketCapitalization',
-  market_cap: 'marketCapitalization',
-  market_capitalisation: 'marketCapitalization',
-  cmp: 'cmp',
-  pe: 'pe',
-  p_e: 'pe',
-  score: 'score',
-  rsi: 'technical.rsi14',
-  rsi_14: 'technical.rsi14',
-  rsi14: 'technical.rsi14',
-  mfi: 'technical.mfi14',
-  mfi_14: 'technical.mfi14',
-  mfi14: 'technical.mfi14',
-  sma_20: 'technical.sma20',
-  sma20: 'technical.sma20',
-  sma_50: 'technical.sma50',
-  sma50: 'technical.sma50',
-  ema_20: 'technical.ema20',
-  ema20: 'technical.ema20',
+// ── Sectors ────────────────────────────────────────────────────────────────
+/** Yahoo's sectors, with the Indian names people search for. */
+export const SECTOR_INFO: Record<string, { label: string; examples: string }> = {
+  'Financial Services': { label: 'Financial services', examples: 'Banks, NBFCs, insurers, AMCs' },
+  Technology: { label: 'Technology', examples: 'IT services, software, electronics' },
+  Healthcare: { label: 'Healthcare', examples: 'Pharma, hospitals, diagnostics' },
+  'Consumer Defensive': { label: 'Consumer staples', examples: 'FMCG, food, personal care' },
+  'Consumer Cyclical': { label: 'Consumer discretionary', examples: 'Autos, retail, textiles, hotels' },
+  Industrials: { label: 'Industrials', examples: 'Capital goods, defence, infra' },
+  'Basic Materials': { label: 'Materials', examples: 'Metals, cement, chemicals' },
+  Energy: { label: 'Energy', examples: 'Oil, gas, refining' },
+  Utilities: { label: 'Utilities', examples: 'Power generation and distribution' },
+  'Communication Services': { label: 'Communication', examples: 'Telecom, media' },
+  'Real Estate': { label: 'Real estate', examples: 'Developers, REITs' },
 };
 
-const FIELD_PATTERN = Object.keys(FIELD_ALIASES)
-  .sort((a, b) => b.length - a.length)
-  .map(field => field.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
-  .join('|');
+/** Old keyword-guessed sector names that may still be linked somewhere. */
+export const LEGACY_SECTORS: Record<string, string> = {
+  Banks: 'Financial Services',
+  Finance: 'Financial Services',
+  'Capital Markets': 'Financial Services',
+  Insurance: 'Financial Services',
+  'IT - Services': 'Technology',
+  Automobiles: 'Consumer Cyclical',
+  'Auto Components': 'Consumer Cyclical',
+  Retailing: 'Consumer Cyclical',
+  'Pharmaceuticals & Biotechnology': 'Healthcare',
+  'Healthcare Services': 'Healthcare',
+  'Oil & Gas': 'Energy',
+  Power: 'Utilities',
+  'Metals & Mining': 'Basic Materials',
+  'Cement & Construction Materials': 'Basic Materials',
+  Chemicals: 'Basic Materials',
+  'Aerospace & Defense': 'Industrials',
+  Construction: 'Industrials',
+  Realty: 'Real Estate',
+  'Telecom - Services': 'Communication Services',
+  'Media & Entertainment': 'Communication Services',
+  'Food & FMCG': 'Consumer Defensive',
+  Beverages: 'Consumer Defensive',
+};
 
-function parseSqlLikeQuery(prompt: string): { isSql: boolean; conditions: QueryCondition[]; orderBy: OrderBy; labels: string[] } {
-  const normalized = prompt.replace(/\s+/g, ' ').trim();
-  const isSql = /\bselect\b[\s\S]+\bfrom\b[\s\S]+\bwhere\b/i.test(prompt);
-  const whereMatch = normalized.match(/\bwhere\b([\s\S]*?)(?:\border\s+by\b|\blimit\b|;|$)/i);
-  const whereText = whereMatch?.[1] ?? normalized;
-  const conditions: QueryCondition[] = [];
-  const labels: string[] = [];
+export const sqlString = (value: string) => `'${value.replace(/'/g, "''")}'`;
 
-  const betweenRegex = new RegExp(`\\b(${FIELD_PATTERN})\\b\\s+between\\s+(-?\\d+(?:\\.\\d+)?)\\s+and\\s+(-?\\d+(?:\\.\\d+)?)`, 'gi');
-  for (const match of whereText.matchAll(betweenRegex)) {
-    const key = resolveFieldKey(match[1]);
-    const min = Number(match[2]);
-    const max = Number(match[3]);
-    if (key && Number.isFinite(min) && Number.isFinite(max)) {
-      labels.push(`${match[1]} between ${min} and ${max}`);
-      conditions.push(row => {
-        const value = getComparableValue(row, key);
-        return typeof value === 'number' && value >= min && value <= max;
-      });
-    }
-  }
+// ── API ────────────────────────────────────────────────────────────────────
+const BACKEND = '/api/backend';
 
-  const comparisonText = whereText.replace(betweenRegex, ' ');
-  const comparisonRegex = new RegExp(`\\b(${FIELD_PATTERN})\\b\\s*(>=|<=|=|>|<)\\s*(-?\\d+(?:\\.\\d+)?)`, 'gi');
-  for (const match of comparisonText.matchAll(comparisonRegex)) {
-    const key = resolveFieldKey(match[1]);
-    const operator = match[2];
-    const target = Number(match[3]);
-    if (key && Number.isFinite(target)) {
-      labels.push(`${match[1]} ${operator} ${target}`);
-      conditions.push(row => {
-        const value = getComparableValue(row, key);
-        if (typeof value !== 'number') return false;
-        if (operator === '>') return value > target;
-        if (operator === '>=') return value >= target;
-        if (operator === '<') return value < target;
-        if (operator === '<=') return value <= target;
-        return value === target;
-      });
-    }
-  }
+export type RunResult = {
+  rows: ScreenMetricRow[];
+  columns?: string[];
+  table?: { columns: string[]; rows: (string | number | null)[][] };
+  as_of?: string | null;
+  universe?: number;
+  error?: string;
+};
 
-  const orderMatch = normalized.match(new RegExp(`\\border\\s+by\\s+(${FIELD_PATTERN})(?:\\s+(asc|desc))?`, 'i'));
-  const orderField = orderMatch ? resolveFieldKey(orderMatch[1]) : null;
-
-  return {
-    isSql,
-    conditions,
-    orderBy: orderField ? { field: orderMatch![1], direction: (orderMatch?.[2]?.toUpperCase() === 'ASC' ? 'ASC' : 'DESC') } : null,
-    labels,
-  };
-}
-
-function resolveFieldKey(field: string) {
-  return FIELD_ALIASES[field.toLowerCase().trim().replace(/\s+/g, '_')];
-}
-
-function getComparableValue(row: ScreenMetricRow, key: string) {
-  if (key === 'stock') return row.stock.name;
-  if (key.startsWith('technical.')) {
-    const technicalKey = key.slice('technical.'.length) as keyof NonNullable<ScreenMetricRow['technical']>;
-    return row.technical?.[technicalKey];
-  }
-  return row[key as keyof ScreenMetricRow];
-}
-
-function sortRows(rows: ScreenMetricRow[], orderBy: OrderBy) {
-  if (!orderBy) return [...rows].sort((a, b) => b.score - a.score);
-  const key = resolveFieldKey(orderBy.field);
-  if (!key) return rows;
-  return [...rows].sort((a, b) => {
-    const left = getComparableValue(a, key);
-    const right = getComparableValue(b, key);
-    if (typeof left === 'number' && typeof right === 'number') {
-      return orderBy.direction === 'ASC' ? left - right : right - left;
-    }
-    return orderBy.direction === 'ASC'
-      ? String(left).localeCompare(String(right))
-      : String(right).localeCompare(String(left));
+export async function runScreenSql(sql: string, signal?: AbortSignal): Promise<RunResult> {
+  const response = await fetch(`${BACKEND}/api/v1/screener/run`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sql }),
+    signal,
   });
+  if (!response.ok) throw new Error(`Screen failed (${response.status})`);
+  return response.json();
 }
 
-function filterPlainEnglishRows(rows: ScreenMetricRow[], lower: string, metricRequests: string[]) {
-  const labels: string[] = [];
-  if (lower.includes('dividend')) labels.push('Dividend yield above 2%');
-  if (lower.includes('debt')) labels.push('Debt to equity below 1');
-  if (lower.includes('growth')) labels.push('Revenue growth above 10%');
-  if (lower.includes('roe')) labels.push('ROE above 15%');
-  if (lower.includes('roce')) labels.push('Average ROCE above 15%');
-  if (lower.includes('piotroski')) labels.push('Piotroski score at least 7');
-  const rsiCondition = extractMetricCondition(lower, 'rsi');
-  const mfiCondition = extractMetricCondition(lower, 'mfi');
-  if (rsiCondition) labels.push(`RSI ${rsiCondition.operator} ${rsiCondition.value}`);
-  if (mfiCondition) labels.push(`MFI ${mfiCondition.operator} ${mfiCondition.value}`);
-  if (!rsiCondition && metricRequests.includes('rsi14')) labels.push('RSI column requested');
-  if (!mfiCondition && metricRequests.includes('mfi14')) labels.push('MFI column requested');
+export type SmartSearchResult = RunResult & {
+  mode?: 'nl' | 'sql' | 'answer' | 'unavailable' | string;
+  generated_sql?: string;
+  explanation?: string;
+  summary?: string | null;
+  caveat?: string | null;
+  answer?: string;
+};
 
-  if (!labels.length) return { rows: [], labels };
-
-  return {
-    rows: rows.filter(row => {
-    if (lower.includes('dividend') && (row.divYield === null || row.divYield <= 2)) return false;
-    if (lower.includes('debt') && (row.debtToEquity === null || row.debtToEquity >= 1)) return false;
-    if (lower.includes('growth') && (row.revenueGrowth3Yr === null || row.revenueGrowth3Yr <= 10)) return false;
-    if (lower.includes('roe') && (row.roe === null || row.roe <= 15)) return false;
-    if (lower.includes('roce') && (row.avgRoce7Yr === null || row.avgRoce7Yr <= 15)) return false;
-    if (lower.includes('piotroski') && (row.piotroskiScore === null || row.piotroskiScore < 7)) return false;
-    if (rsiCondition && !compareNumber(row.technical?.rsi14, rsiCondition.operator, rsiCondition.value)) return false;
-    if (mfiCondition && !compareNumber(row.technical?.mfi14, mfiCondition.operator, mfiCondition.value)) return false;
-    return true;
-    }),
-    labels,
-  };
+export async function runSmartSearch(prompt: string, mode: 'auto' | 'sql', signal?: AbortSignal): Promise<SmartSearchResult> {
+  const response = await fetch(`${BACKEND}/api/v1/screener/smart-search`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ prompt, mode, stocks: [], screeners: [], sectors: [] }),
+    signal,
+  });
+  if (response.status === 429) throw new Error('Too many searches in a minute. Wait a moment and try again.');
+  if (!response.ok) throw new Error('The screener is not responding. It may be waking up; try again in a few seconds.');
+  return response.json();
 }
 
-function normalizePrompt(prompt: string) {
-  return prompt
-    .replace(/listbanking/g, 'list banking')
-    .replace(/showbanking/g, 'show banking')
-    .replace(/bankingsector/g, 'banking sector')
-    .replace(/pycode/g, 'python code')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function inferSectorFromPrompt(prompt: string) {
-  if (/\b(bank|banks|banking|lender|lenders)\b/.test(prompt)) return 'Banks';
-  if (/\b(finance|finserv|nbfc|credit)\b/.test(prompt)) return 'Finance';
-  if (/\b(pharma|pharmaceutical|biotech)\b/.test(prompt)) return 'Pharmaceuticals & Biotechnology';
-  if (/\b(it|software|technology)\b/.test(prompt)) return 'IT - Services';
-  return undefined;
-}
-
-function inferRequestedTechnicalMetrics(prompt: string) {
-  const metrics: string[] = [];
-  if (/\b(rsi|oversold|overbought)\b/.test(prompt)) metrics.push('rsi14');
-  if (/\b(mfi|money flow index)\b/.test(prompt)) metrics.push('mfi14');
-  if (/\b(sma|dma|moving average)\b/.test(prompt)) metrics.push('sma20', 'sma50');
-  if (/\b(ema|exponential moving average)\b/.test(prompt)) metrics.push('ema20');
-  if (/\b(52 week|year high|near high|new high)\b/.test(prompt)) metrics.push('high52Week', 'priceVs52WeekHighPct');
-  return [...new Set(metrics)];
-}
-
-function attachRequestedTechnicalMetrics(row: ScreenMetricRow, _index: number, metricRequests: string[]) {
-  if (!metricRequests.length) return row;
-  const technical = { ...row.technical, requestedMetrics: metricRequests };
-  return { ...row, technical };
-}
-
-function extractMetricCondition(prompt: string, metric: 'rsi' | 'mfi') {
-  const match = prompt.match(new RegExp(`\\b${metric}\\b.{0,24}?(<=|>=|<|>|=|below|under|less than|above|over|greater than)\\s*(\\d+(?:\\.\\d+)?)`));
-  if (!match) {
-    if (metric === 'rsi' && /\boversold\b/.test(prompt)) return { operator: '<', value: 30 };
-    return null;
-  }
-  const operators: Record<string, string> = {
-    below: '<',
-    under: '<',
-    'less than': '<',
-    above: '>',
-    over: '>',
-    'greater than': '>',
-  };
-  return { operator: operators[match[1]] ?? match[1], value: Number(match[2]) };
-}
-
-function compareNumber(value: number | null | undefined, operator: string, target: number) {
-  if (typeof value !== 'number') return false;
-  if (operator === '<') return value < target;
-  if (operator === '<=') return value <= target;
-  if (operator === '>') return value > target;
-  if (operator === '>=') return value >= target;
-  return value === target;
+export function median(values: Array<number | null | undefined>): number | null {
+  const clean = values
+    .filter((value): value is number => typeof value === 'number' && Number.isFinite(value))
+    .sort((a, b) => a - b);
+  if (!clean.length) return null;
+  const mid = Math.floor(clean.length / 2);
+  return clean.length % 2 ? clean[mid] : (clean[mid - 1] + clean[mid]) / 2;
 }
