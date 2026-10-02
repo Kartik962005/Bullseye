@@ -8,6 +8,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from app.services import llm_client
 from app.services.data_service import get_historical_data
 
 
@@ -16,6 +17,10 @@ VALID_INTENTS = {
     "HISTORICAL_ROI",
     "HISTORICAL_PRICE",
     "TECHNICAL_ANALYSIS",
+    # Anything that is not one of the four computable shapes above ("should I
+    # buy?", "why is it falling?", "how did it do this year?") is answered by
+    # the LLM, grounded in this stock's own numbers.
+    "GENERAL_QUESTION",
 }
 
 WEEKDAYS = {
@@ -159,18 +164,31 @@ def _parse_requested_date(prompt: str) -> str | None:
     return None
 
 
+# Concrete, testable strategy wording: a rule ("buy when / if / on / at"), a
+# weekday pair, an explicit percent move, or the words backtest / simulate.
+_STRATEGY_RE = re.compile(
+    r"\b(backtest|back-test|simulate|strategy)\b"
+    r"|\b(buy|enter|go long|short)\s+(when|if|on|at|after|every|whenever)\b"
+    r"|\bentry\b.*\bexit\b"
+)
+
+
 def _infer_intent(prompt: str) -> str:
     clean = prompt.lower()
-    if re.search(r"\b(backtest|strategy|simulate|buy\s+when|buy\s+at|buy.*sell|sell.*buy|entry.*exit)\b", clean):
+    has_weekday_pair = len([day for day in WEEKDAYS if re.search(rf"\b{day}\b", clean)]) >= 2
+    if _STRATEGY_RE.search(clean) or (has_weekday_pair and re.search(r"\b(buy|sell)\b", clean)):
         return "BACKTEST_STRATEGY"
     if re.search(r"\b(rsi|sma|ema|moving average|overbought|oversold|support|resistance|macd|bollinger|indicator)\b", clean):
-        if not re.search(r"\b(backtest|test|strategy|buy|sell|simulate)\b", clean):
+        if not re.search(r"\b(backtest|test|strategy|simulate)\b", clean):
             return "TECHNICAL_ANALYSIS"
     if re.search(r"\b(price|open|opening|close|closing|high|low|ohlc|candle)\b", clean) and _parse_requested_date(prompt):
         return "HISTORICAL_PRICE"
-    if re.search(r"\b(bought|purchased|holding|shares|profit|loss|made|lost|pnl|return|roi)\b", clean):
+    if re.search(r"\b(bought|purchased|holding|held)\b", clean) or (
+        _parse_quantity(prompt) and re.search(r"\b(profit|loss|made|lost|pnl|return|roi|worth)\b", clean)
+    ):
         return "HISTORICAL_ROI"
-    return "BACKTEST_STRATEGY"
+    # Everything else, including "should I buy?", is a question for the LLM.
+    return "GENERAL_QUESTION"
 
 
 def _infer_technical_metrics(prompt: str) -> list[str]:
@@ -312,6 +330,11 @@ def _sanitize_instruction(instruction: dict[str, Any] | None, current_ticker: st
         timeframe = int(timeframe) if timeframe not in {None, "", "null"} else fallback["timeframe_days"]
     except Exception:
         timeframe = fallback["timeframe_days"]
+    # Only honour a period the user actually typed ("last 90 days", "2 years").
+    # Compilers tend to echo the example value from their prompt, which once
+    # cut every backtest down to the last month.
+    if fallback["timeframe_days"] is None:
+        timeframe = None
     if timeframe is not None:
         timeframe = max(1, min(timeframe, 3650))
 
@@ -344,13 +367,10 @@ def _sanitize_instruction(instruction: dict[str, Any] | None, current_ticker: st
 
 
 def _groq_compile(prompt: str, current_ticker: str, known_stocks: list[dict[str, Any]] | None) -> dict[str, Any] | None:
-    api_key = os.getenv("GROQ_API_KEY")
-    if not api_key:
+    if not llm_client.any_provider_available():
         return None
 
     try:
-        from groq import Groq
-
         known_payload = [
             {
                 "name": item.get("name"),
@@ -358,28 +378,30 @@ def _groq_compile(prompt: str, current_ticker: str, known_stocks: list[dict[str,
                 "ticker": item.get("ticker"),
                 "exchange": item.get("exchange"),
             }
-            for item in (known_stocks or [])[:900]
+            for item in _mentioned_stocks(prompt, known_stocks)
         ]
         system = (
             "You are a strict JSON logic compiler for a stock detail page. "
             "Convert the user's natural-language market question into ONLY this JSON object and no markdown/prose: "
-            '{"intent":"BACKTEST_STRATEGY|HISTORICAL_ROI|HISTORICAL_PRICE|TECHNICAL_ANALYSIS",'
+            '{"intent":"BACKTEST_STRATEGY|HISTORICAL_ROI|HISTORICAL_PRICE|TECHNICAL_ANALYSIS|GENERAL_QUESTION",'
             '"target_stock":"Ticker of current stock, or explicit other stock if specified",'
-            '"timeframe_days":30,'
+            '"timeframe_days":"number of days ONLY if the user names a period, else null",'
             '"strategy_parameters":{"buy_trigger":"string condition or numerical rule","sell_trigger":"string condition or numerical rule","entry_time":"string or null","exit_time":"string or null"},'
             '"roi_parameters":{"quantity":"number or null","investment_date":"YYYY-MM-DD or null"},'
             '"technical_metrics_requested":["RSI","SMA_50","OVERBOUGHT_STATUS"],'
             '"ai_context_summary":"friendly short loader summary"}. '
+            "BACKTEST_STRATEGY only for a concrete, testable buy/sell rule. HISTORICAL_PRICE for a price on a date. "
+            "HISTORICAL_ROI for profit/loss on shares bought in the past. TECHNICAL_ANALYSIS for indicator readings. "
+            "Use GENERAL_QUESTION for everything else (should I buy, outlook, why it moved, how it has performed, comparisons). "
             "Use the current ticker unless the user clearly names another stock. "
             "For relative holding questions like '30 days ago', set timeframe_days and leave investment_date null. "
             "For strategy questions, preserve the user's buy and sell rules descriptively; do not invent a recommendation. "
             "For dates, use YYYY-MM-DD. For unknown fields use null or empty arrays as appropriate."
         )
-        client = Groq(api_key=api_key)
-        response = client.chat.completions.create(
-            model=os.getenv("GROQ_MODEL", "llama-3.1-8b-instant"),
+        response = llm_client.chat(
             temperature=0,
             max_tokens=550,
+            model=os.getenv("GROQ_MODEL", llm_client.DEFAULT_GROQ_FAST_MODEL),
             messages=[
                 {"role": "system", "content": system},
                 {
@@ -395,10 +417,29 @@ def _groq_compile(prompt: str, current_ticker: str, known_stocks: list[dict[str,
                 },
             ],
         )
-        return _extract_json(response.choices[0].message.content or "")
+        return _extract_json(response.get("text") or "")
     except Exception as exc:
-        print(f"[StockAI] Groq compiler failed: {exc}")
+        print(f"[StockAI] LLM compiler failed: {exc}")
         return None
+
+
+def _mentioned_stocks(prompt: str, known_stocks: list[dict[str, Any]] | None, limit: int = 12) -> list[dict[str, Any]]:
+    """Only the stocks the question actually names.
+
+    Sending all ~900 known stocks to the compiler cost ~25k tokens per question,
+    which blows through free-tier per-minute token limits and made the LLM step
+    fail. The compiler only needs candidates for a stock the user mentioned.
+    """
+    words = {w for w in re.findall(r"[a-z0-9&]+", prompt.lower()) if len(w) >= 3}
+    picked: list[dict[str, Any]] = []
+    for stock in known_stocks or []:
+        symbol = str(stock.get("symbol") or "").lower()
+        name_words = set(re.findall(r"[a-z0-9&]+", str(stock.get("name") or "").lower()))
+        if symbol in words or (words & {w for w in name_words if len(w) >= 4}):
+            picked.append(stock)
+            if len(picked) >= limit:
+                break
+    return picked
 
 
 def _nearest_candles(df: pd.DataFrame, requested_date: str) -> tuple[pd.Series | None, pd.Series | None, pd.Series | None]:
@@ -560,8 +601,13 @@ def _infer_backtest_rule(prompt: str, params: dict[str, Any]) -> dict[str, Any]:
     if "sma" in text or "ema" in text or "moving average" in text:
         return {"type": "ma_trend"}
 
-    percent = _parse_percent(text, 1.0)
-    return {"type": "daily_drop_next_close", "drop_pct": percent or 1.0}
+    if re.search(r"\b(drop|drops|dropped|fall|falls|fell|down|dip|dips|declines?)\b", text):
+        percent = _parse_percent(text, 1.0)
+        return {"type": "daily_drop_next_close", "drop_pct": percent or 1.0}
+
+    # Nothing we can simulate faithfully. Better to say so than to quietly
+    # backtest a different strategy and present it as the user's.
+    return {"type": "unsupported"}
 
 
 def _run_weekday_backtest(df: pd.DataFrame, rule: dict[str, Any]) -> list[dict[str, Any]]:
@@ -687,6 +733,18 @@ def _run_daily_drop_backtest(df: pd.DataFrame, rule: dict[str, Any]) -> list[dic
 def _handle_backtest(prompt: str, instruction: dict[str, Any], df: pd.DataFrame) -> dict[str, Any]:
     frame = _filter_timeframe(df, instruction.get("timeframe_days"))
     rule = _infer_backtest_rule(prompt, instruction["strategy_parameters"])
+    if rule["type"] == "unsupported":
+        return _handle_general_question(
+            prompt,
+            instruction,
+            df,
+            note=(
+                "The user asked for a strategy the backtester cannot simulate. Say so plainly, then list "
+                "what it can test: weekday pairs (buy Friday close, sell Monday open), intraday drop with "
+                "a profit target (buy on a 1% intraday drop, sell at 3% profit), RSI bands (buy under 30, "
+                "sell over 70), moving-average trend, and buying after a daily drop. Suggest the closest one."
+            ),
+        )
     open_trade = None
 
     if rule["type"] == "weekday_pair":
@@ -874,7 +932,155 @@ def _handle_technical_analysis(instruction: dict[str, Any], df: pd.DataFrame) ->
     }
 
 
-def run_stock_ai_search(prompt: str, current_ticker: str, known_stocks: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+def _pct_change(df: pd.DataFrame, sessions: int) -> float | None:
+    if len(df) <= sessions:
+        return None
+    base = _safe_float(df["close"].iloc[-1 - sessions])
+    last = _safe_float(df["close"].iloc[-1])
+    if not base or last is None:
+        return None
+    return round((last / base - 1) * 100, 2)
+
+
+def _market_context(df: pd.DataFrame) -> list[list[Any]]:
+    """The stock's own numbers, as label/value rows, for grounding an answer."""
+    frame = _add_indicators(df)
+    latest = frame.iloc[-1]
+    close = _safe_float(latest["close"])
+    year = frame.tail(min(252, len(frame)))
+    high_52 = _round(year["high"].max())
+    low_52 = _round(year["low"].min())
+    rsi = _round(latest.get("RSI_14"), 1)
+    atr = _safe_float(latest.get("ATR_14"))
+    vol_ratio = None
+    if _safe_float(latest.get("VOL_SMA_20")):
+        vol_ratio = _round(_safe_float(latest["volume"]) / _safe_float(latest["VOL_SMA_20"]), 2)
+
+    def position(ma_key: str) -> str | None:
+        ma = _safe_float(latest.get(ma_key))
+        if ma is None or close is None:
+            return None
+        return f"{'above' if close >= ma else 'below'} ({_round(ma)})"
+
+    macd = _safe_float(latest.get("MACD"))
+    signal = _safe_float(latest.get("MACD_signal"))
+    rows: list[list[Any]] = [
+        ["Last close", _round(close)],
+        ["As of", latest["day"]],
+        ["1 week", _pct_change(frame, 5)],
+        ["1 month", _pct_change(frame, 21)],
+        ["3 months", _pct_change(frame, 63)],
+        ["6 months", _pct_change(frame, 126)],
+        ["1 year", _pct_change(frame, 252)],
+        ["52-week high", high_52],
+        ["52-week low", low_52],
+        ["From 52-week high %", _round((close / high_52 - 1) * 100) if close and high_52 else None],
+        ["RSI (14)", rsi],
+        ["RSI reading", _technical_status(rsi)],
+        ["vs SMA 20", position("SMA_20")],
+        ["vs SMA 50", position("SMA_50")],
+        ["vs SMA 200", position("SMA_200")],
+        ["MACD vs signal", None if macd is None or signal is None else ("above (bullish)" if macd >= signal else "below (bearish)")],
+        ["Daily range (ATR %)", _round(atr / close * 100) if atr and close else None],
+        ["Volume vs 20-day avg", vol_ratio],
+    ]
+    return [row for row in rows if row[1] is not None]
+
+
+def _context_text(rows: list[list[Any]]) -> str:
+    return "\n".join(f"{label}: {value}" for label, value in rows)
+
+
+_ANSWER_SYSTEM = (
+    "You are Bullseye's stock research assistant for Indian (NSE) equities. Prices are in rupees (₹). "
+    "Answer the user's question using ONLY the data provided for this stock; never invent numbers, news or "
+    "fundamentals that are not in the data. If the data cannot answer something (news, earnings, management), "
+    "say that briefly. For 'should I buy/sell' questions, do not give personal advice: describe what the trend, "
+    "momentum and range data show, the main risk, and what a cautious investor might watch. "
+    "Write at most 5 short, complete sentences in plain English, no markdown headings, no bullet symbols, "
+    "no disclaimer boilerplate (the page shows one)."
+)
+
+
+def _llm_answer(question: str, ticker: str, rows: list[list[Any]], note: str | None = None, max_tokens: int = 700) -> str | None:
+    if not llm_client.any_provider_available():
+        return None
+    content = f"Stock: {ticker}\nQuestion: {question}\n\nData for this stock:\n{_context_text(rows)}"
+    if note:
+        content += f"\n\nInstruction: {note}"
+    try:
+        result = llm_client.chat(
+            [{"role": "system", "content": _ANSWER_SYSTEM}, {"role": "user", "content": content}],
+            temperature=0.3,
+            max_tokens=max_tokens,
+        )
+        text = (result.get("text") or "").strip()
+        return text or None
+    except Exception as exc:  # noqa: BLE001 - fall back to the deterministic summary
+        print(f"[StockAI] answer generation failed: {exc}")
+        return None
+
+
+def _deterministic_answer(ticker: str, rows: list[list[Any]]) -> str:
+    data = {label: value for label, value in rows}
+    parts = [f"{ticker} last closed at ₹{data.get('Last close')} ({data.get('As of')})."]
+    if data.get("1 month") is not None:
+        parts.append(f"It is {data['1 month']:+.2f}% over the past month and {data.get('1 year', 0):+.2f}% over the year.")
+    if data.get("RSI (14)") is not None:
+        parts.append(f"RSI is {data['RSI (14)']} ({data.get('RSI reading', 'neutral').lower()}).")
+    if data.get("vs SMA 50"):
+        parts.append(f"The price is {data['vs SMA 50'].split(' ')[0]} its 50-day average.")
+    return " ".join(parts)
+
+
+def _handle_general_question(prompt: str, instruction: dict[str, Any], df: pd.DataFrame, note: str | None = None) -> dict[str, Any]:
+    ticker = instruction["target_stock"]
+    rows = _market_context(df)
+    answer = _llm_answer(prompt, ticker, rows, note=note)
+    return {
+        "type": "assistant_answer",
+        "title": "Strategy not supported" if note else "Answer",
+        "answer": answer or _deterministic_answer(ticker, rows),
+        "answered_by": "ai" if answer else "data",
+        "target_stock": ticker,
+        "rows": rows,
+        "ai_context_summary": instruction["ai_context_summary"],
+        "router": instruction,
+    }
+
+
+def _ai_summary(prompt: str, result: dict[str, Any]) -> str | None:
+    """One or two plain-English sentences explaining a computed result."""
+    facts = {k: v for k, v in result.items() if k in {
+        "answer", "quantity", "investment_date", "latest_date", "buy_price", "current_price", "pnl", "return_pct",
+        "requested_date", "exact_match", "metrics", "candle", "invested", "current_value",
+    }}
+    metrics = result.get("custom_metrics") or {}
+    if metrics:
+        facts["strategy"] = {k: metrics.get(k) for k in ("buy_expr", "sell_expr", "summary")}
+    note = (
+        "Explain this computed result to the user in 2 sentences: what it means and the one caveat that matters "
+        "most (e.g. small sample, compounding, past performance). Use only these facts: "
+        + json.dumps(facts, default=str)[:3500]
+    )
+    return _llm_answer(prompt, result.get("target_stock") or "", [], note=note, max_tokens=400)
+
+
+def run_stock_ai_search(
+    prompt: str,
+    current_ticker: str,
+    known_stocks: list[dict[str, Any]] | None = None,
+    with_summary: bool = True,
+) -> dict[str, Any]:
+    result = _run_stock_ai_search(prompt, current_ticker, known_stocks)
+    if with_summary and result.get("type") != "assistant_answer":
+        summary = _ai_summary(prompt, result)
+        if summary:
+            result["ai_summary"] = summary
+    return result
+
+
+def _run_stock_ai_search(prompt: str, current_ticker: str, known_stocks: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     if not _normalise_text(prompt):
         raise ValueError("Prompt is required.")
     current_ticker = _normalise_text(current_ticker).upper()
@@ -892,4 +1098,6 @@ def run_stock_ai_search(prompt: str, current_ticker: str, known_stocks: list[dic
         return _handle_historical_roi(instruction, df)
     if instruction["intent"] == "HISTORICAL_PRICE":
         return _handle_historical_price(instruction, df)
-    return _handle_technical_analysis(instruction, df)
+    if instruction["intent"] == "TECHNICAL_ANALYSIS":
+        return _handle_technical_analysis(instruction, df)
+    return _handle_general_question(prompt, instruction, df)

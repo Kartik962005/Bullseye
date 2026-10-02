@@ -20,6 +20,13 @@ import requests
 
 _groq_client = None
 
+DEFAULT_GROQ_CHAT_MODEL = "openai/gpt-oss-120b"
+DEFAULT_GROQ_FAST_MODEL = "openai/gpt-oss-20b"
+
+
+def is_reasoning_model(model: str | None) -> bool:
+    return bool(model) and "gpt-oss" in str(model)
+
 # Providers we know how to call, in default preference order.
 _PROVIDER_ORDER = ["groq", "gemini", "openrouter", "cerebras"]
 
@@ -80,12 +87,21 @@ def _groq_chat(messages, temperature: float, max_tokens: int, model: str | None)
     client = _get_groq()
     if client is None:
         raise RuntimeError("GROQ_API_KEY is not set.")
-    model = model or os.getenv("GROQ_CHAT_MODEL", "llama-3.3-70b-versatile")
+    # Groq retired its Llama 3 models in 2026; gpt-oss-120b is the current
+    # general-purpose model on the account. Override with GROQ_CHAT_MODEL.
+    model = model or os.getenv("GROQ_CHAT_MODEL", DEFAULT_GROQ_CHAT_MODEL)
+    extra: dict = {}
+    if is_reasoning_model(model):
+        # gpt-oss reasons before answering and those tokens count against the
+        # completion budget; keep reasoning short and leave room for the reply.
+        extra = {"extra_body": {"reasoning_effort": "low"}}
+        max_tokens = max_tokens + 600
     completion = client.chat.completions.create(
         model=model,
         messages=messages,
         temperature=temperature,
         max_tokens=max_tokens,
+        **extra,
     )
     return (completion.choices[0].message.content or "").strip()
 

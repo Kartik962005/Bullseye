@@ -8,6 +8,7 @@ from groq import Groq
 from dotenv import load_dotenv
 
 from app.strategies.expression_guard import ExpressionValidationError, validate_expression
+from app.services.llm_client import DEFAULT_GROQ_CHAT_MODEL
 
 load_dotenv()
 
@@ -537,13 +538,16 @@ def _parse_compound_strategy(user_prompt: str) -> dict | None:
 
 
 def translate_strategy(user_prompt: str) -> dict:
+    # Groq retired llama-3.3-70b-versatile; use the current default model.
     completion = get_client().chat.completions.create(
-        model="llama-3.3-70b-versatile",
+        model=os.getenv("GROQ_CHAT_MODEL", DEFAULT_GROQ_CHAT_MODEL),
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user",   "content": user_prompt}
         ],
         temperature=0.0,
+        max_tokens=1600,
+        extra_body={"reasoning_effort": "low"},
     )
     raw = completion.choices[0].message.content.strip()
     raw = re.sub(r"```[\w]*", "", raw).replace("```", "").strip()

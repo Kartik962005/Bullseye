@@ -1425,7 +1425,7 @@ def _single_stock_reuse(
     known_stocks: list[dict[str, Any]] | None,
     history: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    raw = run_stock_ai_search(prompt, ticker, known_stocks)
+    raw = run_stock_ai_search(prompt, ticker, known_stocks, with_summary=False)
     deterministic = raw.get("answer") or "Here is what the data shows."
 
     if raw.get("type") == "technical_analysis":
