@@ -15,6 +15,9 @@ import { TrackRecord } from '@/components/stock/TrackRecord';
 import { PeerComparison } from '@/components/stock/PeerComparison';
 import { StockHeader } from '@/components/stock/StockHeader';
 import { VerdictPanel } from '@/components/stock/VerdictPanel';
+import { TradePlan } from '@/components/stock/TradePlan';
+import { AiMarketSearch } from '@/components/stock/AiMarketSearch';
+import { Financials } from '@/components/stock/Financials';
 import { AboutSection } from '@/components/home/AboutSection';
 import { LiveScanSection } from '@/components/home/LiveScanSection';
 import { SiteFooter } from '@/components/home/SiteFooter';
@@ -27,15 +30,11 @@ import {
 } from '@/lib/analysis';
 import { getSharedSupabaseClient } from '@/lib/supabase-browser';
 import {
-  formatIndianNumber,
   formatCurrencyNumber,
-  formatCompactRupees,
   formatMarketCap,
   formatRatioValue,
-  humanizeLabel,
   getLevenshteinDistance,
 } from '@/lib/format';
-import { buildMarketNewsRead, type NewsStory } from '@/lib/news';
 import {
   type MarketScope,
   resolveMarket,
@@ -45,10 +44,8 @@ import {
 import {
   type IndicatorPanelData,
   buildIndicatorPanel,
-  buildSvgPath,
   buildPreviewChartPath,
 } from '@/lib/chart';
-import { buildMarketAnswer } from '@/lib/market-answer';
 import {
   stableMarketShuffle,
   asNumber,
@@ -584,55 +581,42 @@ const MARKET_SHUFFLE_VERSION = 'sector-mix-v1';
 
 
 
-const IndicatorPanel = ({ panel }: { panel: IndicatorPanelData }) => {
-  const path = buildSvgPath(panel.series);
-  return (
-    <div className="relative border-t border-slate-200 bg-white">
-      <div className="absolute left-3 top-3 z-10 flex items-center gap-2 text-xs font-bold text-slate-700 font-body">
-        <span>{panel.name}</span>
-        <span className="font-numeric" style={{ color: panel.color }}>{panel.latest}</span>
-      </div>
-      <div className="absolute right-0 top-1/2 z-10 -translate-y-1/2 rounded-l-md px-2 py-1 text-xs font-black text-white font-numeric" style={{ backgroundColor: panel.color }}>
-        {panel.latest}
-      </div>
-      <svg viewBox="0 0 720 150" className="h-[190px] w-full" preserveAspectRatio="none" role="img" aria-label={`${panel.name} indicator chart`}>
-        {Array.from({ length: 6 }, (_, index) => (
-          <line key={`h-${index}`} x1="0" x2="720" y1={index * 30} y2={index * 30} stroke="rgba(15,23,42,0.06)" />
-        ))}
-        {Array.from({ length: 14 }, (_, index) => (
-          <line key={`v-${index}`} x1={index * 55.4} x2={index * 55.4} y1="0" y2="150" stroke="rgba(15,23,42,0.05)" />
-        ))}
-        <path d={path} fill="none" stroke={panel.color} strokeWidth="2" vectorEffect="non-scaling-stroke" />
-      </svg>
-    </div>
-  );
-};
-
 const IndicatorChartPane = ({
   panel,
   setPaneRef,
+  onRemove,
 }: {
   panel: IndicatorPanelData;
   setPaneRef: (name: string, element: HTMLDivElement | null) => void;
+  onRemove?: (name: string) => void;
 }) => (
-  <div className="relative border-t border-slate-200 bg-white">
-    <div className="absolute left-3 top-3 z-10 flex items-center gap-2 text-xs font-bold text-slate-700 font-body">
-      <span>{panel.name}</span>
-      <span className="font-numeric" style={{ color: panel.color }}>{panel.latest}</span>
-    </div>
-    <div className="absolute right-0 top-1/2 z-10 -translate-y-1/2 rounded-l-md px-2 py-1 text-xs font-black text-white font-numeric" style={{ backgroundColor: panel.color }}>
-      {panel.latest}
+  <div className="sx-study">
+    <div className="sx-study-head">
+      <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: panel.color, boxShadow: `0 0 10px ${panel.color}` }} aria-hidden />
+      <span className="truncate text-[13px] font-medium text-paper">{panel.name}</span>
+      <span className="rounded-md px-2 py-0.5 font-numeric text-[12px]" style={{ color: panel.color, background: `color-mix(in srgb, ${panel.color} 14%, transparent)` }}>
+        {panel.latest}
+      </span>
+      {onRemove ? (
+        <button
+          type="button"
+          onClick={() => onRemove(panel.name)}
+          className="ml-auto flex h-7 w-7 items-center justify-center rounded-lg text-[#9f99c2] transition hover:bg-white/[0.07] hover:text-white"
+          aria-label={`Remove ${panel.name}`}
+        >
+          <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
+            <path d="M18 6 6 18M6 6l12 12" />
+          </svg>
+        </button>
+      ) : null}
     </div>
     <div
       ref={(element) => setPaneRef(panel.name, element)}
-      className="h-[190px] w-full"
-      aria-label={`${panel.name} synced indicator chart`}
+      className="h-[170px] w-full"
+      aria-label={`${panel.name} indicator chart`}
     />
   </div>
 );
-
-
-
 
 
 
@@ -1149,7 +1133,8 @@ function springEasing() {
   return springEasingCache;
 }
 
-// ─── DETAILED FISO PANEL ──────────────────────────────────────────────────────
+// ─── DEEP ANALYSIS ───────────────────────────────────────────────────────────
+// Below the overview: the trade laid out as a plan, then the stock Q&A.
 const FisoDetailPanel = ({
   analysis,
   currency,
@@ -1160,845 +1145,12 @@ const FisoDetailPanel = ({
   currency: string;
   ticker: string;
   chartData: any;
-}) => {
-  const analysisView = getAnalysisPresentation(analysis);
-  if (!analysisView) return null;
-
-  const isBull = analysisView.isBullish;
-  const isHold = analysisView.isHold;
-  const accentColor = isBull ? 'text-green-400' : isHold ? 'text-zinc-300' : 'text-red-400';
-  const accentBg = isBull ? 'bg-green-500/10 border-green-500/30' : isHold ? 'bg-zinc-500/10 border-zinc-500/30' : 'bg-red-500/10 border-red-500/30';
-  const targetMovePctValue = analysisView.entry
-    ? (analysisView.direction === 'bearish'
-      ? ((analysisView.entry - analysisView.target) / analysisView.entry) * 100
-      : ((analysisView.target - analysisView.entry) / analysisView.entry) * 100)
-    : 0;
-  const stopRiskPctValue = analysisView.entry
-    ? (analysisView.direction === 'bearish'
-      ? ((analysisView.stop_loss - analysisView.entry) / analysisView.entry) * 100
-      : ((analysisView.entry - analysisView.stop_loss) / analysisView.entry) * 100)
-    : 0;
-  const targetMovePct = targetMovePctValue.toFixed(2);
-  const stopRiskPct = stopRiskPctValue.toFixed(2);
-  const rr = (stopRiskPctValue > 0 ? targetMovePctValue / stopRiskPctValue : 0).toFixed(2);
-  const setupLabel = analysisView.direction === 'bearish'
-    ? 'Sell-side target'
-    : analysisView.direction === 'bullish'
-      ? 'Buy-side target'
-      : 'Balanced setup';
-  const stockMeta = STOCKS.find(stock => stock.ticker === ticker);
-
-  // AI search state (lifted into FisoDetailPanel so it lives next to the section)
-  const [aiPrompt, setAiPrompt] = useState('');
-  const [aiResult, setAiResult] = useState<any>(null);
-  const [isAiRunning, setIsAiRunning] = useState(false);
-  const [aiLoaderSummary, setAiLoaderSummary] = useState('');
-
-  const handleAiSearch = async () => {
-    if (!aiPrompt || !ticker) return;
-    setIsAiRunning(true);
-    setAiResult(null);
-    setAiLoaderSummary(`Compiling your request for ${ticker} and reading local OHLCV history...`);
-    try {
-      const prompt = aiPrompt.trim();
-      const res = await fetch(`${BACKEND}/api/v1/stock-ai/search`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          prompt,
-          current_ticker: ticker,
-          stocks: STOCKS.map(stock => ({
-            name: stock.name,
-            symbol: stock.symbol,
-            exchange: stock.exchange,
-            ticker: stock.ticker,
-            currency: stock.currency,
-          })),
-        })
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setAiResult({
-          type: 'assistant_answer',
-          title: 'AI search needs a clearer request',
-          answer: data?.detail || 'The stock AI engine could not answer that yet. Try a specific date, quantity, indicator, or buy/sell rule.',
-          rows: [
-            ['Try', 'Buy Friday close, sell Monday open'],
-            ['Try', 'If I bought 100 shares 30 days ago'],
-            ['Try', 'Current RSI and support resistance'],
-          ],
-        });
-        return;
-      }
-      setAiLoaderSummary(data.ai_context_summary || `Running local analytics for ${data.target_stock || ticker}...`);
-      setAiResult(data);
-    } catch {
-      const fallback = buildMarketAnswer('help examples', analysis, ticker, currency, chartData);
-      setAiResult(fallback ?? {
-        type: 'assistant_answer',
-        title: 'AI search fallback',
-        answer: 'I could not reach the stock AI engine. The backend may be starting up, or the model/data service may be unavailable.',
-        rows: [
-          ['Try', 'current price'],
-          ['Try', 'support and resistance'],
-          ['Try', 'buy Friday close sell Monday open'],
-        ],
-      });
-    } finally {
-      setIsAiRunning(false);
-    }
-  };
-
-  // ── Enter key handler for AI search input
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter' && aiPrompt.trim() && !isAiRunning) {
-      handleAiSearch();
-    }
-  };
-
-  const aiExamples = [
-    'Buy when stock drops 1% intraday, sell at 3% profit',
-    'Buy Friday close, sell Monday open',
-    'If I bought 100 shares 30 days ago, profit or loss?',
-    'What was the price on 15 Oct 2024?',
-    'Current RSI and overbought status',
-    'SMA 50, EMA 20, support and resistance',
-  ];
-
-  const visibleStockStories: NewsStory[] = [];
-
-  return (
-    <div className="flex flex-col gap-6">
-
-      {/* ── Row 1: Verdict rationale ── the headline numbers (verdict, entry,
-          target, stop, confidence, R:R) live in the hero card at the top of the
-          Overview, so this section carries the *reasoning* instead of repeating
-          them: the trade-setup framing plus either the no-trade gate notes or
-          the projected move context. */}
-      <div
-        className="rounded-[22px] border border-hairline p-6 sm:p-7"
-        style={{
-          background:
-            'linear-gradient(145deg, rgba(18,20,17,0.9) 0%, rgba(7,9,8,0.95) 55%, rgba(14,16,13,0.9) 100%)',
-          boxShadow: '0 24px 64px rgba(0,0,0,0.5)',
-        }}
-      >
-        <div className="flex flex-wrap items-baseline justify-between gap-5">
-          <div className="min-w-0">
-            <span className="font-body text-[10px] font-medium uppercase tracking-[0.24em] text-accent">
-              Trade setup
-            </span>
-            <div className="mt-2.5 font-display text-[clamp(1.6rem,3vw,2.1rem)] leading-none text-paper">
-              {setupLabel}
-            </div>
-          </div>
-          <div className="flex items-center gap-1.5">
-            {([
-              ['Sell', analysisView.direction === 'bearish', 'text-rose-300 border-rose-300/40 bg-rose-500/10'],
-              ['Hold', isHold, 'text-accent border-accent/45 bg-accent/10'],
-              ['Buy', analysisView.direction === 'bullish', 'text-primary border-primary/45 bg-primary/10'],
-            ] as Array<[string, boolean, string]>).map(([label, active, activeCls]) => (
-              <span
-                key={label}
-                className={`inline-flex h-8 items-center rounded-full border px-4 font-body text-[10px] font-semibold uppercase tracking-[0.18em] transition ${
-                  active ? activeCls : 'border-hairline text-paper-muted/60'
-                }`}
-              >
-                {label}
-              </span>
-            ))}
-          </div>
-        </div>
-
-        <p className="mt-4 max-w-[72ch] font-body text-[13px] leading-7 text-paper-muted">
-          {isHold
-            ? 'No active trade is issued. The price bands shown above are for research context only — Bullseye withholds a target and stop until the setup clears its risk, reward, and data-quality gates.'
-            : 'The entry, target, and stop shown above are aligned with the displayed verdict. Projected move and per-unit risk are broken out below.'}
-        </p>
-
-        {isHold ? (
-          <div className="mt-6 border-t border-hairline pt-6">
-            <span className="font-body text-[10px] font-medium uppercase tracking-[0.22em] text-accent">
-              Why no trade
-            </span>
-            <ul className="mt-4 grid gap-x-8 gap-y-3 sm:grid-cols-2">
-              {(analysisView.risk_notes?.length ? analysisView.risk_notes : ['Risk/reward and confidence gates did not clear.'])
-                .slice(0, 4)
-                .map((note: string) => (
-                  <li key={note} className="flex gap-3 font-body text-[13px] leading-6 text-paper-muted">
-                    <span className="mt-2 h-1 w-1 shrink-0 rounded-full bg-accent" aria-hidden="true" />
-                    <span>{note}</span>
-                  </li>
-                ))}
-            </ul>
-          </div>
-        ) : (
-          <div className="mt-6 grid gap-x-12 gap-y-5 border-t border-hairline pt-6 sm:grid-cols-3">
-            {([
-              ['Projected move', `${targetMovePct}%`, analysisView.direction === 'bearish' ? 'downside target' : 'upside target'],
-              ['Stop risk', `${stopRiskPct}%`, analysisView.direction === 'bearish' ? 'upside exposure' : 'downside exposure'],
-              ['Reward : risk', `1 : ${rr}`, 'per unit of risk'],
-            ] as Array<[string, string, string]>).map(([label, value, sub]) => (
-              <div key={label}>
-                <div className="font-body text-[10px] font-medium uppercase tracking-[0.22em] text-paper-muted">
-                  {label}
-                </div>
-                <div className="mt-1.5 font-numeric text-xl leading-none text-paper">{value}</div>
-                <div className="mt-1.5 font-body text-[11px] text-paper-muted/70">{sub}</div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* ── Row 2: Trade Timeline + Position Snapshot ── */}
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-12">
-        <div
-          className="lg:col-span-8 rounded-[22px] border border-hairline p-6 sm:p-7"
-          style={{
-            background:
-              'linear-gradient(145deg, rgba(18,20,17,0.9) 0%, rgba(7,9,8,0.95) 55%, rgba(14,16,13,0.9) 100%)',
-            boxShadow: '0 24px 64px rgba(0,0,0,0.5)',
-          }}
-        >
-          <span className="font-body text-[10px] font-medium uppercase tracking-[0.24em] text-accent">
-            {isHold ? 'Trade status' : 'Trade timeline'}
-          </span>
-          {isHold ? (
-            <div className="mt-5 flex items-start gap-4 rounded-2xl border border-hairline bg-white/[0.02] p-5">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-accent/40 bg-accent/10 font-numeric text-sm text-accent">H</div>
-              <div>
-                <div className="font-display text-lg text-paper">No trade planned</div>
-                <p className="mt-2 max-w-2xl font-body text-[12px] leading-6 text-paper-muted">
-                  Bullseye is not issuing a target, stop loss, expected move, or holding period because this stock did not pass the current trade-quality gates.
-                </p>
-              </div>
-            </div>
-          ) : (
-            <div className="mt-5 flex flex-col">
-              {([
-                ['T', 'Target date', analysis.target_date, `${analysis.estimated_days}d`, 'text-primary', 'border-primary/40 bg-primary/10 text-primary'],
-                ['↗', 'Expected move', 'From current price', `${analysisView.direction === 'bearish' ? '-' : '+'}${targetMovePct}%`, analysisView.direction === 'bearish' ? 'text-rose-300' : 'text-primary', 'border-hairline bg-white/[0.03] text-paper-muted'],
-                ['◇', 'Max risk', 'If stop loss triggered', `${stopRiskPct}%`, 'text-rose-300', 'border-hairline bg-white/[0.03] text-paper-muted'],
-              ] as Array<[string, string, string, string, string, string]>).map(([icon, label, sub, value, valueTone, iconCls], i, arr) => (
-                <div key={label} className={`flex items-center justify-between py-3.5 ${i < arr.length - 1 ? 'border-b border-hairline' : ''}`}>
-                  <div className="flex items-center gap-3.5">
-                    <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full border font-numeric text-xs ${iconCls}`}>{icon}</div>
-                    <div className="min-w-0">
-                      <span className="block font-body text-[13px] text-paper">{label}</span>
-                      <span className="font-body text-[11px] text-paper-muted">{sub}</span>
-                    </div>
-                  </div>
-                  <span className={`font-numeric text-sm ${valueTone}`}>{value}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-        <div
-          className="lg:col-span-4 rounded-[22px] border border-hairline p-6 sm:p-7"
-          style={{
-            background:
-              'linear-gradient(145deg, rgba(18,20,17,0.9) 0%, rgba(7,9,8,0.95) 55%, rgba(14,16,13,0.9) 100%)',
-            boxShadow: '0 24px 64px rgba(0,0,0,0.5)',
-          }}
-        >
-          <span className="font-body text-[10px] font-medium uppercase tracking-[0.24em] text-accent">Position snapshot</span>
-          <div className="mt-5 grid grid-cols-2 gap-3">
-            <div className="rounded-2xl border border-hairline bg-white/[0.02] p-4">
-              <span className="mb-2 block font-body text-[9px] uppercase tracking-[0.2em] text-paper-muted">Setup</span>
-              <span className={`font-display text-lg ${isBull ? 'text-primary' : isHold ? 'text-paper' : 'text-rose-300'}`}>{analysisView.displayVerdict}</span>
-            </div>
-            <div className="rounded-2xl border border-hairline bg-white/[0.02] p-4">
-              <span className="mb-2 block font-body text-[9px] uppercase tracking-[0.2em] text-paper-muted">{isHold ? 'Trade state' : 'Reward : risk'}</span>
-              <span className="font-numeric text-base text-paper">{isHold ? 'No trade' : `1 : ${rr}`}</span>
-            </div>
-            <div className="col-span-2 rounded-2xl border border-accent/25 bg-accent/[0.05] p-4">
-              <div className="flex items-center justify-between gap-3">
-                <span className="font-body text-[9px] uppercase tracking-[0.2em] text-paper-muted">Face value</span>
-                <span className="font-numeric text-sm text-paper">{formatFaceValue(stockMeta)}</span>
-              </div>
-            </div>
-            <div className="col-span-2 rounded-2xl border border-hairline bg-white/[0.02] p-4">
-              <div className="mb-2 flex items-center justify-between">
-                <span className="font-body text-[9px] uppercase tracking-[0.2em] text-paper-muted">Confidence</span>
-                <span className="font-numeric text-xs text-paper">{analysisView.confidenceLevel}/100</span>
-              </div>
-              <div className="h-2 overflow-hidden rounded-full bg-white/10">
-                <div className="h-full rounded-full bg-accent" style={{ width: `${analysisView.confidenceLevel}%` }} />
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* ── Section 3: AI Market Search ── */}
-      <div
-        className="ai-market-panel relative overflow-hidden rounded-[22px] border border-accent/30 p-6 text-paper sm:p-7"
-        style={{
-          background:
-            'linear-gradient(145deg, rgba(20,22,19,0.94) 0%, rgba(8,10,9,0.97) 55%, rgba(16,18,15,0.94) 100%)',
-          boxShadow: '0 26px 70px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,79,163,0.14)',
-        }}
-      >
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(255,79,163,0.12),transparent_42%),radial-gradient(circle_at_bottom_left,rgba(52,211,153,0.08),transparent_44%)]" />
-        <h3 className="relative mb-3 flex items-center gap-2 border-b border-hairline pb-4 font-body text-[10px] font-medium uppercase tracking-[0.24em] text-accent">
-          <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-accent"></span>
-          AI market search
-        </h3>
-        <p className="relative mb-4 font-body text-[13px] leading-7 text-paper-muted">
-          Ask prices, trend questions, risk checks, profit/loss, or any buy/sell strategy in plain English.
-        </p>
-
-        <div className="relative flex flex-col gap-3 sm:flex-row">
-          <input
-            value={aiPrompt}
-            onChange={e => setAiPrompt(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Ask anything: buy Friday close, sell Monday open; price on 12 Feb; should I buy?"
-            className="flex-1 rounded-full border border-hairline bg-black/40 px-5 py-3.5 font-body text-sm text-paper outline-none transition placeholder:text-paper-muted/60 focus:border-accent/60 focus:ring-2 focus:ring-accent/20"
-          />
-          <button
-            onClick={handleAiSearch}
-            disabled={isAiRunning || !aiPrompt.trim()}
-            className="shrink-0 rounded-full bg-accent px-7 py-3.5 font-body text-xs font-semibold uppercase tracking-widest text-black transition duration-300 hover:bg-accent-dim disabled:opacity-40"
-          >
-            {isAiRunning ? 'Thinking…' : 'Ask AI'}
-          </button>
-        </div>
-
-        <div className="relative mt-3 flex flex-wrap gap-2">
-          {aiExamples.map(example => (
-            <button
-              key={example}
-              type="button"
-              onClick={() => setAiPrompt(example)}
-              className="rounded-full border border-hairline bg-white/[0.03] px-3.5 py-2 font-body text-[10px] font-medium uppercase tracking-wider text-paper-muted transition hover:border-accent/50 hover:text-paper"
-            >
-              {example}
-            </button>
-          ))}
-        </div>
-
-        {/* AI loading */}
-        {isAiRunning && (
-          <div className="mt-4 flex items-center gap-3 py-4">
-            <div className="w-5 h-5 border-2 border-zinc-700 border-t-cyan-400 rounded-full animate-spin shrink-0"></div>
-            <span className="text-xs text-slate-300 font-numeric uppercase tracking-widest animate-pulse">
-              {aiLoaderSummary || `Reading market data for ${ticker}...`}
-            </span>
-          </div>
-        )}
-
-        {/* AI results */}
-        {aiResult && !isAiRunning && (
-          <div className="mt-5 animate-in fade-in slide-in-from-bottom-4 duration-500">
-            {aiResult.error || aiResult.custom_metrics?.error ? (
-              <div className="bg-red-500/5 border border-red-500/20 rounded-2xl p-4">
-                <p className="text-red-400 text-sm font-numeric">
-                  {aiResult.error || aiResult.custom_metrics?.error}
-                </p>
-              </div>
-            ) : aiResult.type === 'holding_pnl' ? (
-              <div className={`${aiResult.pnl >= 0 ? 'bg-green-500/5 border-green-500/20' : 'bg-red-500/5 border-red-500/20'} border rounded-2xl p-4`}>
-                <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 mb-4">
-                  <div>
-                    <span className={`text-[10px] uppercase tracking-widest font-bold font-body ${aiResult.pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                      {aiResult.pnl >= 0 ? 'Profit' : 'Loss'} estimate
-                    </span>
-                    <p className="text-sm text-zinc-400 font-numeric mt-1">
-                      {aiResult.quantity.toLocaleString()} shares from {aiResult.buyDate} to {aiResult.latestDate}
-                    </p>
-                  </div>
-                  <div className="text-left sm:text-right">
-                    <div className={`text-2xl font-black font-numeric ${aiResult.pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                      {aiResult.pnl >= 0 ? '+' : ''}{currency}{Math.abs(aiResult.pnl).toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                    </div>
-                    <div className={`text-xs font-bold font-numeric ${aiResult.returnPct >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                      {aiResult.returnPct >= 0 ? '+' : ''}{aiResult.returnPct.toFixed(2)}%
-                    </div>
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  {[
-                    ['Buy price', aiResult.buyPrice],
-                    ['Current close', aiResult.currentPrice],
-                    ['Invested', aiResult.invested],
-                    ['Current value', aiResult.currentValue],
-                  ].map(([label, value]) => (
-                    <div key={label} className="bg-black/30 rounded-xl p-3 border border-white/5">
-                      <span className="text-[9px] text-zinc-500 uppercase tracking-widest font-bold block mb-1">{label}</span>
-                      <span className="text-lg font-numeric font-bold text-white">
-                        {currency}{Number(value).toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ) : aiResult.type === 'historical_roi' ? (
-              <div className={`${aiResult.pnl >= 0 ? 'bg-green-500/5 border-green-500/20' : 'bg-red-500/5 border-red-500/20'} border rounded-2xl p-4`}>
-                <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 mb-4">
-                  <div>
-                    <span className={`text-[10px] uppercase tracking-widest font-bold font-body ${aiResult.pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                      Historical ROI
-                    </span>
-                    <p className="text-sm text-zinc-300 font-numeric mt-1 leading-relaxed">
-                      {aiResult.answer}
-                    </p>
-                    {!aiResult.exact_match && (
-                      <p className="mt-2 text-[10px] text-amber-300 font-numeric">
-                        Requested date was not a trading candle, so the nearest available candle was used.
-                      </p>
-                    )}
-                  </div>
-                  <div className="text-left sm:text-right">
-                    <div className={`text-2xl font-black font-numeric ${aiResult.pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                      {aiResult.pnl >= 0 ? '+' : '-'}{currency}{Math.abs(Number(aiResult.pnl || 0)).toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                    </div>
-                    <div className={`text-xs font-bold font-numeric ${aiResult.return_pct >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                      {aiResult.return_pct >= 0 ? '+' : ''}{Number(aiResult.return_pct || 0).toFixed(2)}%
-                    </div>
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  {[
-                    ['Quantity', aiResult.quantity],
-                    ['Buy close', aiResult.buy_price],
-                    ['Latest close', aiResult.current_price],
-                    ['Invested', aiResult.invested],
-                    ['Current value', aiResult.current_value],
-                    ['Buy date', aiResult.investment_date],
-                    ['Latest date', aiResult.latest_date],
-                    ['Ticker', aiResult.target_stock],
-                  ].map(([label, value]) => (
-                    <div key={label} className="bg-black/30 rounded-xl p-3 border border-white/5">
-                      <span className="text-[9px] text-zinc-500 uppercase tracking-widest font-bold block mb-1">{label}</span>
-                      <span className="text-sm font-numeric font-bold text-white break-words">
-                        {typeof value === 'number'
-                          ? (String(label).toLowerCase().includes('quantity') ? value.toLocaleString() : `${currency}${value.toLocaleString(undefined, { maximumFractionDigits: 2 })}`)
-                          : value}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ) : aiResult.type === 'historical_price' ? (
-              <div className="bg-cyan-500/5 border border-cyan-500/20 rounded-2xl p-4">
-                <div className="flex items-center justify-between gap-3 mb-4">
-                  <span className="text-[10px] text-cyan-400 uppercase tracking-widest font-bold font-body">Historical Price</span>
-                  <span className="text-[10px] text-zinc-500 font-numeric">{aiResult.target_stock} · {aiResult.requested_date}</span>
-                </div>
-                {aiResult.candle ? (
-                  <>
-                    <p className="mb-4 text-sm text-zinc-300 font-numeric leading-relaxed">{aiResult.answer}</p>
-                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-                      {[
-                        ['Date', aiResult.candle.date],
-                        ['Open', aiResult.candle.open],
-                        ['High', aiResult.candle.high],
-                        ['Low', aiResult.candle.low],
-                        ['Close', aiResult.candle.close],
-                      ].map(([label, value]) => (
-                        <div key={label} className="bg-black/30 rounded-xl p-3 border border-white/5">
-                          <span className="text-[9px] text-zinc-500 uppercase tracking-widest font-bold block mb-1">{label}</span>
-                          <span className="text-lg font-numeric font-bold text-white">
-                            {typeof value === 'number' ? `${currency}${value.toLocaleString(undefined, { maximumFractionDigits: 2 })}` : value}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </>
-                ) : (
-                  <p className="text-sm text-zinc-300 font-numeric">No historical candle was found for this request.</p>
-                )}
-              </div>
-            ) : aiResult.type === 'technical_analysis' ? (
-              <div className="bg-cyan-500/5 border border-cyan-500/20 rounded-2xl p-4">
-                <span className="text-[10px] text-cyan-400 uppercase tracking-widest font-bold font-body">{aiResult.title}</span>
-                <p className="text-sm text-zinc-300 font-numeric leading-relaxed mt-2 mb-4">{aiResult.answer}</p>
-                <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-3">
-                  {(aiResult.rows ?? []).map(([label, value]: [string, any]) => (
-                    <div key={label} className="bg-black/30 rounded-xl p-3 border border-white/5">
-                      <span className="text-[9px] text-zinc-500 uppercase tracking-widest font-bold block mb-1">{String(label).replaceAll('_', ' ')}</span>
-                      <span className="text-sm font-numeric font-bold text-white break-words">
-                        {typeof value === 'number' ? value.toLocaleString(undefined, { maximumFractionDigits: 2 }) : value}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ) : aiResult.type === 'assistant_answer' ? (
-              <div className="bg-cyan-500/5 border border-cyan-500/20 rounded-2xl p-4">
-                <span className="text-[10px] text-cyan-400 uppercase tracking-widest font-bold font-body">{aiResult.title}</span>
-                <p className="text-sm text-zinc-300 font-numeric leading-relaxed mt-2 mb-4">{aiResult.answer}</p>
-                {aiResult.rows?.length > 0 && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                    {aiResult.rows.map(([label, value]: [string, any]) => (
-                      <div key={label} className="bg-black/30 rounded-xl p-3 border border-white/5">
-                        <span className="text-[9px] text-zinc-500 uppercase tracking-widest font-bold block mb-1">{label}</span>
-                        <span className="text-sm font-numeric font-bold text-white break-words">
-                          {typeof value === 'number' ? value.toLocaleString(undefined, { maximumFractionDigits: 2 }) : value}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ) : aiResult.type === 'price_lookup' ? (
-              <div className="bg-cyan-500/5 border border-cyan-500/20 rounded-2xl p-4">
-                {aiResult.candle ? (
-                  <>
-                    <div className="flex items-center justify-between gap-3 mb-4">
-                      <span className="text-[10px] text-cyan-400 uppercase tracking-widest font-bold font-body">Price Lookup</span>
-                      <span className="text-[10px] text-zinc-500 font-numeric">{ticker} · {aiResult.requestedDate}</span>
-                    </div>
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                      {[
-                        ['Open', aiResult.candle.open],
-                        ['High', aiResult.candle.high],
-                        ['Low', aiResult.candle.low],
-                        ['Close', aiResult.candle.close],
-                      ].map(([label, value]) => (
-                        <div key={label} className="bg-black/30 rounded-xl p-3 border border-white/5">
-                          <span className="text-[9px] text-zinc-500 uppercase tracking-widest font-bold block mb-1">{label}</span>
-                          <span className="text-lg font-numeric font-bold text-white">
-                            {currency}{Number(value).toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </>
-                ) : (
-                  <div className="flex flex-col gap-4">
-                    <p className="text-cyan-200/80 text-sm font-numeric">
-                      No candle found for {ticker} on {aiResult.requestedDate}. It may be a market holiday, weekend, or outside loaded chart history.
-                    </p>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      {([
-                        ['Previous trading day', aiResult.nearest?.previous],
-                        ['Next trading day', aiResult.nearest?.next],
-                      ] as Array<[string, any]>).map(([label, candle]) => (
-                        <div key={label} className="bg-black/30 rounded-xl p-3 border border-white/5">
-                          <span className="text-[9px] text-zinc-500 uppercase tracking-widest font-bold block mb-2">{label}</span>
-                          {candle ? (
-                            <div className="grid grid-cols-2 gap-2 text-xs font-numeric">
-                              <span className="text-cyan-300 col-span-2">{candle.day}</span>
-                              <span>O: {currency}{Number(candle.open).toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
-                              <span>C: {currency}{Number(candle.close).toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
-                              <span>H: {currency}{Number(candle.high).toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
-                              <span>L: {currency}{Number(candle.low).toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
-                            </div>
-                          ) : (
-                            <span className="text-xs text-zinc-500 font-numeric">Not available in loaded data</span>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <>
-                {/* Backtest metric cards */}
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-                  {[
-                    {
-                      label: 'Total Trades',
-                      value: aiResult.custom_metrics?.total_trades,
-                      suffix: '',
-                      color: 'text-white',
-                      icon: '📈'
-                    },
-                    {
-                      label: 'Win Rate',
-                      value: aiResult.custom_metrics?.win_rate,
-                      suffix: '%',
-                      color: (aiResult.custom_metrics?.win_rate ?? 0) >= 50 ? 'text-green-400' : 'text-red-400',                      icon: '🎯'
-                    },
-                    {
-                      label: 'Avg Return / Trade',
-                      value: aiResult.custom_metrics?.avg_return_per_trade_pct,
-                      suffix: '%',
-                      color: (aiResult.custom_metrics?.avg_return_per_trade_pct ?? 0) >= 0 ? 'text-green-400' : 'text-red-400',
-                      icon: '⚡'
-                    },
-                    {
-                      label: 'Total Return',
-                      value: aiResult.custom_metrics?.total_return_pct,
-                      suffix: '%',
-                      color: (aiResult.custom_metrics?.total_return_pct ?? 0) >= 0 ? 'text-green-400' : 'text-red-400',
-                      icon: '💰'
-                    },
-                  ].map(({ label, value, suffix, color, icon }) => (
-                    <div key={label} className="rounded-2xl border border-cyan-300/15 bg-slate-900/75 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] flex flex-col gap-2">
-                      <div className="flex items-center gap-2">
-                        <span className="text-base">{icon}</span>
-                        <span className="text-[9px] text-slate-300 uppercase tracking-widest font-bold font-body">{label}</span>
-                      </div>
-                      <span className={`text-xl font-numeric font-bold ${color}`}>
-                        {value !== undefined && value !== null ? `${value}${suffix}` : '—'}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-                <div className="mt-4 rounded-2xl border border-cyan-300/25 bg-slate-900/75 p-4">
-                  <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
-                    <div className="min-w-0">
-                      <span className="text-[10px] text-cyan-500 uppercase tracking-widest font-black font-body">Strategy analysis</span>
-                      <p className="mt-2 text-sm text-zinc-300 leading-relaxed font-numeric">
-                        {aiResult.custom_metrics?.analysis_text || aiResult.custom_metrics?.warning || 'Strategy completed. Review the trade log below for entries and exits.'}
-                      </p>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2 shrink-0 min-w-[320px]">
-                      {[
-                        ['Wins', aiResult.custom_metrics?.summary?.wins ?? aiResult.custom_metrics?.wins ?? 0],
-                        ['Losses', aiResult.custom_metrics?.summary?.losses ?? aiResult.custom_metrics?.losses ?? 0],
-                        ['Best', `${aiResult.custom_metrics?.summary?.best_trade_pct ?? aiResult.custom_metrics?.best_trade_pct ?? 0}%`],
-                        ['Worst', `${aiResult.custom_metrics?.summary?.worst_trade_pct ?? aiResult.custom_metrics?.worst_trade_pct ?? 0}%`],
-                        ['Max DD', `${aiResult.custom_metrics?.summary?.max_drawdown_pct ?? aiResult.custom_metrics?.max_drawdown_pct ?? 0}%`],
-                        ['Buy & Hold', `${aiResult.custom_metrics?.summary?.buy_and_hold_return_pct ?? aiResult.custom_metrics?.buy_and_hold_return_pct ?? 0}%`],
-                        ['Alpha', `${aiResult.custom_metrics?.summary?.alpha_vs_buy_hold_pct ?? aiResult.custom_metrics?.alpha_vs_buy_hold_pct ?? 0}%`],
-                      ].map(([label, value]) => (
-                        <div key={label} className="rounded-xl bg-white/90 border border-cyan-100 p-3 text-slate-950">
-                          <span className="text-[9px] text-slate-500 uppercase tracking-widest font-bold block">{label}</span>
-                          <span className="text-sm text-slate-950 font-bold font-numeric">{value}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-3">
-                    <div className="rounded-xl bg-white/90 border border-cyan-100 p-3 text-slate-950">
-                      <span className="text-[9px] text-slate-500 uppercase tracking-widest font-bold block mb-1">Entry rule</span>
-                      <span className="text-xs text-slate-950 font-numeric break-words">{aiResult.custom_metrics?.buy_expr}</span>
-                    </div>
-                    <div className="rounded-xl bg-white/90 border border-cyan-100 p-3 text-slate-950">
-                      <span className="text-[9px] text-slate-500 uppercase tracking-widest font-bold block mb-1">Exit rule</span>
-                      <span className="text-xs text-slate-950 font-numeric break-words">{aiResult.custom_metrics?.sell_expr}</span>
-                    </div>
-                  </div>
-                </div>
-
-                {aiResult.custom_metrics?.open_trade && (
-                  <div className="mt-4 bg-amber-500/5 border border-amber-500/20 rounded-2xl p-4">
-                    <span className="text-[10px] text-amber-500 uppercase tracking-widest font-black font-body">Open trade</span>
-                    <div className="mt-3 grid grid-cols-2 lg:grid-cols-5 gap-3">
-                      {[
-                        ['Buy date', `${aiResult.custom_metrics.open_trade.buy_date} (${aiResult.custom_metrics.open_trade.buy_day || '-'})`],
-                        ['Buy price', aiResult.custom_metrics.open_trade.buy_price],
-                        ['Target', aiResult.custom_metrics.open_trade.target_price ?? '-'],
-                        ['Current', aiResult.custom_metrics.open_trade.current_price],
-                        ['Return', `${aiResult.custom_metrics.open_trade.return_pct}%`],
-                      ].map(([label, value]) => (
-                        <div key={label} className="rounded-xl bg-black/25 border border-white/5 p-3">
-                          <span className="text-[9px] text-zinc-500 uppercase tracking-widest font-bold block">{label}</span>
-                          <span className="text-sm text-white font-bold font-numeric">{value}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {aiResult.custom_metrics?.trades?.length > 0 && (
-                  <div className="mt-4 overflow-hidden rounded-2xl border border-cyan-200 bg-white text-slate-950 shadow-[0_18px_45px_rgba(2,6,23,0.22)]">
-                    <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
-                      <span className="text-[10px] text-cyan-700 uppercase tracking-widest font-black font-body">
-                        {aiResult.custom_metrics?.mode === 'weekday_projection' ? 'Projected setups' : 'Trade log'}
-                      </span>
-                      <span className="text-[9px] text-slate-600 font-numeric">
-                        {aiResult.custom_metrics?.mode === 'weekday_projection' ? aiResult.custom_metrics.scope : `Latest ${aiResult.custom_metrics.trades.length}`}
-                      </span>
-                    </div>
-                    <div className="overflow-x-auto">
-                      <table className="w-full min-w-[820px] border-separate border-spacing-0 text-left">
-                        <thead className="bg-slate-100">
-                          <tr>
-                            {['Buy day', 'Buy date', 'Buy', 'Sell day', 'Sell date', 'Sell', 'Hold', 'Return', 'Result'].map(label => (
-                              <th key={label} className="px-4 py-3 text-[9px] text-slate-600 uppercase tracking-widest font-black font-body">{label}</th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {aiResult.custom_metrics.trades.map((trade: any, index: number) => (
-                            <tr key={`${trade.buy_date}-${trade.sell_date}-${index}`} className="border-t border-slate-200 odd:bg-white even:bg-slate-50 hover:bg-cyan-50">
-                              <td className="px-4 py-3 text-xs text-slate-800 font-numeric">{trade.buy_day || '-'}</td>
-                              <td className="px-4 py-3 text-xs text-slate-800 font-numeric">{trade.buy_date}</td>
-                              <td className="px-4 py-3 text-xs text-slate-950 font-bold font-numeric">{currency}{trade.buy_price}</td>
-                              <td className="px-4 py-3 text-xs text-slate-800 font-numeric">{trade.sell_day || '-'}</td>
-                              <td className="px-4 py-3 text-xs text-slate-800 font-numeric">{trade.sell_date}</td>
-                              <td className="px-4 py-3 text-xs text-slate-950 font-bold font-numeric">{currency}{trade.sell_price}</td>
-                              <td className="px-4 py-3 text-xs text-slate-800 font-numeric">{trade.holding_days}d</td>
-                              <td className={`px-4 py-3 text-xs font-bold font-numeric ${trade.return_pct >= 0 ? 'text-green-400' : 'text-red-400'}`}>{trade.return_pct}%</td>
-                              <td className={`px-4 py-3 text-xs font-black font-body ${trade.result === 'PROJECTED' ? 'text-cyan-300' : trade.result === 'WIN' ? 'text-green-400' : 'text-red-400'}`}>{trade.result}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* ── Section 5: Global NLP Feed (LAST) ── */}
-      {false && (
-      <div className="stock-news-panel bg-black/40 backdrop-blur-2xl border border-white/10 rounded-3xl p-4 sm:p-6 shadow-[0_8px_30px_rgba(0,0,0,0.5)] mb-8">
-        <div className="flex items-center mb-5 border-b border-white/10 pb-4">
-          <div className="flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-red-400 animate-pulse inline-block"></span>
-            <span className="stock-news-heading text-[10px] font-bold text-zinc-400 tracking-[0.2em] uppercase font-body">Stock News</span>
-          </div>
-        </div>
-
-        <ul className="grid gap-3 md:grid-cols-2">
-          {visibleStockStories.map((story, i: number) => {
-            const { title, source, url } = story;
-            return (
-              <li key={`${title}-${i}`} className="stock-news-card rounded-2xl border border-white/10 bg-white/[0.03] p-4 leading-relaxed transition-all hover:border-cyan-400/40 hover:bg-white/[0.06]">
-                <div className="flex flex-wrap items-start justify-between gap-2">
-                  {url ? (
-                    <a href={url} target="_blank" rel="noreferrer" className="stock-news-title block text-sm font-black text-zinc-100 transition-colors hover:text-cyan-300">
-                      {title}
-                    </a>
-                  ) : (
-                    <span className="stock-news-title block text-sm font-black text-zinc-100 transition-colors">{title}</span>
-                  )}
-                </div>
-                <div className="mt-2 flex flex-wrap items-center gap-2">
-                  {source && (
-                    <span className="text-[9px] text-cyan-400/80 font-numeric uppercase tracking-widest">
-                      {source}
-                    </span>
-                  )}
-                  {url && (
-                    <span className="rounded-full border border-cyan-400/20 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-cyan-300 font-numeric">
-                      Open news
-                    </span>
-                  )}
-                </div>
-                <p className="mt-3 text-[11px] leading-5 text-zinc-400 font-numeric">{buildMarketNewsRead(title)}</p>
-              </li>
-            );
-          })}
-        </ul>
-
-        <div className="mt-4 pt-3 border-t border-white/5 flex items-center gap-2">
-          <span className="w-1.5 h-1.5 rounded-full bg-zinc-600 inline-block"></span>
-          <span className="text-[9px] text-zinc-600 font-numeric uppercase tracking-widest">
-            News sentiment derived via NLP - refreshed on each analysis
-          </span>
-        </div>
-      </div>
-      )}
-
-    </div>
-  );
-};
-
-const FundamentalsTable = ({
-  title,
-  subtitle,
-  table,
-  currency,
-}: {
-  title: string;
-  subtitle: string;
-  table: any;
-  currency: string;
-}) => {
-  const [tableScale, setTableScale] = useState(() =>
-    typeof window !== 'undefined' && window.innerWidth < 640 ? 0.65 : 1.0
-  );
-  const columns = table?.columns ?? [];
-  const rows = table?.rows ?? [];
-  const cellPad = `${Math.round(tableScale * 12)}px ${Math.round(tableScale * 16)}px`;
-
-  return (
-    <div className="bg-black/40 backdrop-blur-2xl border border-white/10 rounded-3xl p-4 sm:p-6 shadow-[0_8px_30px_rgba(0,0,0,0.5)]">
-      <div className="flex items-center justify-between gap-3 mb-4 border-b border-white/10 pb-3">
-        <div className="min-w-0">
-          <h3 className="text-base sm:text-xl font-black text-white font-body">{title}</h3>
-          <p className="text-[10px] sm:text-xs text-zinc-500 mt-1 font-numeric">{subtitle}</p>
-        </div>
-        {/* Zoom controls */}
-        <div className="flex items-center gap-1.5 shrink-0">
-          <button
-            type="button"
-            onClick={() => setTableScale(z => Math.max(0.45, parseFloat((z - 0.1).toFixed(1))))}
-            className="w-7 h-7 rounded-lg border border-white/15 bg-white/5 text-zinc-400 hover:text-white hover:bg-white/15 flex items-center justify-center text-base font-bold transition-all select-none"
-            title="Zoom out table"
-          >−</button>
-          <span className="text-[9px] text-zinc-500 font-numeric w-8 text-center tabular-nums">
-            {Math.round(tableScale * 100)}%
-          </span>
-          <button
-            type="button"
-            onClick={() => setTableScale(z => Math.min(1.4, parseFloat((z + 0.1).toFixed(1))))}
-            className="w-7 h-7 rounded-lg border border-white/15 bg-white/5 text-zinc-400 hover:text-white hover:bg-white/15 flex items-center justify-center text-base font-bold transition-all select-none"
-            title="Zoom in table"
-          >+</button>
-        </div>
-      </div>
-
-      {rows.length === 0 || columns.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-white/10 bg-white/5 px-4 py-6 text-xs text-zinc-500 font-numeric">
-          This free data source does not expose this statement for the selected stock yet.
-        </div>
-      ) : (
-        <div className="overflow-x-auto rounded-2xl border border-white/10">
-          <table
-            className="w-full text-left border-collapse"
-            style={{ fontSize: `${tableScale * 0.8125}rem`, minWidth: `${Math.round(tableScale * 900)}px` }}
-          >
-            <thead className="bg-white/5">
-              <tr>
-                <th
-                  className="text-zinc-500 uppercase tracking-widest font-black font-body whitespace-nowrap"
-                  style={{ padding: cellPad }}
-                >Line Item</th>
-                {columns.map((column: string) => (
-                  <th
-                    key={column}
-                    className="text-zinc-500 uppercase tracking-widest font-black font-body whitespace-nowrap"
-                    style={{ padding: cellPad }}
-                  >
-                    {column}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row: any) => (
-                <tr key={row.label} className="border-t border-white/5">
-                  <td
-                    className="text-zinc-200 font-semibold whitespace-nowrap"
-                    style={{ padding: cellPad }}
-                  >{humanizeLabel(row.label)}</td>
-                  {row.values.map((value: any, index: number) => (
-                    <td
-                      key={`${row.label}-${index}`}
-                      className="text-white font-numeric whitespace-nowrap"
-                      style={{ padding: cellPad }}
-                    >
-                      {value === null || value === undefined
-                        ? '-'
-                        : Math.abs(Number(value)) >= 100000
-                          ? formatCompactRupees(value)
-                          : formatCurrencyNumber(value, currency, 2)}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
-  );
-};
+}) => (
+  <div className="flex flex-col gap-5">
+    <TradePlan analysis={analysis} currency={currency} />
+    <AiMarketSearch ticker={ticker} currency={currency} analysis={analysis} chartData={chartData} />
+  </div>
+);
 
 const FundamentalsSnapshotCard = ({
   stock,
@@ -2054,175 +1206,6 @@ const FundamentalsSnapshotCard = ({
   );
 };
 
-const IndiaDetailedAnalysisPanel = ({
-  ticker,
-  stock,
-  currency,
-  fundamentals,
-  isLoading,
-}: {
-  ticker: string;
-  stock: typeof STOCKS[number];
-  currency: string;
-  fundamentals: any;
-  isLoading: boolean;
-}) => {
-  const summary = fundamentals?.summary ?? {};
-  const company = fundamentals?.company ?? {};
-  const ratios = (fundamentals?.ratios ?? []).filter((ratio: any) => ratio?.value !== null && ratio?.value !== undefined);
-  const highlights = [
-    { label: 'Market Cap', value: formatMarketCap(summary.market_cap, summary.market_cap_unit, currency) },
-    { label: 'Current Price', value: formatCurrencyNumber(summary.current_price, currency, 2) },
-    { label: 'Face Value', value: formatFaceValue(stock, summary.face_value) },
-    { label: '52W High / Low', value: summary.high_52_week && summary.low_52_week ? `${formatCurrencyNumber(summary.high_52_week, currency, 2)} / ${formatCurrencyNumber(summary.low_52_week, currency, 2)}` : '-' },
-    { label: 'Trailing P/E', value: formatRatioValue(summary.trailing_pe) },
-    { label: 'Book Value', value: formatCurrencyNumber(summary.book_value, currency, 2) },
-    { label: 'Dividend Yield', value: formatRatioValue(summary.dividend_yield, 'percent') },
-    { label: 'ROE', value: formatRatioValue(summary.return_on_equity, 'percent') },
-  ];
-  const [showFullAbout, setShowFullAbout] = useState(false);
-  const aboutDescription = company.description || `${stock.name} detailed profile will expand as we ingest more NSE/BSE filings.`;
-  const isLongAbout = aboutDescription.length > 240;
-
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center py-16">
-        <div className="flex flex-col items-center gap-4">
-          <div className="w-10 h-10 border-2 border-zinc-700 border-t-cyan-400 rounded-full animate-spin"></div>
-          <span className="text-xs text-zinc-500 font-numeric uppercase tracking-widest animate-pulse">
-            Loading free fundamentals for {ticker}...
-          </span>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex flex-col gap-6">
-      <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
-        <div className="xl:col-span-8 bg-black/40 backdrop-blur-2xl border border-white/10 rounded-3xl p-4 sm:p-6 shadow-[0_8px_30px_rgba(0,0,0,0.5)]">
-          <div className="flex items-center justify-between gap-3 mb-4 border-b border-white/10 pb-3">
-            <div>
-              <h3 className="text-lg sm:text-xl font-black text-white font-body">{resolveMarket(stock.exchange) === 'US' ? 'US Stock Analytics' : 'Indian Stock Analytics'}</h3>
-              <p className="text-[10px] sm:text-xs text-zinc-500 mt-1 font-numeric">
-                Free fundamentals pipeline for {stock.symbol} using cached market data.
-              </p>
-            </div>
-            <span className="text-[10px] bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 px-3 py-1.5 rounded-full font-bold uppercase tracking-widest font-numeric">
-              {resolveMarket(stock.exchange)}
-            </span>
-          </div>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3">
-            {highlights.map((item) => (
-              <div key={item.label} className="metric-card-hover highlight-card rounded-xl sm:rounded-2xl border border-white/10 bg-white/5 p-2.5 sm:p-4 hover:border-cyan-500/25 cursor-default">
-                <div className="text-[9px] sm:text-[10px] text-zinc-500 uppercase tracking-widest font-black font-body leading-tight">{item.label}</div>
-                <div className="mt-1.5 sm:mt-2 text-sm sm:text-lg font-bold text-white font-numeric break-words leading-snug">{item.value}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="xl:col-span-4 bg-black/40 backdrop-blur-2xl border border-white/10 rounded-3xl p-4 sm:p-6 shadow-[0_8px_30px_rgba(0,0,0,0.5)]">
-          <div className="flex items-center justify-between gap-3 mb-4 border-b border-white/10 pb-3">
-            <div>
-              <h3 className="text-lg sm:text-xl font-black text-white font-body">About</h3>
-              <p className="text-[10px] sm:text-xs text-zinc-500 mt-1 font-numeric">
-                Company profile and business context
-              </p>
-            </div>
-          </div>
-          <div className="space-y-3 text-sm">
-            <div className="relative">
-              <div className={isLongAbout && !showFullAbout ? 'about-truncated' : ''}>
-                <p className="text-zinc-200 leading-relaxed text-[13px]">{aboutDescription}</p>
-              </div>
-              {isLongAbout && (
-                <button
-                  type="button"
-                  onClick={() => setShowFullAbout(prev => !prev)}
-                  className="mt-2 flex items-center gap-1.5 text-[10px] text-cyan-400 hover:text-cyan-300 font-bold uppercase tracking-widest transition-colors"
-                >
-                  {showFullAbout ? 'Show less' : 'Read more'}
-                  <svg
-                    className={`w-3.5 h-3.5 transition-transform duration-300 ${showFullAbout ? 'rotate-180' : ''}`}
-                    fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"
-                  >
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-                  </svg>
-                </button>
-              )}
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
-              {[
-                ['Sector', company.sector],
-                ['Industry', company.industry],
-                ['Website', company.website],
-                ['Employees', company.employees ? formatIndianNumber(company.employees, 0) : null],
-              ].map(([label, value]) => (
-                <div key={label} className="metric-card-hover rounded-2xl border border-white/10 bg-white/5 p-3 hover:border-cyan-500/25">
-                  <div className="text-[10px] text-zinc-500 uppercase tracking-widest font-black font-body">{label}</div>
-                  <div className="mt-2 text-sm text-white font-numeric break-words">{value || '-'}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <FundamentalsTable
-        title="Quarterly Results"
-        subtitle="Free statement data mapped from the latest available quarterly income rows."
-        table={fundamentals?.statements?.quarterly_results}
-        currency={currency}
-      />
-
-      <FundamentalsTable
-        title="Profit & Loss"
-        subtitle="Annual income statement history from the free backend dataset."
-        table={fundamentals?.statements?.profit_and_loss}
-        currency={currency}
-      />
-
-      <FundamentalsTable
-        title="Balance Sheet"
-        subtitle="Annual balance sheet rows normalized into a dashboard-ready table."
-        table={fundamentals?.statements?.balance_sheet}
-        currency={currency}
-      />
-
-      <FundamentalsTable
-        title="Cash Flow"
-        subtitle="Annual cash flow rows pulled into the India-only detailed view."
-        table={fundamentals?.statements?.cash_flow}
-        currency={currency}
-      />
-
-      <div className="bg-black/40 backdrop-blur-2xl border border-white/10 rounded-3xl p-4 sm:p-6 shadow-[0_8px_30px_rgba(0,0,0,0.5)]">
-        <div className="flex items-center justify-between gap-3 mb-4 border-b border-white/10 pb-3">
-          <div>
-            <h3 className="text-lg sm:text-xl font-black text-white font-body">Key Ratios</h3>
-            <p className="text-[10px] sm:text-xs text-zinc-500 mt-1 font-numeric">
-              Highlights available from the free source for this stock.
-            </p>
-          </div>
-        </div>
-        <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 gap-3">
-          {ratios.length > 0 ? ratios.map((ratio: any) => (
-            <div key={ratio.label} className="metric-card-hover highlight-card rounded-2xl border border-white/10 bg-white/5 p-4 hover:border-cyan-500/25">
-              <div className="text-[10px] text-zinc-500 uppercase tracking-widest font-black font-body">{ratio.label}</div>
-              <div className="mt-2 text-lg font-bold text-white font-numeric">{formatRatioValue(ratio.value, ratio.kind)}</div>
-            </div>
-          )) : (
-            <div className="col-span-full rounded-2xl border border-dashed border-white/10 bg-white/5 px-4 py-6 text-xs text-zinc-500 font-numeric">
-              Ratio fields are not available yet for this symbol.
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-};
-
 /**
  * The whole Bullseye client app. Rendered by two routes:
  *   /                  the discovery hub
@@ -2250,7 +1233,8 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
     initialStock ? resolveMarket(initialStock.exchange) : 'INDIA',
   );
   const [dashboardView, setDashboardView] = useState<DashboardView>('overview');
-  const [chartRange, setChartRange] = useState<ChartRange>('1y');
+  // Every stock opens on one month: the recent move is what a reader checks first.
+  const [chartRange, setChartRange] = useState<ChartRange>('1mo');
   const [activeIndicators, setActiveIndicators] = useState<string[]>([]);
   const [indicatorQuery, setIndicatorQuery] = useState('');
   const [showIndicatorMenu, setShowIndicatorMenu] = useState(false);
@@ -2858,7 +1842,8 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
     if (!stock) return;
 
     const market = resolveMarket(stock.exchange);
-    setCachedChart(getCache(`chart:${stock.ticker}:${chartRange}`));
+    setChartRange('1mo');
+    setCachedChart(getCache(`chart:${stock.ticker}:1mo`));
     setCachedAnalysis(getCache(`analysis:${stock.ticker}`));
     setCachedFundamentals(getCache(`fundamentals:${stock.ticker}`));
     setTicker(stock.ticker);
@@ -3002,13 +1987,13 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
     chartRef.current.innerHTML = '';
     let cleanup = () => {};
     let cancelled = false;
-    import('lightweight-charts').then(({ createChart, CandlestickSeries, LineSeries }) => {
+    import('lightweight-charts').then(({ createChart, AreaSeries, LineSeries, LineStyle }) => {
       if (cancelled || !chartRef.current) return;
       const container = chartRef.current;
       const rect = container.getBoundingClientRect();
       const initW = rect.width || container.clientWidth || 800;
       const initH = rect.height || container.clientHeight || 320;
-      const indicatorHeight = 190;
+      const indicatorHeight = 170;
       const chart = createChart(container, {
         width: initW,
         height: initH,
@@ -3032,10 +2017,6 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
         rightPriceScale: { borderColor: 'rgba(255,255,255,0.08)' },
       });
 
-      const candleSeries = chart.addSeries(CandlestickSeries, {
-        upColor: '#2fe0a0', downColor: '#ff5c7a',
-        borderVisible: false, wickUpColor: '#2fe0a0', wickDownColor: '#ff5c7a'
-      });
       const isIntraday = chartRange === '1d' || chartRange === '1w';
       const formattedData = chartData
         .filter((d: any) => d.date && d.open && d.high && d.low && d.close)
@@ -3046,7 +2027,36 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
           open: parseFloat(d.open), high: parseFloat(d.high),
           low: parseFloat(d.low), close: parseFloat(d.close),
         }));
-      candleSeries.setData(formattedData);
+      // A clean line of closes reads faster than candles for most visitors.
+      // Colour follows the move over the visible range: green up, red down.
+      const points = formattedData.map((d: any) => ({ time: d.time, value: d.close }));
+      const rising = points.length < 2 || points[points.length - 1].value >= points[0].value;
+      const lineColor = rising ? '#2fe0a0' : '#ff5c7a';
+      const priceSeries = chart.addSeries(AreaSeries, {
+        lineColor,
+        lineWidth: 2,
+        topColor: rising ? 'rgba(47,224,160,0.26)' : 'rgba(255,92,122,0.24)',
+        bottomColor: 'rgba(7,5,20,0)',
+        priceLineColor: lineColor,
+        crosshairMarkerRadius: 5,
+        crosshairMarkerBorderColor: '#ffffff',
+        crosshairMarkerBackgroundColor: lineColor,
+      });
+      priceSeries.setData(points);
+
+      // Entry / target / stop as labelled guides, so the call sits on the chart.
+      const plan = getAnalysisPresentation(analysis);
+      if (plan && !plan.isHold) {
+        ([
+          [plan.entry, 'Entry', '#c9c3e6'],
+          [plan.target, 'Target', '#2fe0a0'],
+          [plan.stop_loss, 'Stop', '#ff5c7a'],
+        ] as Array<[number, string, string]>).forEach(([price, title, color]) => {
+          if (Number.isFinite(Number(price)) && Number(price) > 0) {
+            priceSeries.createPriceLine({ price: Number(price), color, lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title });
+          }
+        });
+      }
 
       const indicatorCharts = indicatorPanels
         .map(panel => {
@@ -3060,15 +2070,19 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
             height: indicatorHeight,
             layout: { background: { color: 'transparent' }, textColor: '#9f99c2' },
             grid: { vertLines: { color: 'rgba(255,255,255,0.04)' }, horzLines: { color: 'rgba(255,255,255,0.05)' } },
-            crosshair: { mode: 1 },
+            crosshair: {
+              mode: 1,
+              vertLine: { color: 'rgba(255,79,163,0.45)', labelBackgroundColor: '#ff4fa3' },
+              horzLine: { color: 'rgba(255,79,163,0.45)', labelBackgroundColor: '#ff4fa3' },
+            },
             rightPriceScale: {
-              borderColor: 'rgba(255,255,255,0.12)',
-              scaleMargins: { top: 0.18, bottom: 0.18 },
+              borderColor: 'rgba(255,255,255,0.08)',
+              scaleMargins: { top: 0.2, bottom: 0.12 },
             },
             timeScale: {
               timeVisible: chartRange === '1d' || chartRange === '1w',
               secondsVisible: false,
-              borderColor: 'rgba(15,23,42,0.12)',
+              borderColor: 'rgba(255,255,255,0.08)',
               fixLeftEdge: chartRange !== 'max',
               fixRightEdge: true,
               rightOffset: 5,
@@ -3155,13 +2169,14 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
       cancelled = true;
       cleanup();
     };
-  }, [chartData, chartRange, indicatorPanels, ticker, dashboardView]);
+  }, [chartData, chartRange, indicatorPanels, ticker, dashboardView, analysis]);
 
   const openStockView = (stock: typeof STOCKS[0], nextView: DashboardView = 'overview') => {
     const market = resolveMarket(stock.exchange);
     const resolvedView = canShowDetailedAnalysis(stock) ? nextView : 'overview';
     setCachedQuote(getCache(`quote:${stock.ticker}`));
-    setCachedChart(getCache(`chart:${stock.ticker}:${chartRange}`));
+    setChartRange('1mo');
+    setCachedChart(getCache(`chart:${stock.ticker}:1mo`));
     setCachedAnalysis(getCache(`analysis:${stock.ticker}`));
     setCachedFundamentals(getCache(`fundamentals:${stock.ticker}`));
     setTicker(stock.ticker);
@@ -3937,6 +2952,7 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
                                 <IndicatorChartPane
                                   key={panel.name}
                                   panel={panel}
+                                  onRemove={toggleIndicator}
                                   setPaneRef={(name, element) => {
                                     indicatorPaneRefs.current[name] = element;
                                   }}
@@ -3982,7 +2998,7 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
 
               {/* FISO Analysis + all sections in order */}
               {dashboardView === 'details' && selectedStock && canOpenDetailedAnalysis ? (
-                <IndiaDetailedAnalysisPanel
+                <Financials
                   ticker={ticker}
                   stock={selectedStock}
                   currency={currency}
