@@ -22,6 +22,7 @@ _groq_client = None
 
 DEFAULT_GROQ_CHAT_MODEL = "openai/gpt-oss-120b"
 DEFAULT_GROQ_FAST_MODEL = "openai/gpt-oss-20b"
+GROQ_MODEL_FALLBACKS = ("openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.8-27b")
 
 
 def is_reasoning_model(model: str | None) -> bool:
@@ -90,6 +91,23 @@ def _groq_chat(messages, temperature: float, max_tokens: int, model: str | None)
     # Groq retired its Llama 3 models in 2026; gpt-oss-120b is the current
     # general-purpose model on the account. Override with GROQ_CHAT_MODEL.
     model = model or os.getenv("GROQ_CHAT_MODEL", DEFAULT_GROQ_CHAT_MODEL)
+    # Each Groq model has its own daily token quota, so when one is rate
+    # limited (429) or retired (404) the next model on the account still works.
+    candidates = [model] + [m for m in GROQ_MODEL_FALLBACKS if m != model]
+    last_exc: Exception | None = None
+    for candidate in candidates:
+        try:
+            return _groq_complete(client, messages, temperature, max_tokens, candidate)
+        except Exception as exc:  # noqa: BLE001
+            status = getattr(exc, "status_code", None)
+            if status not in (404, 429):
+                raise
+            print(f"[LLM] groq {candidate} unavailable ({status}), trying next Groq model")
+            last_exc = exc
+    raise last_exc or RuntimeError("no Groq model available.")
+
+
+def _groq_complete(client, messages, temperature: float, max_tokens: int, model: str) -> str:
     extra: dict = {}
     if is_reasoning_model(model):
         # gpt-oss reasons before answering and those tokens count against the

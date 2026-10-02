@@ -118,6 +118,16 @@ def _parse_timeframe_days(prompt: str) -> int | None:
     match = re.search(r"\b(\d{1,2})\s*(years?|yrs?)\b", clean)
     if match:
         return max(1, int(match.group(1)) * 365)
+    match = re.search(r"\b(\d{1,2})\s*months?\b", clean)
+    if match:
+        return max(1, int(match.group(1)) * 30)
+    match = re.search(r"\b(\d{1,2})\s*weeks?\b", clean)
+    if match:
+        return max(1, int(match.group(1)) * 7)
+    # "a year ago", "one month ago", "last year"
+    match = re.search(r"\b(?:a|an|one|last|past)\s+(year|month|week)\b", clean)
+    if match:
+        return {"year": 365, "month": 30, "week": 7}[match.group(1)]
     match = re.search(r"\b(\d{1,4})\s*(?:trading\s*)?(days?|sessions?)\s+ago\b", clean)
     if match:
         return max(1, int(match.group(1)))
@@ -178,10 +188,17 @@ def _infer_intent(prompt: str) -> str:
     has_weekday_pair = len([day for day in WEEKDAYS if re.search(rf"\b{day}\b", clean)]) >= 2
     if _STRATEGY_RE.search(clean) or (has_weekday_pair and re.search(r"\b(buy|sell)\b", clean)):
         return "BACKTEST_STRATEGY"
-    if re.search(r"\b(rsi|sma|ema|moving average|overbought|oversold|support|resistance|macd|bollinger|indicator)\b", clean):
+    if re.search(r"\b(rsi|sma|ema|macd|bollinger|indicators?)\b", clean) or re.search(
+        r"\b(support|resistance)\b.*\b(level|levels|zone|and)\b|\b(rsi|support|resistance)\b\s*(/|and)", clean
+    ):
         if not re.search(r"\b(backtest|test|strategy|simulate)\b", clean):
             return "TECHNICAL_ANALYSIS"
-    if re.search(r"\b(price|open|opening|close|closing|high|low|ohlc|candle)\b", clean) and _parse_requested_date(prompt):
+    # A price on a specific date. "52 week high" is a range question, not a date.
+    if (
+        re.search(r"\b(price|open|opening|close|closing|high|low|ohlc|candle)\b", clean)
+        and _parse_requested_date(prompt)
+        and not re.search(r"\b52\s*-?\s*w(ee)?k", clean)
+    ):
         return "HISTORICAL_PRICE"
     if re.search(r"\b(bought|purchased|holding|held)\b", clean) or (
         _parse_quantity(prompt) and re.search(r"\b(profit|loss|made|lost|pnl|return|roi|worth)\b", clean)
@@ -314,9 +331,13 @@ def _resolve_target_stock(target: Any, current_ticker: str, known_stocks: list[d
 def _sanitize_instruction(instruction: dict[str, Any] | None, current_ticker: str, prompt: str, known_stocks: list[dict[str, Any]] | None) -> dict[str, Any]:
     fallback = _empty_instruction(current_ticker, prompt)
     merged = {**fallback, **(instruction or {})}
-    intent = str(merged.get("intent") or fallback["intent"]).upper()
-    if intent not in VALID_INTENTS:
-        intent = fallback["intent"]
+    # The question TYPE comes from the keyword router, not the LLM. In testing
+    # the LLM sent "52 week high and low" to a price-on-a-date lookup and
+    # vague questions to backtests; the router only picks a computed answer
+    # when the wording clearly asks for one, and sends everything else to a
+    # written answer. The LLM still fills in the parameters (dates, amounts,
+    # rules, other stocks) below.
+    intent = fallback["intent"]
 
     strategy = merged.get("strategy_parameters")
     if not isinstance(strategy, dict):
@@ -347,9 +368,17 @@ def _sanitize_instruction(instruction: dict[str, Any] | None, current_ticker: st
     if not isinstance(metrics, list) or not metrics:
         metrics = fallback["technical_metrics_requested"]
 
+    # Written answers stay on the page's stock; another stock the question
+    # names is brought in as comparison data, not swapped in.
+    target_stock = (
+        current_ticker
+        if intent == "GENERAL_QUESTION"
+        else _resolve_target_stock(merged.get("target_stock"), current_ticker, known_stocks)
+    )
+
     return {
         "intent": intent,
-        "target_stock": _resolve_target_stock(merged.get("target_stock"), current_ticker, known_stocks),
+        "target_stock": target_stock,
         "timeframe_days": timeframe,
         "strategy_parameters": {
             "buy_trigger": _normalise_text(strategy.get("buy_trigger")),
@@ -431,15 +460,35 @@ def _mentioned_stocks(prompt: str, known_stocks: list[dict[str, Any]] | None, li
     fail. The compiler only needs candidates for a stock the user mentioned.
     """
     words = {w for w in re.findall(r"[a-z0-9&]+", prompt.lower()) if len(w) >= 3}
-    picked: list[dict[str, Any]] = []
+    scored: list[tuple[int, dict[str, Any]]] = []
     for stock in known_stocks or []:
         symbol = str(stock.get("symbol") or "").lower()
-        name_words = set(re.findall(r"[a-z0-9&]+", str(stock.get("name") or "").lower()))
-        if symbol in words or (words & {w for w in name_words if len(w) >= 4}):
-            picked.append(stock)
-            if len(picked) >= limit:
-                break
-    return picked
+        # Generic words ("bank", "india", "limited") name half the market; a
+        # question saying "bank" is not a mention of Kotak Mahindra Bank.
+        name_words = {
+            w for w in re.findall(r"[a-z0-9&]+", str(stock.get("name") or "").lower())
+            if len(w) >= 4 and w not in _GENERIC_NAME_WORDS
+        }
+        if symbol in words:
+            score = 3
+        elif any(len(w) >= 3 and symbol.startswith(w) and len(symbol) - len(w) <= 2 for w in words):
+            score = 2  # "sbi" -> SBIN
+        elif words & name_words:
+            score = 1
+        else:
+            continue
+        scored.append((score, stock))
+    scored.sort(key=lambda item: -item[0])
+    return [stock for _, stock in scored[:limit]]
+
+
+_GENERIC_NAME_WORDS = {
+    "bank", "india", "indian", "limited", "ltd", "industries", "industry", "services", "service",
+    "corporation", "company", "finance", "financial", "motors", "power", "energy", "holdings",
+    "enterprises", "technologies", "technology", "systems", "solutions", "international", "global",
+    "pharma", "pharmaceuticals", "chemicals", "steel", "cement", "infra", "infrastructure", "capital",
+    "insurance", "life", "general", "national", "united", "group", "products", "foods", "consumer",
+}
 
 
 def _nearest_candles(df: pd.DataFrame, requested_date: str) -> tuple[pd.Series | None, pd.Series | None, pd.Series | None]:
@@ -943,7 +992,7 @@ def _pct_change(df: pd.DataFrame, sessions: int) -> float | None:
 
 
 def _market_context(df: pd.DataFrame) -> list[list[Any]]:
-    """The stock's own numbers, as label/value rows, for grounding an answer."""
+    """The stock's own price numbers, as label/value rows, for grounding an answer."""
     frame = _add_indicators(df)
     latest = frame.iloc[-1]
     close = _safe_float(latest["close"])
@@ -964,27 +1013,122 @@ def _market_context(df: pd.DataFrame) -> list[list[Any]]:
 
     macd = _safe_float(latest.get("MACD"))
     signal = _safe_float(latest.get("MACD_signal"))
+
+    # Calendar periods, so "this year" and "in 2025" have real answers.
+    latest_date = latest["date"]
+    ytd = None
+    this_year = frame[frame["date"].dt.year == latest_date.year]
+    prior = frame[frame["date"].dt.year < latest_date.year]
+    if not this_year.empty and not prior.empty and close:
+        ytd = _round((close / float(prior["close"].iloc[-1]) - 1) * 100)
+    calendar_rows: list[list[Any]] = []
+    for yr in (latest_date.year - 1, latest_date.year - 2):
+        in_year = frame[frame["date"].dt.year == yr]
+        before = frame[frame["date"].dt.year < yr]
+        if len(in_year) > 150 and not before.empty:
+            change = (float(in_year["close"].iloc[-1]) / float(before["close"].iloc[-1]) - 1) * 100
+            calendar_rows.append([f"Return in calendar {yr}", _round(change)])
+
+    # How rough the ride has been over the last year.
+    daily = year["close"].pct_change() * 100
+    big_rows: list[list[Any]] = []
+    if daily.notna().sum() > 20:
+        worst_idx = daily.idxmin()
+        best_idx = daily.idxmax()
+        big_rows = [
+            ["Biggest one-day fall (1y)", f"{_round(daily[worst_idx])}% on {year.loc[worst_idx, 'day']}"],
+            ["Biggest one-day rise (1y)", f"{_round(daily[best_idx])}% on {year.loc[best_idx, 'day']}"],
+            ["Days down more than 3% (1y)", int((daily < -3).sum())],
+            ["Days up more than 3% (1y)", int((daily > 3).sum())],
+        ]
+        ytd_daily = this_year["close"].pct_change() * 100
+        if len(ytd_daily) > 5:
+            big_rows.append(["Days down more than 3% (this year)", int((ytd_daily < -3).sum())])
+
     rows: list[list[Any]] = [
         ["Last close", _round(close)],
         ["As of", latest["day"]],
-        ["1 week", _pct_change(frame, 5)],
-        ["1 month", _pct_change(frame, 21)],
-        ["3 months", _pct_change(frame, 63)],
-        ["6 months", _pct_change(frame, 126)],
-        ["1 year", _pct_change(frame, 252)],
+        ["1 week %", _pct_change(frame, 5)],
+        ["1 month %", _pct_change(frame, 21)],
+        ["3 months %", _pct_change(frame, 63)],
+        ["6 months %", _pct_change(frame, 126)],
+        ["1 year %", _pct_change(frame, 252)],
+        [f"Year to date ({latest_date.year}) %", ytd],
+        *calendar_rows,
         ["52-week high", high_52],
         ["52-week low", low_52],
         ["From 52-week high %", _round((close / high_52 - 1) * 100) if close and high_52 else None],
+        ["Above 52-week low %", _round((close / low_52 - 1) * 100) if close and low_52 else None],
         ["RSI (14)", rsi],
         ["RSI reading", _technical_status(rsi)],
         ["vs SMA 20", position("SMA_20")],
         ["vs SMA 50", position("SMA_50")],
         ["vs SMA 200", position("SMA_200")],
         ["MACD vs signal", None if macd is None or signal is None else ("above (bullish)" if macd >= signal else "below (bearish)")],
-        ["Daily range (ATR %)", _round(atr / close * 100) if atr and close else None],
-        ["Volume vs 20-day avg", vol_ratio],
+        ["Typical daily move (ATR %)", _round(atr / close * 100) if atr and close else None],
+        ["Volume vs 20-day avg (x)", vol_ratio],
+        *big_rows,
     ]
     return [row for row in rows if row[1] is not None]
+
+
+def _fundamental_context(ticker: str) -> list[list[Any]]:
+    """Company and valuation figures from the daily snapshot, with sector medians."""
+    try:
+        from app.services.stock_snapshot_service import sector_peer_comparison, snapshot_by_ticker
+
+        row = (snapshot_by_ticker([ticker], max_age_hours=None) or {}).get(ticker) or {}
+        peers = sector_peer_comparison(ticker)
+    except Exception as exc:  # noqa: BLE001 - answers still work on price data alone
+        print(f"[StockAI] fundamentals unavailable for {ticker}: {exc}")
+        return []
+    if not row:
+        return []
+    medians = {m.get("key"): m.get("median") for m in (peers.get("metrics") or []) if peers.get("available")}
+
+    def with_median(value: Any, key: str, digits: int = 2) -> Any:
+        v = _round(value, digits)
+        if v is None:
+            return None
+        median = _round(medians.get(key), digits)
+        return f"{v} (sector median {median})" if median is not None else v
+
+    cap_cr = _safe_float(row.get("market_cap_cr"))
+    rows: list[list[Any]] = [
+        ["Company", row.get("name")],
+        ["Sector", row.get("sector")],
+        ["Market cap", (f"₹{cap_cr / 100000:.2f} lakh crore" if cap_cr >= 100000 else f"₹{cap_cr:,.0f} crore") if cap_cr else None],
+        ["P/E (trailing)", with_median(row.get("trailing_pe"), "trailing_pe")],
+        ["P/E (forward)", _round(row.get("forward_pe"))],
+        ["Price / book", with_median(row.get("price_to_book"), "price_to_book")],
+        ["Dividend yield %", with_median(row.get("dividend_yield"), "dividend_yield")],
+        ["Revenue growth % (yoy)", with_median(row.get("revenue_growth"), "revenue_growth", 1)],
+        ["Profit growth % (yoy)", _round(row.get("profit_growth"), 1)],
+        ["Operating margin %", with_median(row.get("operating_margin"), "operating_margin", 1)],
+        ["Profit margin %", with_median(row.get("profit_margin"), "profit_margin", 1)],
+        ["Beta (vs market)", _round(row.get("beta"))],
+        ["Sector peers compared", peers.get("peer_count") if peers.get("available") else None],
+    ]
+    return [r for r in rows if r[1] not in (None, "")]
+
+
+def _comparison_context(prompt: str, current_ticker: str, known_stocks: list[dict[str, Any]] | None) -> tuple[str | None, list[list[Any]]]:
+    """If the question names another stock, that stock's headline numbers."""
+    for stock in _mentioned_stocks(prompt, known_stocks, limit=4):
+        other = str(stock.get("ticker") or "").upper()
+        if not other or other == current_ticker.upper():
+            continue
+        try:
+            other_df = _prepare_df(get_historical_data(other, days=420))
+        except Exception:  # noqa: BLE001
+            continue
+        if other_df.empty:
+            continue
+        keep = {"Last close", "1 month %", "3 months %", "6 months %", "1 year %", "From 52-week high %", "RSI (14)", "vs SMA 200"}
+        price_rows = [r for r in _market_context(other_df) if r[0] in keep or r[0].startswith("Year to date")]
+        fund_rows = [r for r in _fundamental_context(other) if r[0] in {"Company", "P/E (trailing)", "Price / book", "Dividend yield %", "Revenue growth % (yoy)", "Profit margin %"}]
+        return other, price_rows + fund_rows
+    return None, []
 
 
 def _context_text(rows: list[list[Any]]) -> str:
@@ -992,29 +1136,62 @@ def _context_text(rows: list[list[Any]]) -> str:
 
 
 _ANSWER_SYSTEM = (
-    "You are Bullseye's stock research assistant for Indian (NSE) equities. Prices are in rupees (₹). "
-    "Answer the user's question using ONLY the data provided for this stock; never invent numbers, news or "
-    "fundamentals that are not in the data. If the data cannot answer something (news, earnings, management), "
-    "say that briefly. For 'should I buy/sell' questions, do not give personal advice: describe what the trend, "
-    "momentum and range data show, the main risk, and what a cautious investor might watch. "
-    "Write at most 5 short, complete sentences in plain English, no markdown headings, no bullet symbols, "
-    "no disclaimer boilerplate (the page shows one)."
+    "You are Bullseye's stock research assistant for Indian (NSE) equities. Prices are in rupees (₹).\n"
+    "How to answer:\n"
+    "1. Answer the exact question first, in the opening sentence. 'How has it performed this year?' starts "
+    "with the year-to-date return; 'is it overvalued?' starts with the P/E against the sector median.\n"
+    "2. Then add only the 2-3 facts that matter for THAT question. Do not recite every number you were given, "
+    "and do not mention MACD, RSI or volume unless the question is about momentum, timing or trading.\n"
+    "3. Explain any technical term in plain words the first time (e.g. 'RSI of 36, meaning sellers have been "
+    "in control but it is not extreme'). Write for a smart non-expert.\n"
+    "4. Use ONLY the data provided. Never invent news, earnings, management commentary or numbers. If the data "
+    "cannot answer the question, say so in one sentence and say what it does show.\n"
+    "5. Never predict a future price, give a price target, suggest a price to buy or sell at, or project past "
+    "returns forward. If asked, say plainly that you can't, then describe the trend and the range it has traded "
+    "in so the reader can judge.\n"
+    "6. 'Should I buy/sell/hold' is not personal advice: give the balanced picture (what supports it, the main "
+    "risk) and leave the decision to the reader.\n"
+    "7. Reply in English. Only if the question itself is written in Hinglish or Hindi, reply in that language and "
+    "the same script (Hinglish in English letters gets Hinglish in English letters, never Devanagari).\n"
+    "8. Format: one paragraph of 3-5 complete sentences (two short paragraphs at most for comparisons). Plain "
+    "text: no headings, no bullet points, no bold, no disclaimer (the page shows one). Vary your wording; do not "
+    "end with a stock phrase like 'a cautious investor might watch'."
 )
+
+
+_HINGLISH_WORDS = {
+    "kya", "hai", "hain", "karu", "karun", "karna", "kare", "lena", "lenа", "chahiye", "abhi", "kab", "kitna",
+    "kitne", "kaisa", "kaise", "mein", "nahi", "nahin", "bhai", "yaar", "ye", "yeh", "wo", "woh", "jayega",
+    "jaayega", "hoga", "becho", "bechu", "khareed", "kharidu", "kharidna", "paisa", "acha", "accha", "sahi",
+}
+
+
+def _looks_hinglish(text: str) -> bool:
+    words = re.findall(r"[a-z]+", text.lower())
+    return sum(1 for w in words if w in _HINGLISH_WORDS) >= 2 or bool(re.search(r"[ऀ-ॿ]", text))
 
 
 def _llm_answer(question: str, ticker: str, rows: list[list[Any]], note: str | None = None, max_tokens: int = 700) -> str | None:
     if not llm_client.any_provider_available():
         return None
-    content = f"Stock: {ticker}\nQuestion: {question}\n\nData for this stock:\n{_context_text(rows)}"
+    content = f"Stock: {ticker}\nQuestion: {question}\n\nData for {ticker}:\n{_context_text(rows)}"
     if note:
-        content += f"\n\nInstruction: {note}"
+        content += f"\n\n{note}"
+    content += (
+        "\n\nThe question is written in Hinglish: reply in Hinglish using English letters."
+        if _looks_hinglish(question)
+        else "\n\nReply in English."
+    )
     try:
         result = llm_client.chat(
             [{"role": "system", "content": _ANSWER_SYSTEM}, {"role": "user", "content": content}],
-            temperature=0.3,
+            temperature=0.25,
             max_tokens=max_tokens,
         )
         text = (result.get("text") or "").strip()
+        # Belt and braces: the page renders plain text.
+        text = re.sub(r"\*\*(.+?)\*\*", r"\1", text)
+        text = re.sub(r"^\s*[-*•]\s+", "", text, flags=re.MULTILINE)
         return text or None
     except Exception as exc:  # noqa: BLE001 - fall back to the deterministic summary
         print(f"[StockAI] answer generation failed: {exc}")
@@ -1024,8 +1201,8 @@ def _llm_answer(question: str, ticker: str, rows: list[list[Any]], note: str | N
 def _deterministic_answer(ticker: str, rows: list[list[Any]]) -> str:
     data = {label: value for label, value in rows}
     parts = [f"{ticker} last closed at ₹{data.get('Last close')} ({data.get('As of')})."]
-    if data.get("1 month") is not None:
-        parts.append(f"It is {data['1 month']:+.2f}% over the past month and {data.get('1 year', 0):+.2f}% over the year.")
+    if data.get("1 month %") is not None:
+        parts.append(f"It is {data['1 month %']:+.2f}% over the past month and {data.get('1 year %', 0):+.2f}% over the year.")
     if data.get("RSI (14)") is not None:
         parts.append(f"RSI is {data['RSI (14)']} ({data.get('RSI reading', 'neutral').lower()}).")
     if data.get("vs SMA 50"):
@@ -1033,10 +1210,20 @@ def _deterministic_answer(ticker: str, rows: list[list[Any]]) -> str:
     return " ".join(parts)
 
 
-def _handle_general_question(prompt: str, instruction: dict[str, Any], df: pd.DataFrame, note: str | None = None) -> dict[str, Any]:
+def _handle_general_question(
+    prompt: str,
+    instruction: dict[str, Any],
+    df: pd.DataFrame,
+    note: str | None = None,
+    known_stocks: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     ticker = instruction["target_stock"]
-    rows = _market_context(df)
-    answer = _llm_answer(prompt, ticker, rows, note=note)
+    rows = _market_context(df) + _fundamental_context(ticker)
+    other, other_rows = (None, []) if note else _comparison_context(prompt, ticker, known_stocks)
+    extra = note
+    if other and other_rows:
+        extra = f"Data for {other} (the stock the question compares against):\n{_context_text(other_rows)}"
+    answer = _llm_answer(prompt, ticker, rows, note=extra)
     return {
         "type": "assistant_answer",
         "title": "Strategy not supported" if note else "Answer",
@@ -1066,6 +1253,47 @@ def _ai_summary(prompt: str, result: dict[str, Any]) -> str | None:
     return _llm_answer(prompt, result.get("target_stock") or "", [], note=note, max_tokens=400)
 
 
+def _money(value: Any) -> str:
+    n = _safe_float(value)
+    return "—" if n is None else f"₹{n:,.2f}"
+
+
+def _exact_summary(result: dict[str, Any]) -> str | None:
+    """Plain-English summaries built from the computed numbers themselves.
+
+    In testing the LLM mis-multiplied a P&L ("worth ₹72,120" for 25 shares at
+    ₹721), so results that are pure arithmetic get exact sentences instead.
+    """
+    kind = result.get("type")
+    stock = str(result.get("target_stock") or "").replace(".NS", "").replace(".BO", "")
+    if kind == "historical_roi":
+        pnl = _safe_float(result.get("pnl")) or 0.0
+        qty = _safe_float(result.get("quantity")) or 0
+        shares = f"{qty:g} share{'' if qty == 1 else 's'}"
+        return (
+            f"{shares} of {stock} bought at {_money(result.get('buy_price'))} on {result.get('investment_date')} cost "
+            f"{_money(result.get('invested'))} and are worth {_money(result.get('current_value'))} at the "
+            f"{result.get('latest_date')} close of {_money(result.get('current_price'))}. That is a "
+            f"{'profit' if pnl >= 0 else 'loss'} of {_money(abs(pnl))} ({result.get('return_pct')}%), before "
+            f"brokerage, taxes and any dividends received."
+        )
+    if kind == "historical_price":
+        c = result.get("candle") or {}
+        if not c:
+            return None
+        day = c.get("day") or c.get("date")
+        lead = (
+            f"On {day}, {stock}"
+            if result.get("exact_match")
+            else f"{result.get('requested_date')} wasn't a trading day. On the nearest session, {day}, {stock}"
+        )
+        return (
+            f"{lead} opened at {_money(c.get('open'))}, traded between {_money(c.get('low'))} and "
+            f"{_money(c.get('high'))}, and closed at {_money(c.get('close'))}."
+        )
+    return None
+
+
 def run_stock_ai_search(
     prompt: str,
     current_ticker: str,
@@ -1073,7 +1301,10 @@ def run_stock_ai_search(
     with_summary: bool = True,
 ) -> dict[str, Any]:
     result = _run_stock_ai_search(prompt, current_ticker, known_stocks)
-    if with_summary and result.get("type") != "assistant_answer":
+    exact = _exact_summary(result)
+    if exact:
+        result["ai_summary"] = exact
+    elif with_summary and result.get("type") != "assistant_answer":
         summary = _ai_summary(prompt, result)
         if summary:
             result["ai_summary"] = summary
@@ -1100,4 +1331,4 @@ def _run_stock_ai_search(prompt: str, current_ticker: str, known_stocks: list[di
         return _handle_historical_price(instruction, df)
     if instruction["intent"] == "TECHNICAL_ANALYSIS":
         return _handle_technical_analysis(instruction, df)
-    return _handle_general_question(prompt, instruction, df)
+    return _handle_general_question(prompt, instruction, df, known_stocks=known_stocks)
