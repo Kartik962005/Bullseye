@@ -200,11 +200,18 @@ def _cerebras_chat(messages, temperature: float, max_tokens: int, model: str | N
     )
 
 
+# gemini-2.0-flash (the old default) is being retired. The "-latest" alias
+# follows Google's current Flash model; GEMINI_MODEL overrides both.
+GEMINI_MODEL_FALLBACKS = ("gemini-flash-latest", "gemini-2.5-flash", "gemini-2.0-flash")
+
+
 def _gemini_chat(messages, temperature: float, max_tokens: int) -> str:
     api_key = _env_key("GEMINI_API_KEY")
     if not api_key:
         raise RuntimeError("GEMINI_API_KEY is not set.")
-    model = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+    configured = (os.getenv("GEMINI_MODEL") or "").strip()
+    models = [configured] if configured else []
+    models += [m for m in GEMINI_MODEL_FALLBACKS if m != configured]
 
     system_chunks: list[str] = []
     contents: list[dict] = []
@@ -225,31 +232,38 @@ def _gemini_chat(messages, temperature: float, max_tokens: int) -> str:
         "contents": contents,
         "generationConfig": {
             "temperature": temperature,
-            "maxOutputTokens": max_tokens,
+            # Current Flash models think before answering and those tokens
+            # count against this limit; leave room so replies aren't cut off.
+            "maxOutputTokens": max_tokens + 1024,
         },
     }
     if system_chunks:
         body["systemInstruction"] = {"parts": [{"text": "\n\n".join(system_chunks)}]}
 
-    url = (
-        f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-    )
-    response = requests.post(
-        url,
-        params={"key": api_key},
-        json=body,
-        timeout=40,
-    )
-    response.raise_for_status()
-    payload = response.json()
-    candidates = payload.get("candidates") or []
-    if not candidates:
-        raise RuntimeError("Gemini returned no candidates.")
-    parts = (candidates[0].get("content") or {}).get("parts") or []
-    text = "".join(part.get("text", "") for part in parts).strip()
-    if not text:
-        raise RuntimeError("Gemini returned an empty response.")
-    return text
+    last_error: Exception | None = None
+    for model in models:
+        response = requests.post(
+            f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+            # Key in a header, not the query string, so it never lands in URL logs.
+            headers={"x-goog-api-key": api_key},
+            json=body,
+            timeout=30,
+        )
+        if response.status_code in (404, 429, 500, 503):
+            last_error = RuntimeError(f"Gemini {model}: HTTP {response.status_code}")
+            print(f"[LLM] gemini {model} unavailable ({response.status_code}), trying next Gemini model")
+            continue
+        response.raise_for_status()
+        payload = response.json()
+        candidates = payload.get("candidates") or []
+        if not candidates:
+            raise RuntimeError("Gemini returned no candidates.")
+        parts = (candidates[0].get("content") or {}).get("parts") or []
+        text = "".join(part.get("text", "") for part in parts if not part.get("thought")).strip()
+        if not text:
+            raise RuntimeError("Gemini returned an empty response.")
+        return text
+    raise last_error or RuntimeError("No Gemini model available.")
 
 
 def _call_provider(provider: str, messages, temperature: float, max_tokens: int, model: str | None) -> str:

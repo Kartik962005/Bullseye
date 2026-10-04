@@ -35,6 +35,7 @@ from sqlglot import expressions as exp
 from sqlglot.executor import execute as sqlglot_execute
 
 from app.services import llm_client
+from app.services.relevance_guard import OFF_TOPIC_REPLY, small_talk_reply
 from app.services.stock_snapshot_service import frontend_metric_row, get_snapshot_rows
 
 TABLE = "stock_snapshot"
@@ -328,7 +329,8 @@ def _nl_system_prompt(sectors: list[str]) -> str:
         "stock_snapshot (one row per NSE stock, latest close).\n"
         "Reply with ONE JSON object and nothing else, in one of two shapes:\n"
         '  {"kind":"screen","sql":"SELECT ...","summary":"...","caveat":"..." or null}\n'
-        '  {"kind":"answer","text":"..."}\n\n'
+        '  {"kind":"answer","text":"..."}\n'
+        '  {"kind":"off_topic"}  (anything not about stocks, markets, investing or the economy)\n\n'
         "Use kind=answer ONLY for a greeting, a definition of a term (what is RSI?), or a request "
         "for buy/sell advice (what should I buy, best stocks to buy now, is X a good investment). "
         "text is 2-4 plain-English sentences, never facts or numbers about a specific company; "
@@ -511,6 +513,8 @@ def _nl_path(prompt: str, rows: list[dict[str, Any]]) -> dict[str, Any] | None:
         print(f"[IntelligentScreener] NL->SQL generation failed: {exc}")
         return None
 
+    if plan.get("kind") == "off_topic":
+        plan = {"kind": "answer", "text": OFF_TOPIC_REPLY}
     if plan.get("kind") == "answer" and plan.get("text"):
         _remember_plan(prompt, plan, provider)
         return {
@@ -630,9 +634,12 @@ def intelligent_smart_search(
     """
     screeners = screeners or []
     sectors = sectors or []
-    rows = _load_rows()
-
     use_sql = mode == "sql" or (mode == "auto" and looks_like_sql(prompt))
+    canned = None if use_sql else small_talk_reply(prompt)
+    if canned:
+        return {"rows": [], "matchedRules": [], "explanation": canned, "answer": canned,
+                "source": "Bullseye AI", "mode": "answer"}
+    rows = _load_rows()
 
     if use_sql:
         if not rows:

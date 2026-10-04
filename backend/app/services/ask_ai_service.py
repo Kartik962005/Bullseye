@@ -26,6 +26,7 @@ import numpy as np
 import pandas as pd
 
 from app.services import llm_client
+from app.services.relevance_guard import LLM_RULE, OFF_TOPIC_REPLY, is_off_topic_marker, small_talk_reply
 from app.services.data_service import get_historical_data
 from app.services.screener_service import screen_stocks
 from app.services.stock_ai_service import run_stock_ai_search
@@ -162,7 +163,7 @@ Honesty and safety rules (always follow):
 - Do not guarantee profits and do not give personalized financial advice. Any prediction or backtest is
   uncertain; remind the user that past performance does not guarantee future results and that they should
   do their own research. State this briefly when you give an actual recommendation or market outlook.
-""".strip()
+""".strip() + "\n- " + LLM_RULE
 
 SCREENER_SYSTEM_PROMPT = """
 You are Bullseye's stock screener assistant. The user asked for stocks matching
@@ -1800,6 +1801,8 @@ def _general_chat(
     try:
         result = llm_client.chat(messages, temperature=0.4, max_tokens=900)
         answer, model_used = result["text"], result["model"]
+        if is_off_topic_marker(answer):
+            answer = OFF_TOPIC_REPLY
     except Exception as exc:  # noqa: BLE001
         print(f"[AskAI] general chat failed: {exc}")
         answer, model_used = (
@@ -1960,6 +1963,25 @@ def run_ask_ai(
     prompt = (prompt or "").strip()
     if not prompt:
         raise ValueError("Prompt is required.")
+    canned = small_talk_reply(prompt)
+    if canned:
+        # Returned as-is: _augment_suggestions would add near-copies of the
+        # example questions quoted in the reply.
+        return ({
+            "answer": canned,
+            "mode": "general",
+            "success": True,
+            "model_used": "local",
+            "target_stock": None,
+            "context_used": False,
+            "backtest": None,
+            "scan": None,
+            "suggestions": [
+                "How has TCS performed over the past year?",
+                "Backtest: buy RELIANCE when RSI crosses below 30, sell when it crosses 70",
+                "What is a P/E ratio and what is a good one?",
+            ],
+        })
     prompt = _expand_strategy_followup(prompt, history)
 
     # Remember the fullest catalog we have ever seen so ticker resolution and the

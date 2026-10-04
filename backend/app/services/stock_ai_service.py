@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 
 from app.services import llm_client
+from app.services.relevance_guard import LLM_RULE, OFF_TOPIC_REPLY, is_off_topic_marker, small_talk_reply
 from app.services.data_service import get_historical_data
 
 
@@ -1155,7 +1156,8 @@ _ANSWER_SYSTEM = (
     "the same script (Hinglish in English letters gets Hinglish in English letters, never Devanagari).\n"
     "8. Format: one paragraph of 3-5 complete sentences (two short paragraphs at most for comparisons). Plain "
     "text: no headings, no bullet points, no bold, no disclaimer (the page shows one). Vary your wording; do not "
-    "end with a stock phrase like 'a cautious investor might watch'."
+    "end with a stock phrase like 'a cautious investor might watch'.\n"
+    "9. " + LLM_RULE
 )
 
 
@@ -1189,6 +1191,8 @@ def _llm_answer(question: str, ticker: str, rows: list[list[Any]], note: str | N
             max_tokens=max_tokens,
         )
         text = (result.get("text") or "").strip()
+        if is_off_topic_marker(text):
+            return OFF_TOPIC_REPLY
         # Belt and braces: the page renders plain text.
         text = re.sub(r"\*\*(.+?)\*\*", r"\1", text)
         text = re.sub(r"^\s*[-*•]\s+", "", text, flags=re.MULTILINE)
@@ -1224,6 +1228,9 @@ def _handle_general_question(
     if other and other_rows:
         extra = f"Data for {other} (the stock the question compares against):\n{_context_text(other_rows)}"
     answer = _llm_answer(prompt, ticker, rows, note=extra)
+    if answer == OFF_TOPIC_REPLY:
+        return {"type": "assistant_answer", "title": "Answer", "answer": answer, "answered_by": "guard",
+                "target_stock": ticker, "rows": []}
     return {
         "type": "assistant_answer",
         "title": "Strategy not supported" if note else "Answer",
@@ -1300,6 +1307,18 @@ def run_stock_ai_search(
     known_stocks: list[dict[str, Any]] | None = None,
     with_summary: bool = True,
 ) -> dict[str, Any]:
+    canned = small_talk_reply(prompt)
+    if canned:
+        # Answered before any data load or LLM call: "hi" used to take seconds.
+        ticker = _normalise_text(current_ticker).upper()
+        return {
+            "type": "assistant_answer",
+            "title": "Answer",
+            "answer": canned,
+            "answered_by": "guard",
+            "target_stock": ticker,
+            "rows": [],
+        }
     result = _run_stock_ai_search(prompt, current_ticker, known_stocks)
     exact = _exact_summary(result)
     if exact:
