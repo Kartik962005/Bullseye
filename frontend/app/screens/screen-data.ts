@@ -371,13 +371,26 @@ export type RunResult = {
   error?: string;
 };
 
+/** Abort when the caller does, or after `ms` (the server is stuck or asleep). */
+function withTimeout(signal: AbortSignal | undefined, ms: number) {
+  const timeout = AbortSignal.timeout(ms);
+  return signal ? AbortSignal.any([signal, timeout]) : timeout;
+}
+
+function friendlyAbort(error: unknown): never {
+  if (error instanceof DOMException && error.name === 'TimeoutError') {
+    throw new Error('The screener took too long to answer. The server may be waking up; try again in a few seconds.');
+  }
+  throw error;
+}
+
 export async function runScreenSql(sql: string, signal?: AbortSignal): Promise<RunResult> {
   const response = await fetch(`${BACKEND}/api/v1/screener/run`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ sql }),
-    signal,
-  });
+    signal: withTimeout(signal, 45_000),
+  }).catch(friendlyAbort);
   if (!response.ok) throw new Error(`Screen failed (${response.status})`);
   return response.json();
 }
@@ -396,8 +409,8 @@ export async function runSmartSearch(prompt: string, mode: 'auto' | 'sql', signa
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ prompt, mode, stocks: [], screeners: [], sectors: [] }),
-    signal,
-  });
+    signal: withTimeout(signal, 45_000),
+  }).catch(friendlyAbort);
   if (response.status === 429) throw new Error('Too many searches in a minute. Wait a moment and try again.');
   if (!response.ok) throw new Error('The screener is not responding. It may be waking up; try again in a few seconds.');
   return response.json();

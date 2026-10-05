@@ -6,7 +6,6 @@
 // Every result type renders in the page's card language; nothing light-themed.
 
 import { useState } from "react";
-import { STOCKS } from "@/app/stocks";
 import { BACKEND } from "@/lib/client-cache";
 import { buildMarketAnswer } from "@/lib/market-answer";
 
@@ -369,15 +368,17 @@ export function AiMarketSearch({
     setRunning(true);
     setResult(null);
     setLoader(`Reading ${symbol}'s price history…`);
+    // The server answers in seconds when warm; this only fires if it is stuck.
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 60_000);
     try {
       const res = await fetch(`${BACKEND}/api/v1/stock-ai/search`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          prompt: q,
-          current_ticker: ticker,
-          stocks: STOCKS.map((s) => ({ name: s.name, symbol: s.symbol, exchange: s.exchange, ticker: s.ticker, currency: s.currency })),
-        }),
+        signal: controller.signal,
+        // The server has its own stock list; uploading ~2,900 names per
+        // question only added latency.
+        body: JSON.stringify({ prompt: q, current_ticker: ticker, stocks: [] }),
       });
       const data = await res.json().catch(() => null);
       if (!res.ok || !data) {
@@ -392,15 +393,19 @@ export function AiMarketSearch({
         return;
       }
       setResult(data);
-    } catch {
+    } catch (err) {
+      const timedOut = err instanceof Error && err.name === "AbortError";
       const fallback = buildMarketAnswer(q, analysis, ticker, currency, chartData);
       setResult(
         fallback ?? {
           type: "error",
-          answer: "Couldn't reach the AI service. The backend may be waking up; try again in a few seconds.",
+          answer: timedOut
+            ? "That took too long, so I stopped waiting. The server may have been waking up; ask again and it should be quicker."
+            : "Couldn't reach the AI service. The backend may be waking up; try again in a few seconds.",
         },
       );
     } finally {
+      window.clearTimeout(timeout);
       setRunning(false);
     }
   };

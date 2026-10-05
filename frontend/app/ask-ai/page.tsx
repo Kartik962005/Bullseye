@@ -2,7 +2,6 @@
 
 import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { STOCKS } from '../stocks';
 import { BullseyeLogo, BullseyeMark } from '@/components/brand/BullseyeLogo';
 import { usePresence } from '@/components/motion/usePresence';
 import { Markdown } from './Markdown';
@@ -10,6 +9,9 @@ import { BacktestCard, MoversCard, ScanCard, ScreenerCard, StrategyCard } from '
 import type { AskAiResponse, ChatMessage, ConversationSummary, MoversScan, Scan } from './types';
 
 const BACKEND = '/api/backend';
+// Market-wide scans stop at 20s on the server; past this something is stuck
+// (or the server is still waking up), so say so instead of spinning on.
+const ANSWER_TIMEOUT_MS = 75_000;
 
 const CAPABILITIES: Array<{ title: string; blurb: string; icon: string; prompts: string[] }> = [
   {
@@ -107,7 +109,6 @@ export default function AskAiPage() {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [elapsedMs, setElapsedMs] = useState(0);
-  const [context, setContext] = useState<{ current_page: string; selected_symbol?: string; selected_ticker?: string }>({ current_page: 'ask-ai' });
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [conversationsLoading, setConversationsLoading] = useState(false);
@@ -198,17 +199,9 @@ export default function AskAiPage() {
 
   useEffect(() => {
     if (!authReady || !user) return;
-    loadConversations().catch(() => setConversations([]));
+    const timer = window.setTimeout(() => loadConversations().catch(() => setConversations([])), 0);
+    return () => window.clearTimeout(timer);
   }, [authReady, user, loadConversations]);
-
-  // Arriving from a stock page (/ask-ai?ticker=RELIANCE.NS) gives answers that
-  // stock's context.
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const symbol = params.get('symbol') ?? undefined;
-    const ticker = params.get('ticker') ?? undefined;
-    if (symbol || ticker) setContext({ current_page: 'ask-ai', selected_symbol: symbol, selected_ticker: ticker });
-  }, []);
 
   async function openConversation(id: string) {
     if (historyLoading) return;
@@ -244,8 +237,21 @@ export default function AskAiPage() {
     const text = prompt.trim();
     if (!text || loading) return;
     const history = messages.filter(m => !m.error).slice(-10).map(m => ({ role: m.role, content: m.content }));
+    // Arriving from a stock page (/ask-ai?ticker=RELIANCE.NS) gives answers
+    // that stock's context.
+    const params = new URLSearchParams(window.location.search);
+    const context = {
+      current_page: 'ask-ai',
+      selected_symbol: params.get('symbol') ?? undefined,
+      selected_ticker: params.get('ticker') ?? undefined,
+    };
     const controller = new AbortController();
     abortRef.current = controller;
+    let timedOut = false;
+    const timeout = window.setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, ANSWER_TIMEOUT_MS);
     startedAtRef.current = Date.now();
     setElapsedMs(0);
     setMessages(prev => [...prev, { id: `u-${Date.now()}`, role: 'user', content: text }]);
@@ -256,7 +262,7 @@ export default function AskAiPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
         signal: controller.signal,
-        body: JSON.stringify({ prompt: text, history, stocks: STOCKS, context, conversation_id: conversationId }),
+        body: JSON.stringify({ prompt: text, history, stocks: [], context, conversation_id: conversationId }),
       });
       const raw = await response.json().catch(() => ({}));
       if (response.status === 429) throw new Error('That was a lot of questions in a minute. Wait a few seconds and try again.');
@@ -268,18 +274,20 @@ export default function AskAiPage() {
       setMessages(prev => [...prev, { id: `a-${Date.now()}`, role: 'assistant', content: data.answer || 'No answer came back.', data, thoughtMs }]);
       if (data.saved) loadConversations().catch(() => {});
     } catch (err) {
-      const stopped = err instanceof Error && err.name === 'AbortError';
+      const stopped = err instanceof Error && err.name === 'AbortError' && !timedOut;
+      const message = timedOut
+        ? 'That took too long, so I stopped waiting. The server may have been waking up; try again and it should be quicker.'
+        : stopped
+          ? 'Stopped. Ask something else whenever you like.'
+          : err instanceof Error
+            ? err.message
+            : 'Something went wrong.';
       setMessages(prev => [
         ...prev,
-        {
-          id: `e-${Date.now()}`,
-          role: 'assistant',
-          content: stopped ? 'Stopped. Ask something else whenever you like.' : err instanceof Error ? err.message : 'Something went wrong.',
-          error: !stopped,
-          retryPrompt: stopped ? undefined : text,
-        },
+        { id: `e-${Date.now()}`, role: 'assistant', content: message, error: !stopped, retryPrompt: stopped ? undefined : text },
       ]);
     } finally {
+      window.clearTimeout(timeout);
       abortRef.current = null;
       startedAtRef.current = null;
       setLoading(false);
