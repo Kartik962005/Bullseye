@@ -460,7 +460,14 @@ def _mentioned_stocks(prompt: str, known_stocks: list[dict[str, Any]] | None, li
     which blows through free-tier per-minute token limits and made the LLM step
     fail. The compiler only needs candidates for a stock the user mentioned.
     """
-    words = {w for w in re.findall(r"[a-z0-9&]+", prompt.lower()) if len(w) >= 3}
+    # Everyday words that are also tickers ("has" is Hasbro, "now" ServiceNow)
+    # only count when typed in capitals; "how has it performed" once pulled in
+    # Hasbro's history as comparison data.
+    typed_upper = {t.lower() for t in re.findall(r"[A-Z0-9&]{2,}", prompt)}
+    words = {
+        w for w in re.findall(r"[a-z0-9&]+", prompt.lower())
+        if len(w) >= 3 and (w not in _COMMON_WORDS or w in typed_upper)
+    }
     scored: list[tuple[int, dict[str, Any]]] = []
     for stock in known_stocks or []:
         symbol = str(stock.get("symbol") or "").lower()
@@ -481,6 +488,18 @@ def _mentioned_stocks(prompt: str, known_stocks: list[dict[str, Any]] | None, li
         scored.append((score, stock))
     scored.sort(key=lambda item: -item[0])
     return [stock for _, stock in scored[:limit]]
+
+
+_COMMON_WORDS = set("""
+has have had the and for are was were how why what when who whom which now buy sell hold can could will would
+should shall this that these those with from into onto year years month months week weeks today tomorrow price
+prices stock stocks share shares good bad best better worst high low its did does done been any all one two three
+new old big top out over under more less than then also just much many very some time long short term return
+returns perform performed performance growth value compare compared versus about after before since last next
+past still keep worth safe risk risky give show tell explain should invest investing investment market markets
+trend trading trade chart analysis data fall fell rise rose gain gains loss losses doing going like look looks
+kya hai hain abhi lena karna kaisa kaise mein nahi wala wali
+""".split())
 
 
 _GENERIC_NAME_WORDS = {
@@ -1115,7 +1134,11 @@ def _fundamental_context(ticker: str) -> list[list[Any]]:
 
 def _comparison_context(prompt: str, current_ticker: str, known_stocks: list[dict[str, Any]] | None) -> tuple[str | None, list[list[Any]]]:
     """If the question names another stock, that stock's headline numbers."""
-    for stock in _mentioned_stocks(prompt, known_stocks, limit=4):
+    same_market = [
+        s for s in (known_stocks or [])
+        if not current_ticker.upper().endswith((".NS", ".BO")) or str(s.get("ticker") or "").upper().endswith((".NS", ".BO"))
+    ]
+    for stock in _mentioned_stocks(prompt, same_market, limit=4):
         other = str(stock.get("ticker") or "").upper()
         if not other or other == current_ticker.upper():
             continue
@@ -1319,6 +1342,10 @@ def run_stock_ai_search(
             "target_stock": ticker,
             "rows": [],
         }
+    if not known_stocks:
+        from app.services.stock_snapshot_service import catalog_stocks
+
+        known_stocks = catalog_stocks()
     result = _run_stock_ai_search(prompt, current_ticker, known_stocks)
     exact = _exact_summary(result)
     if exact:
@@ -1334,7 +1361,10 @@ def _run_stock_ai_search(prompt: str, current_ticker: str, known_stocks: list[di
     if not _normalise_text(prompt):
         raise ValueError("Prompt is required.")
     current_ticker = _normalise_text(current_ticker).upper()
-    compiled = _groq_compile(prompt, current_ticker, known_stocks)
+    # A written answer uses nothing the compiler extracts (the router picks the
+    # intent and the page's stock is the subject), so skip that LLM round trip.
+    needs_parameters = _infer_intent(prompt) != "GENERAL_QUESTION"
+    compiled = _groq_compile(prompt, current_ticker, known_stocks) if needs_parameters else None
     instruction = _sanitize_instruction(compiled, current_ticker, prompt, known_stocks)
 
     # Load a broad free/local window. Supabase is used first by data_service; yfinance is only a fallback.

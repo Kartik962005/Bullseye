@@ -385,6 +385,43 @@ def load_frontend_stock_universe(repo_root: Path | None = None, exchange: str = 
     return rows
 
 
+_catalog_cache: list[dict[str, Any]] = []
+
+
+def catalog_stocks() -> list[dict[str, Any]]:
+    """Every stock the site lists (name, symbol, exchange, ticker), loaded once.
+
+    The AI endpoints used to receive this ~2,900-stock list in every request
+    body (about 250 KB to upload and validate per question). They now fall back
+    to this when a request sends none: the frontend's stocks.ts when the repo
+    is present, otherwise the snapshot table's NSE names.
+    """
+    global _catalog_cache
+    if _catalog_cache:
+        return _catalog_cache
+    rows: list[dict[str, Any]] = []
+    try:
+        for exchange in ("NSE", "NASDAQ", "NYSE"):
+            rows.extend(load_frontend_stock_universe(exchange=exchange))
+    except Exception as exc:  # noqa: BLE001 - stocks.ts isn't deployed with the backend
+        print(f"[Catalog] stocks.ts unavailable ({exc}); using the snapshot table")
+    if not rows:
+        rows = [
+            {
+                "name": r.get("name") or r.get("symbol"),
+                "symbol": r.get("symbol"),
+                "exchange": "NSE",
+                "ticker": r.get("ticker"),
+                "currency": "₹",
+            }
+            for r in get_snapshot_rows(max_age_hours=None)
+            if r.get("ticker")
+        ]
+    if rows:
+        _catalog_cache = rows
+    return rows
+
+
 # ── Sector peer comparison ────────────────────────────────────────────────────
 # A P/E of 17.9 means nothing on its own; against a sector median of 24.1 it
 # means "cheaper than its peers". The snapshot already holds the same ~45 metrics

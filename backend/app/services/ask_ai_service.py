@@ -20,6 +20,7 @@ import threading
 import time
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import TimeoutError as FuturesTimeout
 from typing import Any
 
 import numpy as np
@@ -36,6 +37,7 @@ try:  # Persistent precomputed market snapshot (built off-server, read here).
 except Exception:  # noqa: BLE001 - degrade to live scans if unavailable
     stock_snapshot_service = None
 from app.strategies.nlp_backtester import (
+    columns_used,
     _prepare_df,
     _rule_engine_fallback,
     _run_crossover,
@@ -65,9 +67,14 @@ from app.strategies.nlp_backtester import (
 #
 # NOTE: this caps SCANNING only. Ticker resolution still searches the full
 # ~2,600-name catalog, so "what is the PE of <small cap>" keeps working.
-SCAN_LIMIT = max(5, min(int(os.getenv("ASK_AI_SCAN_LIMIT", "500")), 5000))
-_SCAN_WORKERS = max(4, min(int(os.getenv("ASK_AI_SCAN_WORKERS", "16")), 48))
-_SCAN_BUDGET_SEC = max(5.0, float(os.getenv("ASK_AI_SCAN_BUDGET_SEC", "22")))
+# 150 largest by default: on Render's free tier (0.1 CPU) 500 stocks could
+# not finish inside the budget anyway, and the extra threads slowed the rest.
+SCAN_LIMIT = max(5, min(int(os.getenv("ASK_AI_SCAN_LIMIT", "150")), 5000))
+_SCAN_WORKERS = max(4, min(int(os.getenv("ASK_AI_SCAN_WORKERS", "8")), 48))
+_SCAN_BUDGET_SEC = max(5.0, float(os.getenv("ASK_AI_SCAN_BUDGET_SEC", "20")))
+# The "save as daily alert" check re-runs the rule on ~60 stocks; it runs
+# alongside the written answer and gets this much time.
+_ALERT_CHECK_BUDGET_SEC = float(os.getenv("ASK_AI_ALERT_CHECK_SEC", "6"))
 
 # ── Daily-moves snapshot config ──────────────────────────────────────────────
 # Movers/circuit questions are answered from a background snapshot of recent
@@ -509,9 +516,11 @@ def _translate_once(prompt: str) -> dict[str, Any]:
 
 
 def _simulate(df: pd.DataFrame, strategy: dict[str, Any]) -> tuple[dict | None, list, dict | None]:
-    prepared = _prepare_df(df)
     buy_expr = strategy.get("buy_expr", "")
     sell_expr = strategy.get("sell_expr", "")
+    prepared = _prepare_df(df, only=columns_used(buy_expr, sell_expr))
+    if not columns_used(buy_expr, sell_expr) <= set(prepared.columns):
+        prepared = _prepare_df(df)  # a column the parser didn't recognise; build them all
     mode = strategy.get("mode", "crossover")
     try:
         if mode == "stop_loss":
@@ -536,7 +545,7 @@ def _strategy_alert_payload(prompt: str) -> dict[str, Any] | None:
     try:
         from app.services.strategy_engine import DISCLAIMER, backtest_nl_strategy
 
-        result = backtest_nl_strategy(prompt)
+        result = backtest_nl_strategy(prompt, time_budget_sec=_ALERT_CHECK_BUDGET_SEC)
         return {
             "strategy_json": result.get("strategy_json"),
             "strategy_alert": {
@@ -579,9 +588,10 @@ def _single_backtest(
     if result.get("error"):
         raise ValueError(result["error"])
 
-    buy_hold = _buy_and_hold_pct(_prepare_df(df))
+    ordered = df.sort_values("date")
+    buy_hold = _buy_and_hold_pct(ordered)
     summary = result.get("summary") or {}
-    window = _window_label(_prepare_df(df))
+    window = _window_label(ordered)
     name = _company_name(ticker, known_stocks)
     stock_label = f"{ticker} ({name})" if name else ticker
 
@@ -612,7 +622,10 @@ def _single_backtest(
         data_lines.append("No closed trades were triggered by this strategy on this stock.")
 
     fallback = result.get("analysis_text") or "Backtest completed."
-    answer, model_used = _narrate("\n".join(data_lines), prompt, fallback, history=history)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        alert_future = pool.submit(_strategy_alert_payload, prompt)
+        answer, model_used = _narrate("\n".join(data_lines), prompt, fallback, history=history)
+        alert_payload = alert_future.result()
 
     result["buy_and_hold_return_pct"] = round(buy_hold, 2)
     if summary:
@@ -632,10 +645,31 @@ def _single_backtest(
             "Add a stop-loss and re-run",
         ],
     }
-    alert_payload = _strategy_alert_payload(prompt)
     if alert_payload:
         response.update(alert_payload)
     return response
+
+
+def _needs_rule_answer(prompt: str) -> dict[str, Any]:
+    """A backtest request that names no actual rule ("backtest a strategy")."""
+    return {
+        "answer": (
+            "Happy to run a backtest. Tell me the stock and the rule, for example: "
+            "\"Backtest: buy RELIANCE when RSI crosses below 30, sell when it crosses 70\" or "
+            "\"Backtest buying TCS when the 50-day average crosses above the 200-day average\"."
+        ),
+        "mode": "general",
+        "success": True,
+        "model_used": "local",
+        "target_stock": None,
+        "backtest": None,
+        "scan": None,
+        "suggestions": [
+            "Backtest: buy RELIANCE when RSI crosses below 30, sell when it crosses 70",
+            "Backtest buying TCS when the 50-day average crosses above the 200-day average",
+            "Which NSE stocks do best with a golden cross strategy?",
+        ],
+    }
 
 
 # ── Mode: cross-stock scan ─────────────────────────────────────────────────────
@@ -659,11 +693,11 @@ def _scan_one(stock: dict[str, Any], strategy: dict[str, Any]) -> dict[str, Any]
     if not ticker:
         return None
     try:
-        df = get_historical_data(ticker, days=1825)
+        df = get_historical_data(ticker, days=1825, allow_stale=True)
         if df is None or len(df) < 60:
             return None
         summary, trades, _ = _simulate(df, strategy)
-        buy_hold = _buy_and_hold_pct(_prepare_df(df))
+        buy_hold = _buy_and_hold_pct(df.sort_values("date"))
         total_return = summary.get("total_return_pct", 0) if summary else 0
         return {
             "ticker": ticker,
@@ -694,6 +728,8 @@ def _cross_scan(
         raise ValueError("No stocks available to scan.")
     total_universe = len(universe)
     strategy = _translate_once(prompt)
+    if not str(strategy.get("buy_expr") or "").strip():
+        return _needs_rule_answer(prompt)
 
     # Run all stocks concurrently but stop accepting new results once the wall-clock
     # budget is hit, so a full-universe scan never hangs the request. Unfinished
@@ -704,13 +740,19 @@ def _cross_scan(
     executor = ThreadPoolExecutor(max_workers=_SCAN_WORKERS)
     try:
         futures = [executor.submit(_scan_one, stock, strategy) for stock in universe]
-        for future in as_completed(futures):
-            attempted += 1
-            row = future.result()
-            if row is not None:
-                rows.append(row)
-            if time.time() > deadline:
-                break
+        # The timeout makes the budget a hard stop: before, the loop only
+        # checked the clock when a stock finished, so a stalled fetch held the
+        # request open for minutes.
+        try:
+            for future in as_completed(futures, timeout=_SCAN_BUDGET_SEC):
+                attempted += 1
+                row = future.result()
+                if row is not None:
+                    rows.append(row)
+                if time.time() > deadline:
+                    break
+        except FuturesTimeout:
+            pass
     finally:
         executor.shutdown(wait=False, cancel_futures=True)
 
@@ -758,7 +800,10 @@ def _cross_scan(
         f"Scanned {scanned} of the {total_universe} largest NSE stocks. {len(traded)} traded, {profitable} were profitable, "
         f"and {beat_bh} beat buy-and-hold. Average win rate {avg_win}%, average return {avg_return}%."
     )
-    answer, model_used = _narrate("\n".join(data_lines), prompt, fallback, history=history)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        alert_future = pool.submit(_strategy_alert_payload, prompt)
+        answer, model_used = _narrate("\n".join(data_lines), prompt, fallback, history=history)
+        alert_payload = alert_future.result()
 
     response = {
         "answer": answer,
@@ -787,7 +832,6 @@ def _cross_scan(
             "Compare this to a simple buy-and-hold portfolio",
         ],
     }
-    alert_payload = _strategy_alert_payload(prompt)
     if alert_payload:
         response.update(alert_payload)
     return response
@@ -814,7 +858,12 @@ def _all_known_stocks(fallback: list[dict[str, Any]] | None = None) -> list[dict
     with _universe_lock:
         if _universe_cache:
             return list(_universe_cache)
-    return list(fallback or [])
+    if fallback:
+        return list(fallback)
+    # The site no longer uploads its stock list with every question.
+    if stock_snapshot_service is not None and hasattr(stock_snapshot_service, "catalog_stocks"):
+        return list(stock_snapshot_service.catalog_stocks())
+    return []
 
 
 # ── Market-cap ranking (so a capped scan means "the biggest N", not "the first N") ──
@@ -1821,8 +1870,8 @@ def _general_chat(
         "backtest": None,
         "scan": None,
         "suggestions": [
-            "Backtest a strategy on a specific stock",
-            "Scan all NSE stocks for a momentum strategy",
+            "Backtest: buy TCS when RSI crosses below 30, sell when it crosses 70",
+            "Which NSE stocks do best with a golden cross strategy?",
             "Explain the difference between win rate and profitability",
         ],
     }

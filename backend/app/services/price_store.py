@@ -2,12 +2,14 @@ from __future__ import annotations
 
 from io import BytesIO
 import os
+import threading
 from typing import Iterable
 
 import pandas as pd
+import requests
 from storage3.exceptions import StorageApiError
 
-from app.core.supabase_client import supabase
+from app.core.supabase_client import supabase, supabase_key, supabase_url
 
 BUCKET = "stock-prices"
 PRICE_PREFIX = "prices"
@@ -47,6 +49,37 @@ def _normalize_prices(df: pd.DataFrame | None) -> pd.DataFrame:
     return out.sort_values("date").reset_index(drop=True)
 
 
+_thread_local = threading.local()
+
+
+def _download(path: str) -> bytes | None:
+    """Fetch one object over a per-thread HTTP session.
+
+    The shared supabase client multiplexes every thread over one HTTP/2
+    connection, and parallel scans made it drop ("ConnectionTerminated"); each
+    failed read then fell back to a slow Yahoo download. Returns None if the
+    object doesn't exist.
+    """
+    session = getattr(_thread_local, "session", None)
+    if session is None:
+        session = requests.Session()
+        _thread_local.session = session
+    url = f"{supabase_url.rstrip('/')}/storage/v1/object/{BUCKET}/{path}"
+    headers = {"Authorization": f"Bearer {supabase_key}", "apikey": supabase_key}
+    for attempt in range(2):
+        try:
+            response = session.get(url, headers=headers, timeout=15)
+        except requests.RequestException:
+            if attempt:
+                raise
+            continue
+        if response.status_code in (400, 404):
+            return None
+        response.raise_for_status()
+        return response.content
+    return None
+
+
 def read_prices(ticker: str) -> pd.DataFrame | None:
     if supabase is None:
         print("[PriceStore] Supabase client unavailable; check SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY/SUPABASE_KEY.")
@@ -54,7 +87,9 @@ def read_prices(ticker: str) -> pd.DataFrame | None:
 
     path = _object_path(ticker)
     try:
-        payload = supabase.storage.from_(BUCKET).download(path)
+        payload = _download(path)
+        if payload is None:
+            return None
         df = pd.read_parquet(BytesIO(payload), engine="pyarrow")
         df = _normalize_prices(df)
         if df.empty:

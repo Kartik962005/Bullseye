@@ -74,8 +74,50 @@ def _last_completed_session(now: datetime | None = None) -> pd.Timestamp:
     return pd.Timestamp(day)
 
 
+# The newest bar actually published, learned from Yahoo refreshes and from the
+# market snapshot. Weekday arithmetic alone can't see exchange holidays: on
+# Gandhi Jayanti every cached stock looked one session stale, so every request
+# re-downloaded its history from Yahoo (which had nothing newer) and rewrote it
+# to Supabase. A scan did that for hundreds of stocks and ran for minutes.
+_observed_session: dict = {"date": None, "ts": 0.0}
+_OBSERVED_SESSION_TTL = 6 * 3600
+
+
+def _note_latest_bar(latest: pd.Timestamp | None) -> None:
+    if latest is None or pd.isna(latest):
+        return
+    latest = pd.Timestamp(latest).normalize()
+    current = _observed_session["date"]
+    if current is None or latest >= current or time.time() - _observed_session["ts"] > _OBSERVED_SESSION_TTL:
+        _observed_session["date"] = latest
+        _observed_session["ts"] = time.time()
+
+
+def _published_session() -> pd.Timestamp | None:
+    """Newest bar known to exist market-wide, if learned recently."""
+    candidates = []
+    if _observed_session["date"] is not None and time.time() - _observed_session["ts"] < _OBSERVED_SESSION_TTL:
+        candidates.append(_observed_session["date"])
+    try:
+        # Read the snapshot's in-memory cache only; never trigger a fetch here.
+        from app.services import stock_snapshot_service as _snap
+
+        rows = _snap._cache.get("rows") or []
+        if rows and time.time() - float(_snap._cache.get("ts") or 0) < _OBSERVED_SESSION_TTL:
+            dates = [str(r.get("latest_date") or "")[:10] for r in rows if r.get("latest_date")]
+            if dates:
+                candidates.append(pd.Timestamp(max(dates)))
+    except Exception:
+        pass
+    return max(candidates) if candidates else None
+
+
 def _sessions_missing(latest_cached: pd.Timestamp, now: datetime | None = None) -> int:
     """Count weekday sessions between the cache's newest bar and the last close."""
+    published = _published_session()
+    if published is not None and latest_cached.normalize() >= published:
+        # Nothing newer exists yet (holiday, or today's bar not published).
+        return 0
     last_session = _last_completed_session(now)
     start = latest_cached.normalize() + pd.Timedelta(days=1)
     if start > last_session:
@@ -87,6 +129,13 @@ def _sessions_missing(latest_cached: pd.Timestamp, now: datetime | None = None) 
 # operation could not be completed immediately" on Windows. One writer at a time
 # plus a short bounded retry makes persistence reliable under that concurrency.
 _supabase_write_lock = threading.Lock()
+# Saving refreshed history used to happen inside the request (Storage upload
+# plus ~25 Postgres upserts behind the lock above), so a user waited on the
+# write. One background worker does it now; queued saves for the same ticker
+# are collapsed.
+_writeback_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="price-writeback")
+_writeback_pending: set = set()
+_writeback_guard = threading.Lock()
 _SUPABASE_WRITE_RETRIES = 3
 _SUPABASE_WRITE_BACKOFF = 0.5  # seconds; doubled each retry
 YAHOO_HEADERS = {
@@ -748,7 +797,13 @@ def get_latest_quotes_batch(tickers: list[str]):
     return results
 
 
-def get_historical_data(ticker: str, days: int = 365):
+def get_historical_data(ticker: str, days: int = 365, allow_stale: bool = False):
+    """Daily OHLCV for ``ticker``.
+
+    allow_stale: use any stored history without refreshing from Yahoo. Market
+    scans set this; a backtest over five years doesn't change because the
+    last session is missing, and a live fetch per stock made scans take minutes.
+    """
     # ── Layer 1: RAM cache ─────────────────────────────────────────────────────
     now = time.time()
     if ticker in _hist_cache and now - _hist_cache[ticker]['ts'] < HIST_TTL:
@@ -765,7 +820,7 @@ def get_historical_data(ticker: str, days: int = 365):
             if stored_df is not None and len(stored_df) > 50:
                 df = _normalize_cached_history(stored_df)
                 is_usable, _ = _cache_status(df, ticker, days, "Supabase Storage")
-                if is_usable:
+                if is_usable or (allow_stale and len(df) >= 60):
                     _hist_cache[ticker] = {'df': df.copy(), 'ts': time.time()}
                     return df
                 stale_cache_df = df
@@ -774,16 +829,25 @@ def get_historical_data(ticker: str, days: int = 365):
 
     if SUPABASE_OK and supabase:
         try:
-            db_data = supabase.table("stock_prices") \
-                .select("date,open,high,low,close,volume") \
-                .eq("ticker", ticker) \
-                .order("date") \
-                .execute()
+            # PostgREST returns at most 1,000 rows per request, and five years
+            # is ~1,250 sessions; reading one page made every long history
+            # look "too short" and sent it to Yahoo.
+            db_rows: list = []
+            for start in range(0, 4000, 1000):
+                page = supabase.table("stock_prices") \
+                    .select("date,open,high,low,close,volume") \
+                    .eq("ticker", ticker) \
+                    .order("date") \
+                    .range(start, start + 999) \
+                    .execute()
+                db_rows.extend(page.data or [])
+                if len(page.data or []) < 1000:
+                    break
 
-            if db_data.data and len(db_data.data) > 50:
-                df = _normalize_cached_history(pd.DataFrame(db_data.data))
+            if db_rows and len(db_rows) > 50:
+                df = _normalize_cached_history(pd.DataFrame(db_rows))
                 is_usable, _ = _cache_status(df, ticker, days, "Supabase Postgres")
-                if is_usable:
+                if is_usable or (allow_stale and len(df) >= 60):
                     _hist_cache[ticker] = {'df': df.copy(), 'ts': time.time()}
                     return df
                 stale_cache_df = df
@@ -807,6 +871,9 @@ def get_historical_data(ticker: str, days: int = 365):
             print(f"[Download] yfinance fallback failed for {ticker}: {yf_error}")
             df = None
 
+    if df is not None and len(df):
+        _note_latest_bar(df["date"].max())
+
     if df is None or len(df) == 0:
         # A stale cached answer beats no answer at all when Yahoo is unreachable.
         if stale_cache_df is not None and len(stale_cache_df) > 0:
@@ -815,6 +882,15 @@ def get_historical_data(ticker: str, days: int = 365):
             return stale_cache_df
         raise ValueError(f"No valid OHLCV data for ticker '{ticker}'.")
 
+    _schedule_writeback(ticker, df.copy())
+
+    # ── Save to RAM ────────────────────────────────────────────────────────────
+    _hist_cache[ticker] = {'df': df.copy(), 'ts': time.time()}
+    return df
+
+
+def _save_history(ticker: str, df: pd.DataFrame) -> None:
+    """Persist refreshed history to Supabase Storage and Postgres."""
     if PRICE_STORE_OK and price_store is not None and SUPABASE_WRITES_OK:
         try:
             price_store.write_prices(ticker, df)
@@ -859,6 +935,28 @@ def get_historical_data(ticker: str, days: int = 365):
         except Exception as e:
             print(f"[Cache] Supabase save failed for {ticker}: {e}")
 
-    # ── Save to RAM ────────────────────────────────────────────────────────────
-    _hist_cache[ticker] = {'df': df.copy(), 'ts': time.time()}
-    return df
+
+_WRITEBACK_MAX_PENDING = 40
+
+
+def _schedule_writeback(ticker: str, df: pd.DataFrame) -> None:
+    with _writeback_guard:
+        if ticker in _writeback_pending:
+            return
+        backlog = len(_writeback_pending) >= _WRITEBACK_MAX_PENDING
+        if not backlog:
+            _writeback_pending.add(ticker)
+    if backlog:
+        # Backpressure: bulk jobs (the nightly refresh walks ~2,000 stocks)
+        # would otherwise queue thousands of frames in a 512 MB instance.
+        _save_history(ticker, df)
+        return
+
+    def run() -> None:
+        try:
+            _save_history(ticker, df)
+        finally:
+            with _writeback_guard:
+                _writeback_pending.discard(ticker)
+
+    _writeback_pool.submit(run)

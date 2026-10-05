@@ -25,8 +25,28 @@ def get_client():
 
 
 # ── Step 1: Prepare DataFrame with EVERY possible column ─────────────────────
-def _prepare_df(df: pd.DataFrame) -> pd.DataFrame:
+_ALIASES = {'rsi': 'RSI_14', 'macd': 'MACD', 'atr': 'ATR_14', 'sma50': 'SMA_50', 'sma200': 'SMA_200', 'ema20': 'EMA_20'}
+
+
+def columns_used(*exprs: str | None) -> set[str]:
+    """Indicator columns a strategy expression reads, e.g. {'RSI_14', 'SMA_50'}."""
+    used: set[str] = set()
+    for expr in exprs:
+        for name in re.findall(r"df\[['\"](\w+)['\"]\]", expr or ""):
+            used.add(_ALIASES.get(name, name))
+    return used
+
+
+def _prepare_df(df: pd.DataFrame, only: set[str] | None = None) -> pd.DataFrame:
+    """Add every indicator column a strategy expression can reference.
+
+    only: when given, the oscillator block computes just these columns (plus
+    RSI_14, which trade records report). A market scan runs one rule over 150
+    stocks, and computing ADX, CCI, stochastics etc. for each was most of its
+    CPU time.
+    """
     df = df.copy()
+    want = (lambda col: True) if only is None else (lambda col: col in only or col == 'RSI_14')
 
     # Normalise date
     if 'date' not in df.columns:
@@ -77,22 +97,32 @@ def _prepare_df(df: pd.DataFrame) -> pd.DataFrame:
     try:
         import ta as ta_lib
         df['RSI_14']      = ta_lib.momentum.rsi(close, window=14)
-        df['RSI_9']       = ta_lib.momentum.rsi(close, window=9)
-        df['MACD']        = ta_lib.trend.macd(close)
-        df['MACD_signal'] = ta_lib.trend.macd_signal(close)
-        df['MACD_hist']   = df['MACD'] - df['MACD_signal']
-        df['ATR_14']      = ta_lib.volatility.average_true_range(high, low, close, window=14)
-        df['BBU']         = ta_lib.volatility.bollinger_hband(close, window=20, window_dev=2)
-        df['BBL']         = ta_lib.volatility.bollinger_lband(close, window=20, window_dev=2)
-        df['BBM']         = ta_lib.volatility.bollinger_mavg(close, window=20)
-        df['BB_width']    = (df['BBU'] - df['BBL']) / df['BBM']
-        df['STOCH_K']     = ta_lib.momentum.stoch(high, low, close)
-        df['STOCH_D']     = ta_lib.momentum.stoch_signal(high, low, close)
-        df['ADX']         = ta_lib.trend.adx(high, low, close)
-        df['CCI']         = ta_lib.trend.cci(high, low, close)
-        df['WILLIAMS_R']  = ta_lib.momentum.williams_r(high, low, close)
-        df['OBV']         = ta_lib.volume.on_balance_volume(close, volume)
-        df['MFI']         = ta_lib.volume.money_flow_index(high, low, close, volume)
+        if want('RSI_9'):
+            df['RSI_9']       = ta_lib.momentum.rsi(close, window=9)
+        if want('MACD') or want('MACD_signal') or want('MACD_hist'):
+            df['MACD']        = ta_lib.trend.macd(close)
+            df['MACD_signal'] = ta_lib.trend.macd_signal(close)
+            df['MACD_hist']   = df['MACD'] - df['MACD_signal']
+        if want('ATR_14'):
+            df['ATR_14']      = ta_lib.volatility.average_true_range(high, low, close, window=14)
+        if want('BBU') or want('BBL') or want('BBM') or want('BB_width'):
+            df['BBU']         = ta_lib.volatility.bollinger_hband(close, window=20, window_dev=2)
+            df['BBL']         = ta_lib.volatility.bollinger_lband(close, window=20, window_dev=2)
+            df['BBM']         = ta_lib.volatility.bollinger_mavg(close, window=20)
+            df['BB_width']    = (df['BBU'] - df['BBL']) / df['BBM']
+        if want('STOCH_K') or want('STOCH_D'):
+            df['STOCH_K']     = ta_lib.momentum.stoch(high, low, close)
+            df['STOCH_D']     = ta_lib.momentum.stoch_signal(high, low, close)
+        if want('ADX'):
+            df['ADX']         = ta_lib.trend.adx(high, low, close)
+        if want('CCI'):
+            df['CCI']         = ta_lib.trend.cci(high, low, close)
+        if want('WILLIAMS_R'):
+            df['WILLIAMS_R']  = ta_lib.momentum.williams_r(high, low, close)
+        if want('OBV'):
+            df['OBV']         = ta_lib.volume.on_balance_volume(close, volume)
+        if want('MFI'):
+            df['MFI']         = ta_lib.volume.money_flow_index(high, low, close, volume)
     except Exception as e:
         print(f"[TA] Some indicators failed: {e}")
 
@@ -679,35 +709,51 @@ def _eval_safe(expr: str, df: pd.DataFrame) -> pd.Series:
     return result.fillna(False).astype(bool)
 
 
+def _rsi_at(df, i):
+    if "RSI_14" not in df.columns:
+        return None
+    value = df["RSI_14"].iat[i]
+    return round(float(value), 1) if not pd.isna(value) else None
+
+
+def _entry_price(opens, closes, i):
+    return float(opens[i]) if not np.isnan(opens[i]) else float(closes[i])
+
+
 def _run_crossover(df, buy_expr, sell_expr):
-    buy_sig  = _eval_safe(buy_expr,  df)
-    sell_sig = _eval_safe(sell_expr, df)
+    # Walk plain numpy arrays and touch the DataFrame only when a trade opens
+    # or closes. Building a pandas row for every day (df.iloc[i]) made this the
+    # slowest part of a market-wide scan.
+    buy_sig = _eval_safe(buy_expr, df).to_numpy()
+    sell_sig = _eval_safe(sell_expr, df).to_numpy()
+    opens = df["open"].to_numpy(dtype=float)
+    closes = df["close"].to_numpy(dtype=float)
+    dates = df["date"]
 
     trades = []
     in_trade = False
     buy_date = buy_price = buy_rsi = None
 
     for i in range(2, len(df)):
-        row = df.iloc[i]
-        if not in_trade and buy_sig.iloc[i]:
-            buy_date  = row['date']
-            buy_price = float(row['open']) if not pd.isna(row['open']) else float(row['close'])
-            buy_rsi   = round(float(row.get('RSI_14', np.nan)), 1) if not pd.isna(row.get('RSI_14', np.nan)) else None
-            in_trade  = True
-        elif in_trade and sell_sig.iloc[i]:
-            sell_price = float(row['open']) if not pd.isna(row['open']) else float(row['close'])
-            pnl_pct    = (sell_price - buy_price) / buy_price * 100
-            sell_rsi   = round(float(row.get('RSI_14', np.nan)), 1) if not pd.isna(row.get('RSI_14', np.nan)) else None
+        if not in_trade and buy_sig[i]:
+            buy_date = dates.iat[i]
+            buy_price = _entry_price(opens, closes, i)
+            buy_rsi = _rsi_at(df, i)
+            in_trade = True
+        elif in_trade and sell_sig[i]:
+            sell_date = dates.iat[i]
+            sell_price = _entry_price(opens, closes, i)
+            pnl_pct = (sell_price - buy_price) / buy_price * 100
             trades.append({
                 "buy_date":      str(buy_date.date()),
                 "buy_day":       _weekday_name(buy_date),
                 "buy_price":     round(buy_price, 2),
                 "buy_rsi":       buy_rsi,
-                "sell_date":     str(row['date'].date()),
-                "sell_day":      _weekday_name(row['date']),
+                "sell_date":     str(sell_date.date()),
+                "sell_day":      _weekday_name(sell_date),
                 "sell_price":    round(sell_price, 2),
-                "sell_rsi":      sell_rsi,
-                "holding_days":  (row['date'] - buy_date).days,
+                "sell_rsi":      _rsi_at(df, i),
+                "holding_days":  (sell_date - buy_date).days,
                 "pnl_per_share": round(sell_price - buy_price, 2),
                 "pnl_100shares": round((sell_price - buy_price) * 100, 2),
                 "return_pct":    round(pnl_pct, 2),
@@ -717,15 +763,15 @@ def _run_crossover(df, buy_expr, sell_expr):
 
     open_trade = None
     if in_trade:
-        last = df.iloc[-1]
-        cur  = float(last['close'])
+        last_date = dates.iat[-1]
+        cur = float(closes[-1])
         open_trade = {
             "buy_date":       str(buy_date.date()),
             "buy_day":        _weekday_name(buy_date),
             "buy_price":      round(buy_price, 2),
             "current_price":  round(cur, 2),
-            "current_rsi":    round(float(last.get('RSI_14', np.nan)), 1) if not pd.isna(last.get('RSI_14', np.nan)) else None,
-            "holding_days":   (last['date'] - buy_date).days,
+            "current_rsi":    _rsi_at(df, len(df) - 1),
+            "holding_days":   (last_date - buy_date).days,
             "unrealised_pnl": round((cur - buy_price) * 100, 2),
             "return_pct":     round((cur - buy_price) / buy_price * 100, 2)
         }
@@ -737,46 +783,45 @@ def _weekday_name(value) -> str:
 
 
 def _run_target_exit(df, buy_expr, target_pct, target_direction):
-    buy_sig = _eval_safe(buy_expr, df)
+    buy_sig = _eval_safe(buy_expr, df).to_numpy()
     target_pct = abs(float(target_pct))
     target_direction = "down" if target_direction == "down" else "up"
+    highs = df["high"].to_numpy(dtype=float)
+    lows = df["low"].to_numpy(dtype=float)
+    closes = df["close"].to_numpy(dtype=float)
+    dates = df["date"]
+    n = len(df)
 
     trades = []
     open_trade = None
     i = 2
-    while i < len(df) - 1:
-        if not bool(buy_sig.iloc[i]):
+    while i < n - 1:
+        if not buy_sig[i]:
             i += 1
             continue
 
-        buy_row = df.iloc[i]
-        buy_date = buy_row["date"]
-        buy_price = float(buy_row["close"])
+        buy_date = dates.iat[i]
+        buy_price = float(closes[i])
         target_price = buy_price * (1 + target_pct / 100) if target_direction == "up" else buy_price * (1 - target_pct / 100)
-        exited = False
+        # First later bar that touches the target, found in one vector op.
+        later = highs[i + 1:] >= target_price if target_direction == "up" else lows[i + 1:] <= target_price
+        hits = np.flatnonzero(later)
 
-        for j in range(i + 1, len(df)):
-            row = df.iloc[j]
-            hit_target = (
-                float(row["high"]) >= target_price
-                if target_direction == "up"
-                else float(row["low"]) <= target_price
-            )
-            if not hit_target:
-                continue
-
+        if hits.size:
+            j = i + 1 + int(hits[0])
+            sell_date = dates.iat[j]
             sell_price = target_price
             pnl_pct = (sell_price - buy_price) / buy_price * 100
             trades.append({
                 "buy_date": str(buy_date.date()),
                 "buy_day": _weekday_name(buy_date),
                 "buy_price": round(buy_price, 2),
-                "buy_rsi": round(float(buy_row.get("RSI_14", np.nan)), 1) if not pd.isna(buy_row.get("RSI_14", np.nan)) else None,
-                "sell_date": str(row["date"].date()),
-                "sell_day": _weekday_name(row["date"]),
+                "buy_rsi": _rsi_at(df, i),
+                "sell_date": str(sell_date.date()),
+                "sell_day": _weekday_name(sell_date),
                 "sell_price": round(sell_price, 2),
-                "sell_rsi": round(float(row.get("RSI_14", np.nan)), 1) if not pd.isna(row.get("RSI_14", np.nan)) else None,
-                "holding_days": (row["date"] - buy_date).days,
+                "sell_rsi": _rsi_at(df, j),
+                "holding_days": (sell_date - buy_date).days,
                 "pnl_per_share": round(sell_price - buy_price, 2),
                 "pnl_100shares": round((sell_price - buy_price) * 100, 2),
                 "return_pct": round(pnl_pct, 2),
@@ -785,25 +830,22 @@ def _run_target_exit(df, buy_expr, target_pct, target_direction):
                 "exit_reason": f"{target_pct:g}% {'profit target' if target_direction == 'up' else 'downside target'} touched",
             })
             i = j + 1
-            exited = True
-            break
+            continue
 
-        if not exited:
-            last = df.iloc[-1]
-            cur = float(last["close"])
-            open_trade = {
-                "buy_date": str(buy_date.date()),
-                "buy_day": _weekday_name(buy_date),
-                "buy_price": round(buy_price, 2),
-                "target_price": round(target_price, 2),
-                "current_price": round(cur, 2),
-                "current_rsi": round(float(last.get("RSI_14", np.nan)), 1) if not pd.isna(last.get("RSI_14", np.nan)) else None,
-                "holding_days": (last["date"] - buy_date).days,
-                "unrealised_pnl": round((cur - buy_price) * 100, 2),
-                "return_pct": round((cur - buy_price) / buy_price * 100, 2),
-                "exit_reason": f"Still open; {target_pct:g}% target not touched yet",
-            }
-            break
+        cur = float(closes[-1])
+        open_trade = {
+            "buy_date": str(buy_date.date()),
+            "buy_day": _weekday_name(buy_date),
+            "buy_price": round(buy_price, 2),
+            "target_price": round(target_price, 2),
+            "current_price": round(cur, 2),
+            "current_rsi": _rsi_at(df, n - 1),
+            "holding_days": (dates.iat[-1] - buy_date).days,
+            "unrealised_pnl": round((cur - buy_price) * 100, 2),
+            "return_pct": round((cur - buy_price) / buy_price * 100, 2),
+            "exit_reason": f"Still open; {target_pct:g}% target not touched yet",
+        }
+        break
 
     return trades, open_trade
 
@@ -812,57 +854,59 @@ def _run_stop_loss(df, buy_expr, stop_pct, trailing=False, take_profit_pct=None)
     """Enter on the buy signal, then ride the position until a stop-loss (fixed or
     trailing) — or an optional take-profit — is touched. This is the "buy and ride
     the recovery with a safety net" pattern, simulated literally."""
-    buy_sig = _eval_safe(buy_expr, df)
+    buy_sig = _eval_safe(buy_expr, df).to_numpy()
     stop_pct = abs(float(stop_pct))
     tp = abs(float(take_profit_pct)) if take_profit_pct else None
+    highs = df["high"].to_numpy(dtype=float)
+    lows = df["low"].to_numpy(dtype=float)
+    closes = df["close"].to_numpy(dtype=float)
+    dates = df["date"]
+    n = len(df)
 
     trades = []
     open_trade = None
     i = 2
-    while i < len(df) - 1:
-        if not bool(buy_sig.iloc[i]):
+    while i < n - 1:
+        if not buy_sig[i]:
             i += 1
             continue
 
-        buy_row = df.iloc[i]
-        buy_date = buy_row["date"]
-        buy_price = float(buy_row["close"])
-        peak = buy_price
-        exited = False
+        buy_date = dates.iat[i]
+        buy_price = float(closes[i])
+        later_highs = highs[i + 1:]
+        later_lows = lows[i + 1:]
+        # The trailing peak includes the same bar's high before its low is
+        # checked, exactly as the bar-by-bar version did.
+        peaks = np.fmax(buy_price, np.fmax.accumulate(later_highs)) if trailing else np.full(later_highs.shape, buy_price)
+        stops = peaks * (1 - stop_pct / 100)
+        tp_level = buy_price * (1 + tp / 100) if tp else None
+        hit_stop = later_lows <= stops
+        hit_tp = later_highs >= tp_level if tp_level is not None else np.zeros(later_highs.shape, dtype=bool)
+        hits = np.flatnonzero(hit_stop | hit_tp)
 
-        for j in range(i + 1, len(df)):
-            row = df.iloc[j]
-            hi, lo = float(row["high"]), float(row["low"])
-            if trailing and hi > peak:
-                peak = hi
-            stop_level = (peak if trailing else buy_price) * (1 - stop_pct / 100)
-            tp_level = buy_price * (1 + tp / 100) if tp else None
-
-            hit_stop = lo <= stop_level
-            hit_tp = tp_level is not None and hi >= tp_level
-            if not hit_stop and not hit_tp:
-                continue
-
+        if hits.size:
+            k = int(hits[0])
+            j = i + 1 + k
             # If both are touched in the same candle, assume the stop hit first
             # (conservative — we cannot see intrabar order).
-            if hit_stop:
-                sell_price = stop_level
+            if hit_stop[k]:
+                sell_price = float(stops[k])
                 exit_reason = f"{stop_pct:g}% {'trailing ' if trailing else ''}stop-loss hit"
             else:
                 sell_price = tp_level
                 exit_reason = f"{tp:g}% take-profit hit"
-
+            sell_date = dates.iat[j]
             pnl_pct = (sell_price - buy_price) / buy_price * 100
             trades.append({
                 "buy_date": str(buy_date.date()),
                 "buy_day": _weekday_name(buy_date),
                 "buy_price": round(buy_price, 2),
-                "buy_rsi": round(float(buy_row.get("RSI_14", np.nan)), 1) if not pd.isna(buy_row.get("RSI_14", np.nan)) else None,
-                "sell_date": str(row["date"].date()),
-                "sell_day": _weekday_name(row["date"]),
+                "buy_rsi": _rsi_at(df, i),
+                "sell_date": str(sell_date.date()),
+                "sell_day": _weekday_name(sell_date),
                 "sell_price": round(sell_price, 2),
-                "sell_rsi": round(float(row.get("RSI_14", np.nan)), 1) if not pd.isna(row.get("RSI_14", np.nan)) else None,
-                "holding_days": (row["date"] - buy_date).days,
+                "sell_rsi": _rsi_at(df, j),
+                "holding_days": (sell_date - buy_date).days,
                 "pnl_per_share": round(sell_price - buy_price, 2),
                 "pnl_100shares": round((sell_price - buy_price) * 100, 2),
                 "return_pct": round(pnl_pct, 2),
@@ -871,25 +915,23 @@ def _run_stop_loss(df, buy_expr, stop_pct, trailing=False, take_profit_pct=None)
                 "exit_reason": exit_reason,
             })
             i = j + 1
-            exited = True
-            break
+            continue
 
-        if not exited:
-            last = df.iloc[-1]
-            cur = float(last["close"])
-            open_trade = {
-                "buy_date": str(buy_date.date()),
-                "buy_day": _weekday_name(buy_date),
-                "buy_price": round(buy_price, 2),
-                "stop_price": round((peak if trailing else buy_price) * (1 - stop_pct / 100), 2),
-                "current_price": round(cur, 2),
-                "current_rsi": round(float(last.get("RSI_14", np.nan)), 1) if not pd.isna(last.get("RSI_14", np.nan)) else None,
-                "holding_days": (last["date"] - buy_date).days,
-                "unrealised_pnl": round((cur - buy_price) * 100, 2),
-                "return_pct": round((cur - buy_price) / buy_price * 100, 2),
-                "exit_reason": f"Still open; {stop_pct:g}% {'trailing ' if trailing else ''}stop not hit yet",
-            }
-            break
+        peak = float(peaks[-1]) if trailing and peaks.size else buy_price
+        cur = float(closes[-1])
+        open_trade = {
+            "buy_date": str(buy_date.date()),
+            "buy_day": _weekday_name(buy_date),
+            "buy_price": round(buy_price, 2),
+            "stop_price": round((peak if trailing else buy_price) * (1 - stop_pct / 100), 2),
+            "current_price": round(cur, 2),
+            "current_rsi": _rsi_at(df, n - 1),
+            "holding_days": (dates.iat[-1] - buy_date).days,
+            "unrealised_pnl": round((cur - buy_price) * 100, 2),
+            "return_pct": round((cur - buy_price) / buy_price * 100, 2),
+            "exit_reason": f"Still open; {stop_pct:g}% {'trailing ' if trailing else ''}stop not hit yet",
+        }
+        break
 
     return trades, open_trade
 

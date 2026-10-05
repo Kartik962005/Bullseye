@@ -4,6 +4,8 @@ import json
 import os
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import TimeoutError as FuturesTimeout
 from datetime import date
 from statistics import median
 from typing import Any, Literal
@@ -562,20 +564,26 @@ def backtest_strategy(
     recent: list[dict[str, Any]] = []
     scanned = 0
     partial = False
-    for row in candidates:
-        if time.time() >= deadline:
+    # Prices load in parallel (one Storage read each); loading 60 stocks one
+    # after another took most of the time budget on a small server.
+    rows = [row for row in candidates if row.get("ticker")]
+    pool = ThreadPoolExecutor(max_workers=8)
+    try:
+        futures = {pool.submit(_load_prices, str(row["ticker"])): row for row in rows}
+        try:
+            for future in as_completed(futures, timeout=max(0.1, deadline - time.time())):
+                row = futures[future]
+                df = future.result()
+                if df is None or len(df) < 90:
+                    continue
+                trades, signals = _simulate_one(df, strategy, str(row["ticker"]), row.get("symbol"))
+                all_trades.extend(trades)
+                recent.extend(signals)
+                scanned += 1
+        except FuturesTimeout:
             partial = True
-            break
-        ticker = str(row.get("ticker") or "")
-        if not ticker:
-            continue
-        df = _load_prices(ticker)
-        if df is None or len(df) < 90:
-            continue
-        trades, signals = _simulate_one(df, strategy, ticker, row.get("symbol"))
-        all_trades.extend(trades)
-        recent.extend(signals)
-        scanned += 1
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
 
     all_trades.sort(key=lambda item: item["entry_date"])
     split = max(1, int(len(all_trades) * 0.7))
@@ -607,9 +615,9 @@ def backtest_strategy(
     }
 
 
-def backtest_nl_strategy(nl_text: str) -> dict[str, Any]:
+def backtest_nl_strategy(nl_text: str, time_budget_sec: float | None = None) -> dict[str, Any]:
     strategy_json = translate_strategy(nl_text)
-    result = backtest_strategy(strategy_json)
+    result = backtest_strategy(strategy_json, time_budget_sec=time_budget_sec)
     return {"strategy_json": strategy_json, **result}
 
 

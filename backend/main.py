@@ -62,7 +62,7 @@ from app.services.ask_ai_history_service import (
     list_conversations,
     save_turn,
 )
-from app.services.stock_snapshot_service import enrich_metric_rows, is_snapshot_stale, sector_peer_comparison
+from app.services.stock_snapshot_service import enrich_metric_rows, get_snapshot_rows, is_snapshot_stale, sector_peer_comparison
 from app.services.strategy_engine import DISCLAIMER as STRATEGY_DISCLAIMER, backtest_nl_strategy, backtest_strategy, strategy_to_dict
 from app.services.strategy_store import (
     create_strategy as create_ai_strategy,
@@ -186,6 +186,27 @@ async def start_stock_snapshot_refresh():
     await asyncio.sleep(2)
     if is_snapshot_stale():
         _run_snapshot_build_background("startup stale snapshot")
+
+
+@app.on_event("startup")
+async def keep_snapshot_warm():
+    """Reload the snapshot table into memory before its 5-minute cache expires.
+
+    Screens, every stock-AI answer and the price cache's holiday check read it;
+    a cold load is three Supabase pages plus derivation, several seconds on a
+    small instance, and used to land on whichever user asked first.
+    """
+    async def loop():
+        while True:
+            try:
+                await asyncio.get_event_loop().run_in_executor(
+                    None, lambda: get_snapshot_rows(max_age_hours=None, force_refresh=True)
+                )
+            except Exception as exc:  # noqa: BLE001
+                print(f"[Snapshot] warm reload failed: {exc}")
+            await asyncio.sleep(240)
+
+    asyncio.create_task(loop())
 
 
 @app.on_event("startup")
