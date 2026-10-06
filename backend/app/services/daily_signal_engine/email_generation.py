@@ -3,6 +3,8 @@ from __future__ import annotations
 from html import escape
 from typing import Any
 
+from app.services import email_theme as theme
+
 
 def _format_percent(value: float | None, digits: int = 0) -> str:
     if value is None:
@@ -58,15 +60,6 @@ def _detail_reason(signal: dict[str, Any]) -> tuple[str, str]:
     return html_reason, text_reason
 
 
-def _metric_block(label: str, value: str) -> str:
-    return (
-        "<td style='padding:0 12px 12px 0;vertical-align:top;width:50%'>"
-        f"<div style='font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:#2563eb;font-weight:700;margin-bottom:4px'>{escape(label)}</div>"
-        f"<div style='font-size:15px;line-height:1.5;color:#0f172a;font-weight:700'>{escape(value)}</div>"
-        "</td>"
-    )
-
-
 _CONVICTION_STYLE = {
     "high": ("#065f46", "#ecfdf5", "#a7f3d0"),
     "moderate": ("#92400e", "#fffbeb", "#fde68a"),
@@ -83,9 +76,9 @@ def _conviction_banner(conviction: dict[str, Any] | None) -> tuple[str, str]:
     fg, bg, border = _CONVICTION_STYLE.get(level, _CONVICTION_STYLE["moderate"])
     label = f"Today's conviction: {level.upper()}"
     html = (
-        f"<div style='margin:0 0 16px;padding:14px 16px;background:{bg};border:1px solid {border};"
-        f"border-radius:6px;color:{fg};font-size:13px;line-height:1.6'>"
-        f"<strong style='display:block;font-size:12px;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:4px'>{escape(label)}</strong>"
+        f"<div style='margin:0 0 16px;padding:13px 15px;background:{bg};border:1px solid {border};"
+        f"border-radius:14px;color:{fg};font-family:{theme.FONT};font-size:13px;line-height:1.6'>"
+        f"<strong style='display:block;font-size:12px;letter-spacing:0.4px;text-transform:uppercase;margin-bottom:3px'>{escape(label)}</strong>"
         f"{escape(note)}"
         "</div>"
     )
@@ -110,41 +103,35 @@ def build_signal_email(
     text_rows: list[str] = []
 
     for index, signal in enumerate(signals, 1):
-        html_reason, text_reason = _detail_reason(signal)
+        _, text_reason = _detail_reason(signal)
         symbol = str(signal["symbol"])
         direction = str(signal["direction"])
         company_name = str(signal.get("company_name") or symbol)
-        entry_range = f"{signal['entry_low']:.2f} - {signal['entry_high']:.2f}"
+        entry_range = f"{signal['entry_low']:.2f}–{signal['entry_high']:.2f}"
         target_price = f"{signal['target_price']:.2f}"
         stop_loss = f"{signal['stop_loss']:.2f}"
         risk_reward = f"{signal['risk_reward']:.2f}"
         setup_type = str(signal.get("setup_type") or "Model-ranked setup").replace("_", " ").title()
+        reasons = (signal.get("explanation_json") or {}).get("reasons") or signal.get("reasons") or []
+        why = "; ".join(str(r) for r in reasons[:2]) or setup_type
         card_rows.append(
-            "<table role='presentation' style='width:100%;border-collapse:collapse;margin-bottom:16px;border:1px solid #dbeafe;background:#ffffff'>"
-            "<tr>"
-            "<td colspan='2' style='padding:18px 18px 12px 18px;background:#eff6ff;border-bottom:1px solid #dbeafe'>"
-            f"<div style='font-size:12px;letter-spacing:0.12em;text-transform:uppercase;color:#2563eb;font-weight:700'>Signal {index}</div>"
-            f"<div style='font-size:28px;line-height:1.2;color:#0f172a;font-weight:800;margin-top:6px'>{escape(symbol)}</div>"
-            f"<div style='font-size:13px;line-height:1.5;color:#334155;margin-top:4px'>{escape(company_name)} | {escape(direction)}</div>"
+            f"<table role='presentation' width='100%' style='border-collapse:separate;border:1px solid {theme.LINE};"
+            "border-radius:16px;margin:0 0 12px'><tr><td style='padding:16px 16px 6px'>"
+            "<table role='presentation' width='100%' style='border-collapse:collapse'><tr>"
+            "<td style='vertical-align:top'>"
+            f"<div style='font-family:{theme.FONT};font-size:12px;color:{theme.FAINT}'>{index:02d}</div>"
+            f"<div style='font-family:{theme.FONT};font-size:19px;font-weight:700;letter-spacing:-0.3px;color:{theme.INK}'>{escape(symbol)}</div>"
+            f"<div style='font-family:{theme.FONT};font-size:13px;color:{theme.MUTED}'>{escape(company_name)}</div>"
             "</td>"
-            "</tr>"
-            "<tr><td colspan='2' style='padding:18px 18px 0 18px'><table role='presentation' style='width:100%;border-collapse:collapse'><tr>"
-            f"{_metric_block('Entry', entry_range)}"
-            f"{_metric_block('Target', target_price)}"
-            "</tr>"
-            "<tr>"
-            f"{_metric_block('Stop Loss', stop_loss)}"
-            f"{_metric_block('Confidence', _format_percent(signal.get('confidence'), 0))}"
-            "</tr>"
-            "<tr>"
-            f"{_metric_block('Risk / Reward', risk_reward)}"
-            f"{_metric_block('Setup Type', setup_type)}"
-            "</tr></table></td></tr>"
-            "<tr><td colspan='2' style='padding:4px 18px 18px 18px'>"
-            "<div style='font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:#2563eb;font-weight:700;margin-bottom:6px'>Why Bullseye Suggested This</div>"
-            f"{html_reason}"
-            "</td></tr>"
-            "</table>"
+            "<td style='vertical-align:top;text-align:right'>"
+            f"{theme.pill(direction, 'up' if direction == 'BUY' else 'down')}"
+            f"<div style='margin-top:6px'>{theme.pill(_format_percent(signal.get('confidence'), 0) + ' confidence')}</div>"
+            "</td></tr></table>"
+            "<div style='height:14px'></div>"
+            + theme.metric_grid([("Entry", entry_range), ("Target", target_price), ("Stop loss", stop_loss), ("Risk / reward", risk_reward)])
+            + f"<p style='margin:0 0 10px;font-family:{theme.FONT};font-size:13px;line-height:1.55;color:{theme.MUTED}'>"
+            f"<strong style='color:{theme.INK}'>Why:</strong> {escape(why)}</p>"
+            "</td></tr></table>"
         )
 
         text_rows.append(
@@ -158,24 +145,29 @@ def build_signal_email(
             f"Why: {text_reason}\n"
         )
 
-    html = (
-        "<table role='presentation' style='width:100%;border-collapse:collapse;background:#f8fafc;font-family:Arial,sans-serif;color:#0f172a'>"
-        "<tr><td style='padding:18px'>"
-        "<table role='presentation' style='width:100%;max-width:720px;margin:0 auto;border-collapse:collapse;background:#ffffff;border:1px solid #e2e8f0'>"
-        "<tr><td style='padding:24px;background:#0f172a;color:#ffffff'>"
-        "<div style='font-size:12px;letter-spacing:0.16em;text-transform:uppercase;color:#93c5fd;font-weight:700'>Bullseye Signals</div>"
-        f"<h1 style='margin:10px 0 0;font-size:26px;line-height:1.25;color:#ffffff'>Top {len(signals)} {escape(market)} {escape(signal_label)} stock signals</h1>"
-        f"<p style='margin:10px 0 0;color:#dbeafe;font-size:14px;line-height:1.6'>Generated on: {escape(signal_date)} | Risk: {escape(risk_level)} | Signal type: {escape(signal_type)}</p>"
-        "</td></tr>"
-        "<tr><td style='padding:16px'>"
-        + conviction_html
-        + ("".join(card_rows) if card_rows else "<div style='padding:18px;color:#334155'>No signals passed the quality filters for the next trading day.</div>")
-        + "<div style='margin-top:8px;padding:16px;background:#eff6ff;color:#1e293b;font-size:13px;line-height:1.7'>"
-        "Signals are model-generated analysis for research use only. Returns are not guaranteed. "
-        "Past performance does not guarantee future results. You can turn alerts off anytime in your account settings."
-        "</div>"
-        f"<div style='margin-top:16px;font-size:12px;line-height:1.6'><a href='{escape(unsubscribe_url)}' style='color:#2563eb'>Unsubscribe from daily stock emails</a></div>"
-        "</td></tr></table></td></tr></table>"
+    intraday = "intraday" in signal_label.lower()
+    count = len(signals)
+    title = (
+        f"{'Today' if intraday else 'Tomorrow'}'s {count} pick{'' if count == 1 else 's'}"
+        if count
+        else "No picks cleared the bar"
+    )
+    body = conviction_html + (
+        "".join(card_rows)
+        if card_rows
+        else f"<p style='margin:0 0 12px;font-family:{theme.FONT};font-size:14px;line-height:1.6;color:{theme.MUTED}'>"
+        "No stock passed the quality filters for this session. On weak days, sending nothing is the honest answer.</p>"
+    )
+    html = theme.email_shell(
+        preheader=f"{count} {market} picks with entry, target and stop for {signal_date}." if count else f"No {market} picks for {signal_date}.",
+        eyebrow=f"Daily picks · {signal_date}",
+        title=title,
+        subtitle=f"{market} · {risk_level} risk · {signal_label}. Entry, target and stop for each, ranked by the model.",
+        body=body,
+        footer=theme.footer_html(
+            "Model-generated research, not investment advice. Returns are not guaranteed, and past results don't predict future ones.",
+            [("Manage alerts", f"{theme.SITE_URL}/?alerts=1"), ("Unsubscribe", unsubscribe_url)],
+        ),
     )
 
     text = (

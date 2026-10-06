@@ -53,6 +53,7 @@ app.add_middleware(
 from app.services.data_service import get_latest_quote, get_latest_quotes_batch, get_historical_data, get_fundamentals_data, get_chart_data
 from app.services.screener_service import screen_stocks
 from app.services.smart_search_service import smart_search
+from app.services.email_theme import status_page_html
 from app.services.intelligent_screener_service import intelligent_smart_search, run_screen_sql, sector_overview
 from app.services.stock_ai_service import run_stock_ai_search
 from app.services.ask_ai_service import run_ask_ai, movers_snapshot_status
@@ -956,16 +957,21 @@ async def post_send_notification_now(request: Request, body: NotificationPrefere
 @limiter.limit("20/minute")
 async def get_unsubscribe(request: Request, token: str):
     try:
-        result = unsubscribe_daily_alerts(token)
+        unsubscribe_daily_alerts(token)
+        # No account details on this page: anyone holding the link can open it.
+        return HTMLResponse(status_page_html(
+            title="You're unsubscribed",
+            body="Bullseye won't send you daily stock emails any more. You can turn them back on any time from Daily alerts.",
+        ))
+    except ValueError:
         return HTMLResponse(
-            "<html><body style='font-family:Arial,sans-serif;padding:32px'>"
-            "<h1>Daily stock emails turned off</h1>"
-            "<p>You have been unsubscribed successfully. You can re-enable alerts anytime from your Bullseye account settings.</p>"
-            f"<p>User: {result['user_id']}</p>"
-            "</body></html>"
+            status_page_html(
+                title="This link has expired",
+                body="It may have been used already, or alerts were turned back on since. Manage your emails from Daily alerts on Bullseye.",
+                ok=False,
+            ),
+            status_code=400,
         )
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

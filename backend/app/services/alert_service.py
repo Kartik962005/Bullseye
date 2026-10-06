@@ -383,34 +383,38 @@ def _send_email(to_email: str, subject: str, text: str, html: str | None = None)
 
 
 def _build_alert_email_html(alert: dict[str, Any], evaluation: dict[str, Any]) -> str:
-    ticker = escape(str(alert.get("ticker") or "Stock"))
-    description = escape(str(evaluation.get("description") or alert.get("prompt") or "Alert rule"))
-    value_label = escape(str(evaluation.get("value_label") or "Value"))
-    current_value = escape(str(evaluation.get("current_value") or "n/a"))
-    target_value = escape(str(evaluation.get("target_value") or "n/a"))
-    checked_at = escape(str(evaluation.get("checked_at") or _utc_now_iso()))
-    return (
-        "<table role='presentation' style='width:100%;border-collapse:collapse;background:#f8fafc;font-family:Arial,sans-serif;color:#0f172a'>"
-        "<tr><td style='padding:18px'>"
-        "<table role='presentation' style='width:100%;max-width:640px;margin:0 auto;border-collapse:collapse;background:#ffffff;border:1px solid #e2e8f0'>"
-        "<tr><td style='padding:22px;background:#0f172a;color:#ffffff'>"
-        "<div style='font-size:12px;letter-spacing:0.14em;text-transform:uppercase;color:#93c5fd;font-weight:700'>Bullseye Alert</div>"
-        f"<h1 style='margin:8px 0 0;font-size:24px;line-height:1.25;color:#ffffff'>{ticker} alert triggered</h1>"
-        "</td></tr>"
-        "<tr><td style='padding:18px'>"
-        f"<p style='margin:0 0 14px;font-size:14px;line-height:1.6;color:#334155'>{description}</p>"
-        "<table role='presentation' style='width:100%;border-collapse:collapse'>"
-        f"<tr><td style='padding:10px 12px;border:1px solid #dbeafe;background:#eff6ff;color:#2563eb;font-size:12px;font-weight:700;text-transform:uppercase'>{value_label}</td>"
-        f"<td style='padding:10px 12px;border:1px solid #dbeafe;color:#0f172a;font-size:15px;font-weight:700'>{current_value}</td></tr>"
-        "<tr><td style='padding:10px 12px;border:1px solid #dbeafe;background:#eff6ff;color:#2563eb;font-size:12px;font-weight:700;text-transform:uppercase'>Target</td>"
-        f"<td style='padding:10px 12px;border:1px solid #dbeafe;color:#0f172a;font-size:15px;font-weight:700'>{target_value}</td></tr>"
-        "<tr><td style='padding:10px 12px;border:1px solid #dbeafe;background:#eff6ff;color:#2563eb;font-size:12px;font-weight:700;text-transform:uppercase'>Checked</td>"
-        f"<td style='padding:10px 12px;border:1px solid #dbeafe;color:#334155;font-size:14px'>{checked_at}</td></tr>"
-        "</table>"
-        "<p style='margin:16px 0 0;font-size:12px;line-height:1.6;color:#64748b'>"
-        "Alerts are model-assisted market monitoring for research use only. Review the chart before making any trade."
-        "</p>"
-        "</td></tr></table></td></tr></table>"
+    from urllib.parse import quote
+
+    from app.services import email_theme as theme
+
+    ticker = str(alert.get("ticker") or "Stock")
+    symbol = ticker.replace(".NS", "").replace(".BO", "")
+    description = str(evaluation.get("description") or alert.get("prompt") or "Alert rule")
+    checked_at = str(evaluation.get("checked_at") or _utc_now_iso())[:16].replace("T", " ")
+    stock_url = f"{theme.SITE_URL}/stock/{quote(ticker)}"
+    body = (
+        f"<div style='border:1px solid {theme.LINE};border-radius:16px;padding:16px 16px 4px'>"
+        + theme.metric_grid([
+            (str(evaluation.get("value_label") or "Value"), str(evaluation.get("current_value") or "n/a")),
+            ("Target", str(evaluation.get("target_value") or "n/a")),
+        ])
+        + "</div>"
+        + f"<p style='margin:14px 0 0;font-family:{theme.FONT};font-size:12.5px;color:{theme.FAINT}'>Checked {escape(checked_at)} UTC</p>"
+        + "<table role='presentation' style='margin:20px 0 6px'><tr><td style='border-radius:999px;background:#0b0b0d'>"
+        f"<a href='{escape(stock_url)}' style='display:inline-block;padding:12px 22px;font-family:{theme.FONT};font-size:14px;"
+        f"font-weight:600;color:#ffffff;text-decoration:none'>Open {escape(symbol)} on Bullseye</a>"
+        "</td></tr></table>"
+    )
+    return theme.email_shell(
+        preheader=f"{symbol}: {description}",
+        eyebrow="Price alert",
+        title=f"{symbol} hit your alert",
+        subtitle=description,
+        body=body,
+        footer=theme.footer_html(
+            "Alerts are automated market monitoring for research only. Check the chart before you trade.",
+            [("Manage alerts", f"{theme.SITE_URL}/?alerts=1")],
+        ),
     )
 
 
