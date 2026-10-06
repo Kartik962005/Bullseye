@@ -943,7 +943,8 @@ html:has(.nova-canvas) * {
 .sx-seg button:hover {
   color: #fff;
 }
-.sx-seg button[aria-selected="true"] {
+.sx-seg button[aria-selected="true"],
+.sx-seg button[aria-checked="true"] {
   background: #fff;
   color: #0f0b1f;
 }
@@ -1591,6 +1592,159 @@ html:has(.nova-canvas) * {
   .ai-composer:focus-within::before {
     animation: none;
   }
+}
+
+/* ── Server warm-up pill ──────────────────────────────────────────────────── */
+.warmup-pill {
+  position: fixed;
+  left: 16px;
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  max-width: calc(100vw - 32px);
+  padding: 7px 8px 7px 12px;
+  border-radius: 999px;
+  background: rgba(13, 10, 31, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 12px 30px -12px rgba(0, 0, 0, 0.8);
+  backdrop-filter: blur(10px);
+  font: 400 12.5px/1.3 var(--font-inter), system-ui, sans-serif;
+  color: #d9d4f2;
+  transform-origin: bottom left;
+}
+.warmup-close {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  flex: none;
+  border-radius: 999px;
+  font-size: 15px;
+  line-height: 1;
+  color: #9f99c2;
+}
+.warmup-close:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+
+/* ── Header icon buttons (alerts, search, Ask AI on phones) ──────────────── */
+.hdr-icon {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  height: 40px;
+  min-width: 40px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.05);
+  font: 500 13px var(--font-inter), system-ui, sans-serif;
+  color: #e9e5ff;
+  white-space: nowrap;
+  transition:
+    background-color 0.2s,
+    border-color 0.2s,
+    color 0.2s;
+}
+.hdr-icon:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 79, 163, 0.45);
+  color: #fff;
+}
+.hdr-icon .hdr-dot {
+  position: absolute;
+  top: 8px;
+  right: 9px;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: #3dffa2;
+  box-shadow: 0 0 0 2px #0d0a1f;
+}
+@media (max-width: 639px) {
+  .hdr-icon {
+    width: 40px;
+    padding: 0;
+  }
+  .hdr-icon .hdr-label {
+    display: none;
+  }
+}
+
+/* ── Daily alerts dialog (.ax) ────────────────────────────────────────────── */
+.ax-sheet {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 880px;
+  max-height: min(92dvh, 860px);
+  overflow: hidden;
+  border-radius: 28px;
+  background:
+    radial-gradient(120% 50% at 100% 0%, rgba(255, 46, 151, 0.12), transparent 60%),
+    linear-gradient(180deg, rgba(139, 92, 246, 0.1), transparent 40%),
+    #0d0a1f;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 50px 120px -30px rgba(0, 0, 0, 0.9);
+}
+@media (max-width: 639px) {
+  /* A bottom sheet on phones: full width, rounded top, thumb-reachable. */
+  .ax-sheet {
+    max-height: 92dvh;
+    border-radius: 26px 26px 0 0;
+    border-bottom: 0;
+  }
+}
+.ax-switch {
+  position: relative;
+  width: 50px;
+  height: 30px;
+  flex: none;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+  transition: background-color 0.25s var(--nova-ease);
+}
+.ax-switch::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+  transition: transform 0.3s cubic-bezier(0.3, 1.4, 0.5, 1);
+}
+.ax-switch[aria-checked="true"] {
+  background: linear-gradient(135deg, #ff2e97, #8b5cf6);
+}
+.ax-switch[aria-checked="true"]::after {
+  transform: translateX(20px);
+}
+.ax-switch:disabled {
+  opacity: 0.5;
+}
+.ax-field {
+  height: 42px;
+  width: 100%;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  padding: 0 14px;
+  font: 400 14px var(--font-inter), system-ui, sans-serif;
+  color: #fff;
+  color-scheme: dark;
+  outline: none;
+  transition: border-color 0.2s;
+}
+.ax-field:focus {
+  border-color: rgba(255, 79, 163, 0.6);
 }
 
 /* ── Motion system: one set of open/close animations for the whole site ─────

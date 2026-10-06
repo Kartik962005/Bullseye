@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { usePresence } from '@/components/motion/usePresence';
 
 // Cheap liveness endpoint (no market-data work) proxied same-origin through
 // /api/backend, so this both wakes a sleeping Render instance and avoids CORS.
@@ -13,25 +14,33 @@ const WARMUP_URL = '/api/backend/api/v1/health';
 // status means the backend responded and is awake.
 const COLD_STATUSES = new Set([502, 503, 504]);
 
+const SHOW_AFTER_MS = 4000;
+// Pages show their own loading states, so the pill is a heads-up, not a
+// blocker: it leaves on its own even if the server is still starting.
+const HIDE_AFTER_MS = 12000;
+
 /**
- * Wakes the Render free-tier backend on first load and shows a small status
- * pill while it boots, instead of letting the UI render empty tables or stale
- * prices during the ~30-60s cold start.
+ * Wakes the Render free-tier backend on first load (pinging in the background
+ * for up to ~2 minutes) and shows a small dismissible pill while it boots.
  */
 export default function BackendWarmup() {
   const [waking, setWaking] = useState(false);
+  const pill = usePresence(waking, 200);
 
   useEffect(() => {
     let cancelled = false;
     let ready = false;
     let attempts = 0;
-    const maxAttempts = 30; // ~2 minutes of retries
+    const maxAttempts = 30;
 
-    // Only reveal the banner if the backend hasn't answered within 2.5s, so a
-    // warm backend never flashes it.
-    const slowTimer = setTimeout(() => {
+    // Only show if the backend hasn't answered quickly, so a warm backend
+    // never flashes it.
+    const showTimer = setTimeout(() => {
       if (!cancelled && !ready) setWaking(true);
-    }, 2500);
+    }, SHOW_AFTER_MS);
+    const hideTimer = setTimeout(() => {
+      if (!cancelled) setWaking(false);
+    }, SHOW_AFTER_MS + HIDE_AFTER_MS);
 
     async function ping() {
       attempts += 1;
@@ -47,68 +56,31 @@ export default function BackendWarmup() {
           return;
         }
       } catch {
-        // network error / timeout => backend still cold, fall through to retry
+        // network error / timeout => backend still cold, retry
       }
-      if (cancelled) return;
-      if (attempts < maxAttempts) {
-        setTimeout(ping, 4000);
-      } else {
-        setWaking(false); // give up quietly; per-page error states take over
-      }
+      if (!cancelled && attempts < maxAttempts) setTimeout(ping, 4000);
     }
 
     ping();
     return () => {
       cancelled = true;
-      clearTimeout(slowTimer);
+      clearTimeout(showTimer);
+      clearTimeout(hideTimer);
     };
   }, []);
 
-  if (!waking) return null;
+  if (!pill.mounted) return null;
 
   return (
-    <div
-      role="status"
-      aria-live="polite"
-      style={{
-        position: 'fixed',
-        bottom: 16,
-        left: '50%',
-        transform: 'translateX(-50%)',
-        zIndex: 9999,
-        display: 'flex',
-        alignItems: 'center',
-        gap: 10,
-        padding: '10px 16px',
-        borderRadius: 9999,
-        background: 'rgba(9,9,11,0.92)',
-        color: '#fafafa',
-        border: '1px solid rgba(255,255,255,0.12)',
-        boxShadow: '0 8px 30px rgba(0,0,0,0.35)',
-        fontSize: 13,
-        lineHeight: 1.35,
-        fontFamily: 'var(--font-inter), system-ui, sans-serif',
-        maxWidth: '92vw',
-      }}
-    >
-      <span
-        aria-hidden="true"
-        style={{
-          width: 14,
-          height: 14,
-          flexShrink: 0,
-          borderRadius: '50%',
-          border: '2px solid rgba(250,250,250,0.35)',
-          borderTopColor: '#22c55e',
-          display: 'inline-block',
-          animation: 'bullseye-warmup-spin 0.8s linear infinite',
-        }}
-      />
+    <div role="status" aria-live="polite" data-state={pill.state} className="warmup-pill anim-pop">
+      <span className="nova-spinner !h-3.5 !w-3.5" aria-hidden />
       <span>
-        Waking up the live market engine — this takes ~30s after a period of inactivity.
-        Prices and scans will refresh automatically.
+        <span className="sm:hidden">Starting up…</span>
+        <span className="hidden sm:inline">Starting up the market engine, data may take a few seconds</span>
       </span>
-      <style>{`@keyframes bullseye-warmup-spin { to { transform: rotate(360deg); } }`}</style>
+      <button type="button" onClick={() => setWaking(false)} aria-label="Dismiss" className="warmup-close">
+        ×
+      </button>
     </div>
   );
 }

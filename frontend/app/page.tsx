@@ -12,6 +12,7 @@ import { NovaExperience } from '@/components/home/nova/NovaExperience';
 import { NovaSearch } from '@/components/home/NovaSearch';
 import { usePresence } from '@/components/motion/usePresence';
 import { BullseyeLogo, BullseyeMark } from '@/components/brand/BullseyeLogo';
+import { DailyAlertsDialog } from '@/components/alerts/DailyAlertsDialog';
 import { TrackRecord } from '@/components/stock/TrackRecord';
 import { PeerComparison } from '@/components/stock/PeerComparison';
 import { StockHeader } from '@/components/stock/StockHeader';
@@ -133,324 +134,6 @@ function isNotificationTimeValid(market: NotificationPreference['market'], value
 function getSafeNotificationTime(market: NotificationPreference['market'], value?: string | null) {
   const normalized = normalizeNotificationTimeValue(value);
   return isNotificationTimeValid(market, normalized) ? normalized : DEFAULT_NOTIFICATION_PREFERENCE.email_time;
-}
-
-function NotificationSettingsModal({
-  open,
-  userEmail,
-  preference,
-  previewSignals,
-  isSaving,
-  error,
-  message,
-  showConsent,
-  onClose,
-  onChange,
-  onSave,
-  onSendNow,
-  onToggle,
-  onConfirmConsent,
-  onCancelConsent,
-}: {
-  open: boolean;
-  userEmail?: string | null;
-  preference: NotificationPreference;
-  previewSignals: DailySignalRecord[];
-  isSaving: boolean;
-  error: string;
-  message: string;
-  showConsent: boolean;
-  onClose: () => void;
-  onChange: (patch: Partial<NotificationPreference>) => void;
-  onSave: () => void;
-  onSendNow: (deliveryMode: InstantSignalDeliveryMode) => void;
-  onToggle: (enabled: boolean) => void;
-  onConfirmConsent: () => void;
-  onCancelConsent: () => void;
-}) {
-  const presence = usePresence(open, 220);
-  if (!presence.mounted) return null;
-
-  return (
-    <>
-      <div data-state={presence.state} className="anim-fade nova-modal-backdrop fixed inset-0 z-[70]" onClick={onClose} />
-      <div data-lenis-prevent className="fixed inset-0 z-[71] flex items-start justify-center overflow-y-auto p-3 sm:items-center sm:p-4" onClick={onClose}>
-        <div
-          data-state={presence.state}
-          className="anim-dialog nova-auth my-4 max-h-[calc(100vh-2rem)] w-full max-w-3xl overflow-y-auto rounded-[24px] font-body text-paper"
-          onClick={event => event.stopPropagation()}
-          onKeyDown={event => {
-            if (
-              showConsent ||
-              event.key !== 'Enter' ||
-              event.shiftKey ||
-              event.ctrlKey ||
-              event.altKey ||
-              event.metaKey ||
-              event.target instanceof HTMLButtonElement ||
-              event.target instanceof HTMLSelectElement
-            ) {
-              return;
-            }
-            event.preventDefault();
-            onSendNow('next_day');
-          }}
-        >
-          <div className="flex items-start justify-between gap-4 border-b border-hairline px-7 py-6">
-            <div>
-              <div className="flex items-center gap-3">
-                <span className="h-px w-8 bg-accent/60" />
-                <span className="font-body text-[10px] font-medium uppercase tracking-[0.26em] text-accent">Daily alerts</span>
-              </div>
-              <h2 className="mt-3 font-display text-[28px] leading-tight text-paper">Daily 10-stock signal email</h2>
-              <p className="mt-2.5 max-w-[60ch] font-body text-[13px] leading-6 text-paper-muted">
-                {userEmail || 'Your signed-in account'} can receive a model-ranked 10-stock email for the next trading day after the Indian market closes.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-hairline text-paper-muted transition hover:border-accent/50 hover:text-paper"
-              aria-label="Close notification settings"
-            >
-              ✕
-            </button>
-          </div>
-
-          <div className="grid gap-6 px-7 py-7 lg:grid-cols-[minmax(0,1fr)_320px]">
-            <div className="space-y-5">
-              <div className="grid gap-4 sm:grid-cols-2">
-                <button
-                  type="button"
-                  onClick={() => onSendNow('today')}
-                  disabled={isSaving}
-                  className="flex min-h-[124px] flex-col justify-between rounded-2xl border border-accent/30 bg-accent/[0.06] px-5 py-4 text-left transition hover:border-accent/55 hover:bg-accent/[0.1] disabled:opacity-60"
-                >
-                  <div>
-                    <div className="font-display text-[19px] leading-snug text-paper">
-                      Today&apos;s stocks
-                    </div>
-                    <div className="mt-2 font-body text-[12px] leading-6 text-paper-muted">
-                      Send a same-day intraday 10-stock email before market close using the latest available data.
-                    </div>
-                  </div>
-                  <div className="mt-4 font-body text-[10px] font-semibold uppercase tracking-[0.2em] text-accent">
-                    {isSaving ? 'Sending…' : 'Send today →'}
-                  </div>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => onSendNow('next_day')}
-                  disabled={isSaving}
-                  className="flex min-h-[116px] flex-col justify-between rounded-2xl border border-primary/30 bg-primary/[0.06] px-5 py-4 text-left transition hover:border-primary/55 hover:bg-primary/[0.1] disabled:opacity-60"
-                >
-                  <div>
-                    <div className="font-display text-[19px] leading-snug text-paper">
-                      Next-day stocks
-                    </div>
-                    <div className="mt-2 font-body text-[12px] leading-6 text-paper-muted">
-                      Send the next trading day&apos;s ranked 10-stock email to your signed-in account right now.
-                    </div>
-                  </div>
-                  <div className="mt-4 font-body text-[10px] font-semibold uppercase tracking-[0.2em] text-primary">
-                    {isSaving ? 'Sending…' : 'Send next day →'}
-                  </div>
-                </button>
-
-                <label className="flex min-h-[116px] items-center justify-between gap-5 rounded-2xl border border-hairline bg-white/[0.02] px-5 py-4 sm:col-span-2">
-                  <div>
-                    <div className="font-display text-[19px] leading-snug text-paper">
-                      Daily automatic alert
-                    </div>
-                    <div className="mt-2 font-body text-[12px] leading-6 text-paper-muted">
-                      Turn this on once and Bullseye will automatically email your next-trading-day top 10 signals on each trading day.
-                    </div>
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={preference.daily_stock_email_enabled}
-                    onChange={event => onToggle(event.target.checked)}
-                    disabled={isSaving}
-                    className="h-5 w-5 shrink-0 accent-[#ff4fa3]"
-                  />
-                </label>
-              </div>
-
-              <div className="grid gap-4 sm:grid-cols-2">
-                <label className="flex flex-col gap-2">
-                  <span className="font-body text-[10px] font-medium uppercase tracking-[0.22em] text-paper-muted">Market</span>
-                  <select
-                    value={preference.market}
-                    onChange={event => onChange({ market: event.target.value as NotificationPreference['market'] })}
-                    className="h-12 rounded-full border border-hairline bg-black/40 px-5 font-body text-sm text-paper outline-none transition focus:border-accent/60"
-                  >
-                    <option value="NSE">NSE</option>
-                    <option value="BSE">BSE</option>
-                    <option value="US">US</option>
-                  </select>
-                </label>
-
-                <label className="flex flex-col gap-2">
-                  <span className="font-body text-[10px] font-medium uppercase tracking-[0.22em] text-paper-muted">Risk Level</span>
-                  <select
-                    value={preference.risk_level}
-                    onChange={event => onChange({ risk_level: event.target.value as NotificationPreference['risk_level'] })}
-                    className="h-12 rounded-full border border-hairline bg-black/40 px-5 font-body text-sm text-paper outline-none transition focus:border-accent/60"
-                  >
-                    <option value="Conservative">Conservative</option>
-                    <option value="Balanced">Balanced</option>
-                    <option value="Aggressive">Aggressive</option>
-                  </select>
-                </label>
-
-                <label className="flex flex-col gap-2">
-                  <span className="font-body text-[10px] font-medium uppercase tracking-[0.22em] text-paper-muted">Preferred Email Time</span>
-                  <input
-                    type="time"
-                    value={preference.email_time}
-                    onChange={event => onChange({ email_time: event.target.value })}
-                    min={getMinimumNotificationTime(preference.market)}
-                    className="h-12 rounded-full border border-hairline bg-black/40 px-5 font-body text-sm text-paper outline-none transition focus:border-accent/60"
-                  />
-                </label>
-
-                <label className="flex flex-col gap-2">
-                  <span className="font-body text-[10px] font-medium uppercase tracking-[0.22em] text-paper-muted">Signal Type</span>
-                  <select
-                    value={preference.signal_type}
-                    onChange={event => onChange({ signal_type: event.target.value as NotificationPreference['signal_type'] })}
-                    className="h-12 rounded-full border border-hairline bg-black/40 px-5 font-body text-sm text-paper outline-none transition focus:border-accent/60"
-                  >
-                    <option value="Next-day swing">Next-day swing</option>
-                    <option value="Intraday">Intraday</option>
-                    <option value="Both">Both</option>
-                  </select>
-                </label>
-              </div>
-
-              <div className="rounded-2xl border border-hairline bg-white/[0.02] p-5">
-                <div className="font-body text-[10px] font-medium uppercase tracking-[0.22em] text-accent">Delivery rules</div>
-                <div className="mt-2.5 font-body text-[12px] leading-6 text-paper-muted">
-                  Your preferred time must be after the Indian market closes. When this is enabled, Bullseye will generate and send next-trading-day ranked signals automatically on trading days.
-                </div>
-              </div>
-
-              {error && (
-                <div className="rounded-2xl border border-rose-400/30 bg-rose-500/10 px-4 py-3 font-body text-xs text-rose-200">
-                  {error}
-                </div>
-              )}
-              {message && (
-                <div className="rounded-2xl border border-primary/30 bg-primary/10 px-4 py-3 font-body text-xs text-primary">
-                  {message}
-                </div>
-              )}
-
-              <div className="flex flex-wrap gap-3">
-                <button
-                  type="button"
-                  onClick={onSave}
-                  disabled={isSaving}
-                  className="rounded-full bg-accent px-7 py-3 font-body text-[11px] font-semibold uppercase tracking-[0.18em] text-black transition duration-300 hover:bg-accent-dim disabled:opacity-50"
-                >
-                  {isSaving ? 'Saving…' : 'Save settings'}
-                </button>
-                <button
-                  type="button"
-                  onClick={onClose}
-                  className="rounded-full border border-hairline px-7 py-3 font-body text-[11px] font-semibold uppercase tracking-[0.18em] text-paper-muted transition hover:border-accent/50 hover:text-paper"
-                >
-                  Close
-                </button>
-              </div>
-            </div>
-
-            <div className="rounded-[20px] border border-hairline bg-white/[0.02] p-5">
-              <div className="font-body text-[10px] font-medium uppercase tracking-[0.22em] text-accent">Email preview</div>
-              <div className="mt-2.5 font-body text-[12px] leading-6 text-paper-muted">
-                The top model-ranked stocks for the next trading day are sent, each with a confidence score. Fewer are sent — or none — when the market is weak and few names clear the quality bar.
-              </div>
-              <div className="mt-4 space-y-3">
-                {previewSignals.length > 0 ? previewSignals.slice(0, 4).map(signal => (
-                  <div key={signal.symbol} className="rounded-2xl border border-hairline bg-black/40 p-4">
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="font-numeric text-[13px] text-paper">{signal.symbol}</div>
-                      <div className={`font-body text-[10px] font-semibold uppercase tracking-[0.18em] ${signal.direction === 'BUY' ? 'text-primary' : 'text-rose-300'}`}>
-                        {signal.direction}
-                      </div>
-                    </div>
-                    <div className="mt-2.5 font-numeric text-[11px] leading-5 text-paper-muted">
-                      Entry {signal.entry_low.toFixed(2)}–{signal.entry_high.toFixed(2)} · Target {signal.target_price.toFixed(2)} · Stop {signal.stop_loss.toFixed(2)}
-                    </div>
-                    <div className="mt-2.5 flex items-center gap-2">
-                      <span className="rounded-full border border-accent/30 bg-accent/10 px-2.5 py-0.5 font-numeric text-[10px] text-accent">
-                        Confidence {Math.round((signal.confidence ?? 0) * 100)}%
-                      </span>
-                      {typeof signal.risk_reward === 'number' && (
-                        <span className="font-numeric text-[10px] text-paper-muted">R:R {signal.risk_reward.toFixed(2)}</span>
-                      )}
-                    </div>
-                    <div className="mt-2.5 font-body text-[11px] leading-5 text-paper-muted/80">
-                      {(signal.explanation_json?.reasons ?? []).slice(0, 2).join(' · ') || 'Model-ranked technical setup'}
-                    </div>
-                  </div>
-                )) : (
-                  <div className="rounded-2xl border border-dashed border-hairline px-4 py-6 font-body text-[12px] text-paper-muted">
-                    The latest next-trading-day signal preview will appear here after the prediction engine runs.
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {showConsent && (
-        <>
-          <div data-state="open" className="anim-fade nova-modal-backdrop fixed inset-0 z-[72]" />
-          <div className="fixed inset-0 z-[73] flex items-start justify-center overflow-y-auto p-3 sm:items-center sm:p-4">
-            <div data-state="open" className="anim-dialog nova-auth my-4 w-full max-w-lg rounded-[24px] p-7 font-body text-paper">
-              <div className="flex items-center gap-3">
-                <span className="h-px w-8 bg-accent/60" />
-                <span className="font-body text-[10px] font-medium uppercase tracking-[0.26em] text-accent">Consent required</span>
-              </div>
-              <h3 className="mt-3.5 font-display text-[28px] leading-tight text-paper">Before turning this on</h3>
-              <ul className="mt-5 space-y-3">
-                {[
-                  'Signals are model-generated analysis.',
-                  'Returns are not guaranteed.',
-                  'Past performance does not guarantee future results.',
-                  'You can disable or unsubscribe at any time.',
-                ].map(line => (
-                  <li key={line} className="flex gap-3 font-body text-[13px] leading-6 text-paper-muted">
-                    <span className="mt-2 h-1 w-1 shrink-0 rounded-full bg-accent" aria-hidden="true" />
-                    <span>{line}</span>
-                  </li>
-                ))}
-              </ul>
-              <div className="mt-7 flex flex-wrap gap-3">
-                <button
-                  type="button"
-                  onClick={onConfirmConsent}
-                  className="rounded-full bg-accent px-7 py-3 font-body text-[11px] font-semibold uppercase tracking-[0.18em] text-black transition duration-300 hover:bg-accent-dim"
-                >
-                  I understand, enable
-                </button>
-                <button
-                  type="button"
-                  onClick={onCancelConsent}
-                  className="rounded-full border border-hairline px-7 py-3 font-body text-[11px] font-semibold uppercase tracking-[0.18em] text-paper-muted transition hover:border-accent/50 hover:text-paper"
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          </div>
-        </>
-      )}
-    </>
-  );
 }
 
 const INDICATOR_NAMES = [
@@ -797,13 +480,13 @@ const MarketAssetCard = ({
         <span aria-hidden className="nova-card-arrow shrink-0">↗</span>
       </div>
 
-      <div className="mt-5 flex items-end justify-between gap-2">
-        <div className="font-numeric text-[22px] leading-none tracking-tight text-paper">
+      <div className="mt-5 flex flex-wrap items-end justify-between gap-x-2 gap-y-1.5">
+        <div className="min-w-0 font-numeric text-[19px] leading-none tracking-tight text-paper sm:text-[22px]">
           {hasPrice ? `${stock.currency}${quickPrice.toLocaleString('en-IN')}` : '—'}
         </div>
         {hasChange ? (
           <span
-            className={`rounded-full px-2 py-0.5 font-numeric text-[12px] ${
+            className={`shrink-0 whitespace-nowrap rounded-full px-2 py-0.5 font-numeric text-[11.5px] sm:text-[12px] ${
               quickChange >= 0 ? 'bg-[#3dffa2]/12 text-[#6ff0b5]' : 'bg-[#ff5c7a]/12 text-[#ff8aa0]'
             }`}
           >
@@ -813,12 +496,12 @@ const MarketAssetCard = ({
         ) : null}
       </div>
 
-      <div className="mt-4 flex items-center gap-3">
+      <div className="mt-4 flex min-w-0 items-center gap-2 sm:gap-3">
         <div className="nova-card-bar" data-loading={isReady ? undefined : ''}>
           <i style={{ width: `${isReady ? analysisView.confidenceLevel : 40}%` }} />
         </div>
         <span
-          className="shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em]"
+          className="shrink-0 rounded-full px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] sm:px-2.5 sm:text-[11px] sm:tracking-[0.12em]"
           style={{ color: verdictColor, background: `color-mix(in srgb, ${verdictColor} 14%, transparent)` }}
         >
           {verdictBadge}
@@ -1235,6 +918,10 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
   const [input, setInput] = useState('');
   const [suggestions, setSuggestions] = useState<typeof STOCKS>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
+  // On phones the search field opens from an icon instead of taking a row.
+  const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
+  const mobileSearch = usePresence(mobileSearchOpen, 160);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
   const [activeMarket, setActiveMarket] = useState<MarketScope>(
     initialStock ? resolveMarket(initialStock.exchange) : 'INDIA',
   );
@@ -1825,6 +1512,19 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
     setShowAuthModal(true);
   };
 
+  // Other pages link to /?alerts=1 from their header bell.
+  const alertsLinkHandled = useRef(false);
+  useEffect(() => {
+    if (!authReady || alertsLinkHandled.current) return;
+    const url = new URL(window.location.href);
+    if (url.searchParams.get('alerts') !== '1') return;
+    alertsLinkHandled.current = true;
+    url.searchParams.delete('alerts');
+    window.history.replaceState(window.history.state, '', url);
+    const timer = window.setTimeout(() => (user ? setShowNotificationSettings(true) : setShowAuthModal(true)), 0);
+    return () => window.clearTimeout(timer);
+  }, [authReady, user]);
+
   // Resolve the stock from `/stock/<ticker>` first, falling back to the legacy
   // `?ticker=` form so links shared before the route existed still work.
   const tickerFromPath = (path: string | null | undefined): string | null => {
@@ -2209,6 +1909,7 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
   };
 
   const selectStock = (stock: typeof STOCKS[0]) => {
+    setMobileSearchOpen(false);
     openStockView(stock, 'overview');
   };
 
@@ -2598,31 +2299,41 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
         )}
 
 
-        {/* NAV */}
-        <nav className={`relative z-20 mx-auto flex w-full max-w-[1400px] flex-wrap items-center gap-3 px-5 py-6 sm:px-8 lg:flex-nowrap lg:gap-8 ${!ticker ? 'mt-12' : ''}`}>
+        {/* NAV — one row at every width: on phones the search and Ask AI
+            collapse to icons and the search opens beneath the bar. */}
+        <nav className={`relative z-20 mx-auto flex w-full max-w-[1400px] items-center gap-2 px-4 py-4 sm:gap-3 sm:px-8 sm:py-6 lg:gap-6 ${!ticker ? 'mt-12' : ''}`}>
           <button
             type="button"
             onClick={goHome}
             className="flex shrink-0 items-center text-left"
             aria-label="Bullseye home"
           >
-            <BullseyeLogo size={26} wordClassName="text-[20px]" />
+            <BullseyeLogo size={26} wordClassName="hidden text-[19px] min-[400px]:inline sm:text-[20px]" />
           </button>
 
-          <div className="relative order-last w-full min-w-0 lg:order-none lg:w-auto lg:max-w-[420px] lg:flex-1">
+          <div
+            data-state={mobileSearch.state}
+            className={`min-w-0 lg:relative lg:block lg:max-w-[420px] lg:flex-1 ${
+              mobileSearch.mounted ? 'anim-pop absolute inset-x-4 top-full z-40 sm:inset-x-8' : 'hidden'
+            } lg:!static`}
+          >
             <NovaSearch>
               <input
+                ref={searchInputRef}
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onFocus={() => input.length > 0 && setShowSuggestions(true)}
                 onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
-                onKeyDown={(e) => { if (e.key === 'Enter' && suggestions.length > 0) selectStock(suggestions[0]); }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && suggestions.length > 0) selectStock(suggestions[0]);
+                  if (e.key === 'Escape') setMobileSearchOpen(false);
+                }}
                 aria-label="Search any stock"
                 placeholder="Search any stock…"
               />
             </NovaSearch>
             {suggestionsPresence.mounted && (
-              <div data-lenis-prevent data-state={suggestionsPresence.state} className="anim-pop nova-modal absolute z-50 mt-2 max-h-[72vh] w-full min-w-[min(82vw,320px)] overflow-y-auto overflow-x-hidden rounded-2xl p-1.5 sm:min-w-full">
+              <div data-lenis-prevent data-state={suggestionsPresence.state} className="anim-pop nova-modal absolute z-50 mt-2 max-h-[72vh] w-full overflow-y-auto overflow-x-hidden rounded-2xl p-1.5">
                 {suggestions.map((stock) => (
                   <div key={stock.ticker} onMouseDown={() => selectStock(stock)} className="group grid cursor-pointer grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-xl px-3 py-2.5 transition-colors hover:bg-white/[0.07] sm:px-4">
                     <span className="min-w-0 truncate font-body text-[14px] text-[#e9e5ff] group-hover:text-white" title={stock.name}>{stock.name}</span>
@@ -2636,21 +2347,52 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
             )}
           </div>
 
-          <Link
-            href="/ask-ai"
-            onClick={() => setShowProfileMenu(false)}
-            className="ml-auto inline-flex shrink-0 items-center font-body text-[13px] font-medium text-paper-muted transition duration-300 hover:text-paper"
-          >
-            Ask AI
-          </Link>
+          <div className="ml-auto flex shrink-0 items-center gap-1.5 sm:gap-2.5">
+            <span className="lg:hidden">
+              <button
+                type="button"
+                onClick={() => {
+                  setMobileSearchOpen(open => !open);
+                  window.setTimeout(() => searchInputRef.current?.focus(), 30);
+                }}
+                className="hdr-icon"
+                aria-label="Search stocks"
+                aria-expanded={mobileSearchOpen}
+              >
+                <svg viewBox="0 0 24 24" className="h-[18px] w-[18px]" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" aria-hidden><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
+              </button>
+            </span>
 
-          <Link
-            href="/screens"
-            onClick={() => setShowProfileMenu(false)}
-            className="nova-btn nova-btn-primary shrink-0 !h-11 !px-5 !text-[13px]"
-          >
-            Screener
-          </Link>
+            <button type="button" onClick={openDailySignalSettings} className="hdr-icon" aria-label="Daily alerts" title="Daily stock alerts">
+              <svg viewBox="0 0 24 24" className="h-[18px] w-[18px]" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M12 3a6 6 0 0 0-6 6v3.5L4.5 16h15L18 12.5V9a6 6 0 0 0-6-6ZM9.5 19a2.5 2.5 0 0 0 5 0" /></svg>
+              <span className="hdr-label">Daily alerts</span>
+              {user && notificationPreference.daily_stock_email_enabled ? <span className="hdr-dot" aria-hidden /> : null}
+            </button>
+
+            <Link
+              href="/ask-ai"
+              onClick={() => setShowProfileMenu(false)}
+              className="hdr-icon"
+              aria-label="Ask AI"
+            >
+              <svg viewBox="0 0 24 24" className="h-[18px] w-[18px]" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8Z" /><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8Z" /></svg>
+              <span className="hdr-label">Ask AI</span>
+            </Link>
+
+            <span className="hidden sm:inline-flex">
+              <Link
+                href="/screens"
+                onClick={() => setShowProfileMenu(false)}
+                className="nova-btn nova-btn-primary shrink-0 !h-10 !px-5 !text-[13px]"
+              >
+                Screener
+              </Link>
+            </span>
+            <span className="sm:hidden">
+              <Link href="/screens" onClick={() => setShowProfileMenu(false)} className="hdr-icon !border-transparent !bg-[linear-gradient(135deg,#ff2e97,#8b5cf6)]" aria-label="Screener">
+                <svg viewBox="0 0 24 24" className="h-[18px] w-[18px]" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" aria-hidden><path d="M4 6h16M7 12h10M10 18h4" /></svg>
+              </Link>
+            </span>
 
           {/* Account menu */}
           <div ref={accountMenuRef} className="relative shrink-0">
@@ -2663,7 +2405,7 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
                   setShowProfileMenu(prev => !prev);
                 }
               }}
-              className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-full border border-white/15 bg-white/[0.06] text-[15px] font-semibold uppercase text-white transition-all hover:border-white/30 hover:bg-white/[0.1]"
+              className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border border-white/15 bg-white/[0.06] text-[15px] font-semibold uppercase text-white transition-all hover:border-white/30 hover:bg-white/[0.1] sm:h-11 sm:w-11"
               title={user ? 'Open user dashboard' : 'Open account menu'}
               aria-label={user ? 'Open user dashboard' : 'Open account menu'}
               aria-expanded={showProfileMenu}
@@ -2751,6 +2493,7 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
               </div>
             )}
           </div>
+          </div>
         </nav>
 
         {/* MAIN */}
@@ -2765,15 +2508,15 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
                 stockStrip={
                   <div>
                     <div className="mb-3 flex items-center justify-between gap-3">
-                      <span className="flex items-center gap-3">
+                      <span className="flex min-w-0 items-center gap-2.5 sm:gap-3">
                         <span className="nova-dot" aria-hidden />
-                        <span className="font-numeric text-[11px] font-medium uppercase tracking-[0.3em] text-[#cfc9ea]">
-                          Live scan · today&apos;s short list
+                        <span className="truncate font-numeric text-[10.5px] font-medium uppercase tracking-[0.2em] text-[#cfc9ea] sm:text-[11px] sm:tracking-[0.3em]">
+                          Live scan<span className="hidden min-[420px]:inline"> · today&apos;s short list</span>
                         </span>
                       </span>
                       <Link
                         href="/screens"
-                        className="font-body text-[13px] font-medium text-[#ff79c0] underline-offset-4 transition hover:text-white hover:underline"
+                        className="shrink-0 whitespace-nowrap font-body text-[13px] font-medium text-[#ff79c0] underline-offset-4 transition hover:text-white hover:underline"
                       >
                         All screens →
                       </Link>
@@ -3081,7 +2824,7 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
       )}
 
       {user && (
-        <NotificationSettingsModal
+        <DailyAlertsDialog
           open={showNotificationSettings}
           userEmail={user.email}
           preference={notificationPreference}

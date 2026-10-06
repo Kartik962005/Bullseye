@@ -465,7 +465,7 @@ export default function AskAiPage() {
           <BullseyeLogo size={26} wordClassName="text-[20px]" />
         </Link>
         <span className="hidden rounded-full border border-white/10 px-2.5 py-1 text-[11px] text-[#c9c3e6] sm:inline">Ask AI</span>
-        <nav className="ml-auto flex items-center gap-4">
+        <nav className="ml-auto flex items-center gap-2 sm:gap-4">
           {!isEmpty && (
             // The wrapper hides it on desktop: .sx-btn-ghost's own display
             // would override a lg:hidden on the button itself.
@@ -475,6 +475,10 @@ export default function AskAiPage() {
               </button>
             </span>
           )}
+          <Link href="/?alerts=1" className="hdr-icon" aria-label="Daily alerts" title="Daily stock alerts">
+            <svg viewBox="0 0 24 24" className="h-[18px] w-[18px]" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M12 3a6 6 0 0 0-6 6v3.5L4.5 16h15L18 12.5V9a6 6 0 0 0-6-6ZM9.5 19a2.5 2.5 0 0 0 5 0" /></svg>
+            <span className="hdr-label">Daily alerts</span>
+          </Link>
           <Link href="/screens" className="hidden text-[13px] font-medium text-[#c9c3e6] hover:text-white sm:inline">
             Screener
           </Link>
