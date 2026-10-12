@@ -184,7 +184,7 @@ export default function ResultsTable({
     <div className="sx-card overflow-hidden">
       <div className="flex flex-wrap items-center gap-3 border-b border-white/[0.07] px-4 py-3 sm:px-5">
         <div className="mr-auto flex items-baseline gap-2">
-          <span className="font-numeric text-[15px] text-white">{loading ? '—' : shown.length}</span>
+          <span className="font-numeric text-[15px] text-white">{loading ? '–' : shown.length}</span>
           <span className="text-[13px] text-[color:var(--ink-3)]">
             {shown.length === 1 ? 'stock' : 'stocks'}
             {asOf ? <> · close of {asOf}</> : null}
@@ -284,7 +284,7 @@ export default function ResultsTable({
                           col.tone === 'signed' && typeof value === 'number' ? (value > 0 ? 'is-up' : value < 0 ? 'is-down' : '') : '';
                         return (
                           <td key={id} className={tone}>
-                            {typeof value === 'number' && Number.isFinite(value) ? col.format(value) : <span className="text-[color:var(--ink-4)]">—</span>}
+                            {typeof value === 'number' && Number.isFinite(value) ? col.format(value) : <span className="text-[color:var(--ink-4)]">–</span>}
                           </td>
                         );
                       })}

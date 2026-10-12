@@ -114,7 +114,7 @@ export function TrackRecord({ symbol, currency = '₹' }: { symbol?: string | nu
       <Shell>
         <p className="font-body text-[12px] leading-relaxed text-paper-muted">
           Bullseye hasn&apos;t issued a signal on {clean} yet. Once it does, every call and
-          its outcome will be listed here — including the ones that lost.
+          its outcome will be listed here, including the ones that lost.
         </p>
       </Shell>
     );
@@ -132,7 +132,7 @@ export function TrackRecord({ symbol, currency = '₹' }: { symbol?: string | nu
           </div>
           <div className="mt-1.5 font-numeric text-[26px] leading-none text-paper">
             {hitRate === null || hitRate === undefined
-              ? '—'
+              ? '–'
               : `${Math.round(hitRate * 100)}%`}
           </div>
           <div className="mt-1 text-[12px] text-[color:var(--ink-3)]">
@@ -145,7 +145,7 @@ export function TrackRecord({ symbol, currency = '₹' }: { symbol?: string | nu
           </div>
           <div className="mt-1.5 font-numeric text-[26px] leading-none text-paper">
             {summary?.avg_realized_r === null || summary?.avg_realized_r === undefined
-              ? '—'
+              ? '–'
               : summary.avg_realized_r.toFixed(2)}
           </div>
           <div className="mt-1 text-[12px] text-[color:var(--ink-3)]">per closed call</div>
@@ -183,7 +183,7 @@ export function TrackRecord({ symbol, currency = '₹' }: { symbol?: string | nu
                   {Number(signal.stop_loss ?? 0).toLocaleString()}
                 </div>
                 <div className="mt-1 font-body text-[10px] uppercase tracking-wider text-paper-muted">
-                  for {signal.target_date ?? '—'}
+                  for {signal.target_date ?? '–'}
                   {signal.setup_type ? ` · ${String(signal.setup_type).replace(/_/g, ' ')}` : ''}
                   {typeof signal.confidence === 'number'
                     ? ` · ${Math.round(signal.confidence * 100)}% confidence`

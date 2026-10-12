@@ -479,7 +479,7 @@ def sector_peer_comparison(ticker: str, *, max_peers: int = 8) -> dict[str, Any]
     if len(peers) < MIN_PEERS_FOR_MEDIAN:
         return {
             "available": False,
-            "reason": f"Only {len(peers)} other {sector} stocks in the snapshot — too few for a meaningful median.",
+            "reason": f"Only {len(peers)} other {sector} stocks in the snapshot, too few for a meaningful median.",
             "ticker": ticker,
             "sector": sector,
         }

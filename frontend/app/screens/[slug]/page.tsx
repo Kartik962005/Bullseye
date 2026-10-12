@@ -8,7 +8,7 @@ import ResultsTable from '../ResultsTable';
 import ScreensShell, { Eyebrow } from '../ScreensShell';
 
 function stat(value: number | null, suffix = '') {
-  return value === null ? '—' : `${value.toFixed(1)}${suffix}`;
+  return value === null ? '–' : `${value.toFixed(1)}${suffix}`;
 }
 
 export default function ScreenDetailPage() {
@@ -110,7 +110,7 @@ export default function ScreenDetailPage() {
         </div>
         {screen.note && (
           <p className="scr-note">
-            <span aria-hidden>⚑</span>
+            <svg viewBox="0 0 20 20" className="mt-[3px] h-[14px] w-[14px] shrink-0" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" aria-hidden><circle cx="10" cy="10" r="7.5" /><path d="M10 9v4.5M10 6.2v.1" /></svg>
             {screen.note}
           </p>
         )}

@@ -106,7 +106,7 @@ def _conviction_for_signals(signals: list[dict[str, Any]]) -> dict[str, Any]:
         note = "Several setups cleared a high-conviction bar today."
     elif top_conf >= DAILY_HIGH_CONVICTION_CONFIDENCE or positive_ev:
         level = "moderate"
-        note = "These are today's best-ranked setups, but conviction is moderate — size conservatively."
+        note = "These are today's best-ranked setups, but conviction is moderate, so size conservatively."
     else:
         level = "low"
         note = (

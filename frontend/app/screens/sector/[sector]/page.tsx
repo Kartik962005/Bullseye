@@ -17,7 +17,7 @@ const SIZES = [
 const COLUMNS = ['price', 'change', 'mcap', 'pe', 'roe', 'dy', 'ret1m', 'ret1y'];
 
 function signed(v: number | null) {
-  return v === null ? '—' : `${v > 0 ? '+' : ''}${v.toFixed(1)}%`;
+  return v === null ? '–' : `${v > 0 ? '+' : ''}${v.toFixed(1)}%`;
 }
 
 export default function SectorDetailPage() {
@@ -77,8 +77,8 @@ export default function SectorDetailPage() {
         {[
           ['Stocks', loading ? '…' : String(all.length), ''],
           ['Median 1Y return', loading ? '…' : signed(median(all.map(r => r.technical?.return1yPct))), ''],
-          ['Median P/E', loading ? '…' : (median(all.map(r => (r.pe && r.pe > 0 ? r.pe : null)))?.toFixed(1) ?? '—'), ''],
-          ['Best 1Y (over ₹1,000 cr)', loading ? '…' : best ? best.stock.symbol : '—', best ? signed(best.technical?.return1yPct ?? null) : ''],
+          ['Median P/E', loading ? '…' : (median(all.map(r => (r.pe && r.pe > 0 ? r.pe : null)))?.toFixed(1) ?? '–'), ''],
+          ['Best 1Y (over ₹1,000 cr)', loading ? '…' : best ? best.stock.symbol : '–', best ? signed(best.technical?.return1yPct ?? null) : ''],
         ].map(([label, value, extra]) => (
           <div key={label} className="sx-card px-4 py-3.5">
             <dt className="text-[12px] text-[color:var(--ink-3)]">{label}</dt>

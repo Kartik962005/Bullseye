@@ -31,13 +31,13 @@ function tone(value: unknown) {
 
 function fmtNumber(value: unknown, digits = 2) {
   const n = Number(value);
-  if (!Number.isFinite(n)) return String(value ?? "—");
+  if (!Number.isFinite(n)) return String(value ?? "–");
   return n.toLocaleString("en-IN", { maximumFractionDigits: digits });
 }
 
 function signedPct(value: unknown) {
   const n = Number(value);
-  if (!Number.isFinite(n)) return "—";
+  if (!Number.isFinite(n)) return "–";
   return `${n > 0 ? "+" : n < 0 ? "−" : ""}${Math.abs(n).toFixed(2)}%`;
 }
 
@@ -122,8 +122,8 @@ function StrategyResult({ result, currency }: { result: any; currency: string })
   return (
     <div className="flex flex-col gap-3">
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
-        <Tile label="Trades" value={m.total_trades ?? "—"} />
-        <Tile label="Win rate" value={m.win_rate !== undefined ? `${m.win_rate}%` : "—"} color={Number(m.win_rate) >= 50 ? UP : DOWN} />
+        <Tile label="Trades" value={m.total_trades ?? "–"} />
+        <Tile label="Win rate" value={m.win_rate !== undefined ? `${m.win_rate}%` : "–"} color={Number(m.win_rate) >= 50 ? UP : DOWN} />
         <Tile label="Avg per trade" value={signedPct(m.avg_return_per_trade_pct)} color={tone(m.avg_return_per_trade_pct)} />
         <Tile label="Total return" value={signedPct(m.total_return_pct)} color={tone(m.total_return_pct)} hint="Compounded" />
         <Tile
@@ -139,11 +139,11 @@ function StrategyResult({ result, currency }: { result: any; currency: string })
       <div className="grid gap-2 sm:grid-cols-2">
         <div className="rounded-2xl bg-white/[0.03] px-4 py-3">
           <div className="text-[12px] text-[color:var(--ink-3)]">Entry rule</div>
-          <div className="mt-1 text-[13.5px] text-paper">{m.buy_expr || "—"}</div>
+          <div className="mt-1 text-[13.5px] text-paper">{m.buy_expr || "–"}</div>
         </div>
         <div className="rounded-2xl bg-white/[0.03] px-4 py-3">
           <div className="text-[12px] text-[color:var(--ink-3)]">Exit rule</div>
-          <div className="mt-1 text-[13.5px] text-paper">{m.sell_expr || "—"}</div>
+          <div className="mt-1 text-[13.5px] text-paper">{m.sell_expr || "–"}</div>
         </div>
       </div>
 

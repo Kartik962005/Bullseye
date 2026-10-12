@@ -66,13 +66,13 @@ type SectorStat = {
 };
 
 function signed(v: number | null | undefined) {
-  if (typeof v !== 'number') return '—';
+  if (typeof v !== 'number') return '–';
   return `${v > 0 ? '+' : ''}${v.toFixed(1)}%`;
 }
 
 function cell(v: string | number | null) {
   if (typeof v === 'number') return Number.isInteger(v) ? v.toLocaleString('en-IN') : v.toFixed(2);
-  return v ?? '—';
+  return v ?? '–';
 }
 
 function ScreenerPage() {
@@ -314,7 +314,7 @@ function ScreenerPage() {
               </div>
               {result.caveat && (
                 <p className="scr-note">
-                  <span aria-hidden>⚑</span>
+                  <svg viewBox="0 0 20 20" className="mt-[3px] h-[14px] w-[14px] shrink-0" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" aria-hidden><circle cx="10" cy="10" r="7.5" /><path d="M10 9v4.5M10 6.2v.1" /></svg>
                   {result.caveat}
                 </p>
               )}
@@ -439,7 +439,7 @@ function ScreenerPage() {
                       </div>
                       <div>
                         <dt className="text-[11px] text-[color:var(--ink-4)]">Median P/E</dt>
-                        <dd className="font-numeric text-[15px] text-white">{s.median_pe ? s.median_pe.toFixed(1) : '—'}</dd>
+                        <dd className="font-numeric text-[15px] text-white">{s.median_pe ? s.median_pe.toFixed(1) : '–'}</dd>
                       </div>
                     </dl>
                     <p className="mt-auto truncate pt-4 text-[12px] text-[color:var(--ink-4)]">

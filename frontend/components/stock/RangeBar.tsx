@@ -51,7 +51,7 @@ export function RangeBar({
       <div
         className="relative mt-3 h-2 rounded-full bg-white/[0.08]"
         role="img"
-        aria-label={`Price ${fmt(now)} is ${Math.round(pct)}% of the way between the 52-week low of ${fmt(lo)} and the high of ${fmt(hi)} — ${label}.`}
+        aria-label={`Price ${fmt(now)} is ${Math.round(pct)}% of the way between the 52-week low of ${fmt(lo)} and the high of ${fmt(hi)}: ${label}.`}
       >
         <div
           className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-[color:var(--accent)]/60 to-[color:var(--accent)]"

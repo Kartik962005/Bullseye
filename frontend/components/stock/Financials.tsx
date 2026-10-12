@@ -30,7 +30,7 @@ const STATEMENTS = [
 
 function Sparkline({ values }: { values: number[] }) {
   const pts = values.filter((v) => Number.isFinite(v));
-  if (pts.length < 2) return <span className="text-[color:var(--ink-4)]">—</span>;
+  if (pts.length < 2) return <span className="text-[color:var(--ink-4)]">–</span>;
   const min = Math.min(...pts);
   const max = Math.max(...pts);
   const span = Math.max(max - min, 1e-9);
@@ -46,7 +46,7 @@ function Sparkline({ values }: { values: number[] }) {
 }
 
 function formatCell(value: any, currency: string) {
-  if (value === null || value === undefined || value === "") return "—";
+  if (value === null || value === undefined || value === "") return "–";
   const n = Number(value);
   if (!Number.isFinite(n)) return String(value);
   return Math.abs(n) >= 100000 ? formatCompactRupees(n) : formatCurrencyNumber(n, currency, 2);
@@ -97,7 +97,7 @@ function StatementTable({ table, currency }: { table: any; currency: string }) {
                   className="whitespace-nowrap px-3 py-2.5 text-right font-numeric text-[12.5px]"
                   style={{ color: change === null ? "var(--ink-3)" : change >= 0 ? "var(--up)" : "var(--down)" }}
                 >
-                  {change === null ? "—" : `${change >= 0 ? "+" : "−"}${Math.abs(change).toFixed(1)}%`}
+                  {change === null ? "–" : `${change >= 0 ? "+" : "−"}${Math.abs(change).toFixed(1)}%`}
                 </td>
                 {(row.values ?? []).map((v: any, i: number) => (
                   <td key={`${row.label}-${i}`} className="whitespace-nowrap px-4 py-2.5 text-right font-numeric text-[13px] text-paper">

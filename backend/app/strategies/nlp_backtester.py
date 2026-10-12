@@ -1167,5 +1167,5 @@ def run_custom_backtest(df: pd.DataFrame, user_prompt: str):
 
     except Exception as e:
         return {
-            "error": f"Could not run backtest. Try rephrasing — e.g. 'RSI crosses above 30' or 'buy when MACD bullish crossover'. Detail: {str(e)}"
+            "error": f"Could not run backtest. Try rephrasing, for example 'RSI crosses above 30' or 'buy when MACD bullish crossover'. Detail: {str(e)}"
         }

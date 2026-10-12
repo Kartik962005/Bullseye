@@ -235,7 +235,7 @@ def fetch_news_sentiment(ticker: str):
             if len(clean_title) < 40 or '|' in clean_title:
                 continue
 
-            display_title = f"{clean_title} — {source}"
+            display_title = f"{clean_title} · {source}"
             if display_title not in headlines:
                 headlines.append(display_title)
                 stories.append({
@@ -274,7 +274,7 @@ def fetch_news_sentiment(ticker: str):
                         continue
                     if len(ct2) < 35 or '|' in ct2:
                         continue
-                    disp2 = f"{ct2} — {src2}"
+                    disp2 = f"{ct2} · {src2}"
                     if disp2 not in seen:
                         headlines.append(disp2)
                         stories.append({

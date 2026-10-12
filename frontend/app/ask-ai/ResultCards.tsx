@@ -5,7 +5,7 @@ import type { ReactNode } from 'react';
 import type { AskAiResponse, Backtest, MoversScan, Scan, ScreenerResult } from './types';
 
 export function pct(value: number | undefined | null) {
-  if (value === undefined || value === null || Number.isNaN(value)) return '—';
+  if (value === undefined || value === null || Number.isNaN(value)) return '–';
   return `${value > 0 ? '+' : ''}${value.toFixed(2)}%`;
 }
 
@@ -15,7 +15,7 @@ function tone(value: number | undefined | null) {
 }
 
 function num(value: number | undefined | null, digits = 2) {
-  if (value === undefined || value === null || Number.isNaN(value)) return '—';
+  if (value === undefined || value === null || Number.isNaN(value)) return '–';
   return value.toLocaleString('en-IN', { maximumFractionDigits: digits });
 }
 
@@ -116,7 +116,7 @@ export function BacktestCard({ data, ticker }: { data: Backtest; ticker: string 
           <Stat label="Beat buy & hold by" value={pct(data.alpha_vs_buy_hold_pct)} className={tone(data.alpha_vs_buy_hold_pct)} />
           <Stat label="Average trade" value={pct(s.avg_return_per_trade_pct)} className={tone(s.avg_return_per_trade_pct)} />
           <Stat label="Worst drawdown" value={pct(s.max_drawdown_pct)} className="text-[color:var(--down)]" />
-          <Stat label="Profit factor" value={s.profit_factor !== undefined ? String(s.profit_factor) : '—'} />
+          <Stat label="Profit factor" value={s.profit_factor !== undefined ? String(s.profit_factor) : '–'} />
         </div>
       ) : (
         <Notice>{data.warning || 'This rule never triggered a trade in the test period.'}</Notice>
@@ -233,9 +233,9 @@ export function ScreenerCard({ data }: { data: ScreenerResult }) {
             return (
               <tr key={`${ticker}-${i}`}>
                 <StockCell ticker={ticker} symbol={row.stock?.symbol} name={row.stock?.name} />
-                <td>{row.marketCapCr ? `₹${num(row.marketCapCr, 0)} cr` : '—'}</td>
+                <td>{row.marketCapCr ? `₹${num(row.marketCapCr, 0)} cr` : '–'}</td>
                 <td>{num(row.pe, 1)}</td>
-                <td>{row.roe !== null && row.roe !== undefined ? `${num(row.roe, 1)}%` : '—'}</td>
+                <td>{row.roe !== null && row.roe !== undefined ? `${num(row.roe, 1)}%` : '–'}</td>
                 <td>{num(row.debtToEquity)}</td>
                 <td className={(row.revenueGrowth3Yr ?? 0) > 0 ? 'is-up' : (row.revenueGrowth3Yr ?? 0) < 0 ? 'is-down' : ''}>{pct(row.revenueGrowth3Yr)}</td>
                 <td className={(row.technical?.return1yPct ?? 0) > 0 ? 'is-up' : (row.technical?.return1yPct ?? 0) < 0 ? 'is-down' : ''}>

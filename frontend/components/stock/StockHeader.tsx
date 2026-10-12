@@ -66,7 +66,7 @@ export function StockHeader({
         </div>
         <div className="text-left sm:text-right">
           <div className="font-numeric text-[clamp(2rem,3.6vw,2.9rem)] leading-none tracking-tight text-paper">
-            {hasPrice ? `${currency}${price!.toLocaleString("en-IN", { maximumFractionDigits: 2 })}` : "—"}
+            {hasPrice ? `${currency}${price!.toLocaleString("en-IN", { maximumFractionDigits: 2 })}` : "–"}
           </div>
           {hasChange ? (
             <span className={`sx-change mt-3 ${up ? "is-up" : "is-down"}`}>

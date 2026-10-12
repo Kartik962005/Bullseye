@@ -15,6 +15,7 @@ official SDK because it is already a project dependency.
 """
 
 import os
+import re
 
 import requests
 
@@ -276,6 +277,26 @@ def _call_provider(provider: str, messages, temperature: float, max_tokens: int,
     if provider == "cerebras":
         return _cerebras_chat(messages, temperature, max_tokens, model)
     raise RuntimeError(f"unknown provider: {provider}")
+
+
+_EM_DASH = re.compile(r"[ \t]*—[ \t]*")
+_SPACED_EN_DASH = re.compile(r"[ \t]+–[ \t]+")
+
+
+def plain_dashes(text: str) -> str:
+    """Swap the em dashes models love for plain punctuation in user-facing prose.
+
+    A spaced or unspaced em dash becomes ", ", and so does a spaced en dash used
+    as a dash. Number ranges written with an unspaced en dash are left alone.
+    """
+    if not text:
+        return text
+    text = _EM_DASH.sub(", ", text)
+    text = _SPACED_EN_DASH.sub(", ", text)
+    text = re.sub(r",\s*,", ",", text)
+    text = re.sub(r",\s*([.!?:;)])", r"\1", text)
+    text = re.sub(r"(^|\n), ", r"\1", text)
+    return text
 
 
 def chat(

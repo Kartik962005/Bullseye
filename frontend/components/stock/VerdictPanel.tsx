@@ -82,7 +82,7 @@ export function VerdictPanel({
   const move = (to: number) => (entry ? ((to - entry) / entry) * 100 : 0);
   const upside = Math.abs(move(Number(v.target)));
   const downside = Math.abs(move(Number(v.stop_loss)));
-  const rr = downside > 0 ? (upside / downside).toFixed(2) : "—";
+  const rr = downside > 0 ? (upside / downside).toFixed(2) : "–";
   const fmt = (n: number) => `${currency}${Number(n).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
   const pctText = (n: number) => `${n >= 0 ? "+" : "−"}${Math.abs(n).toFixed(2)}%`;
 
@@ -135,7 +135,7 @@ export function VerdictPanel({
           <div className="sx-level">
             <dt>Reward : risk</dt>
             <dd>
-              <span className="font-numeric text-paper">{rr === "—" ? "—" : `${rr}R`}</span>
+              <span className="font-numeric text-paper">{rr === "–" ? "–" : `${rr}R`}</span>
             </dd>
           </div>
         </dl>

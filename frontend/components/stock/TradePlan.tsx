@@ -108,8 +108,8 @@ export function TradePlan({ analysis, currency }: { analysis: any; currency: str
           [
             ["Projected move", `${bearish ? "−" : "+"}${movePct.toFixed(2)}%`, bearish ? "var(--down)" : "var(--up)", "To target"],
             ["Max risk", `${riskPct.toFixed(2)}%`, "var(--down)", "If the stop is hit"],
-            ["Reward : risk", rr ? `${rr.toFixed(2)}R` : "—", undefined, "Per unit of risk"],
-            ["Holding period", analysis?.estimated_days ? `${analysis.estimated_days} days` : "—", undefined, "Estimated"],
+            ["Reward : risk", rr ? `${rr.toFixed(2)}R` : "–", undefined, "Per unit of risk"],
+            ["Holding period", analysis?.estimated_days ? `${analysis.estimated_days} days` : "–", undefined, "Estimated"],
           ] as Array<[string, string, string | undefined, string]>
         ).map(([label, value, color, hint]) => (
           <div key={label} className="rounded-2xl bg-white/[0.04] px-4 py-3">

@@ -1161,6 +1161,7 @@ def _context_text(rows: list[list[Any]]) -> str:
 
 _ANSWER_SYSTEM = (
     "You are Bullseye's stock research assistant for Indian (NSE) equities. Prices are in rupees (₹).\n"
+    "Write plain sentences and never use em dashes.\n"
     "How to answer:\n"
     "1. Answer the exact question first, in the opening sentence. 'How has it performed this year?' starts "
     "with the year-to-date return; 'is it overvalued?' starts with the P/E against the sector median.\n"
@@ -1213,7 +1214,7 @@ def _llm_answer(question: str, ticker: str, rows: list[list[Any]], note: str | N
             temperature=0.25,
             max_tokens=max_tokens,
         )
-        text = (result.get("text") or "").strip()
+        text = llm_client.plain_dashes((result.get("text") or "").strip())
         if is_off_topic_marker(text):
             return OFF_TOPIC_REPLY
         # Belt and braces: the page renders plain text.
@@ -1285,7 +1286,7 @@ def _ai_summary(prompt: str, result: dict[str, Any]) -> str | None:
 
 def _money(value: Any) -> str:
     n = _safe_float(value)
-    return "—" if n is None else f"₹{n:,.2f}"
+    return "–" if n is None else f"₹{n:,.2f}"
 
 
 def _exact_summary(result: dict[str, Any]) -> str | None:

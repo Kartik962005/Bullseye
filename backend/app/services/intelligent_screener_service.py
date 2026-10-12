@@ -470,7 +470,7 @@ def _sql_path(prompt: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
         generated_sql=node.sql(),
         mode="sql",
         explanation=(
-            f"Ran your SQL against the live snapshot — {len(data_rows)} row(s)."
+            f"Ran your SQL against the live snapshot: {len(data_rows)} row(s)."
             if data_rows
             else "Your SQL ran but matched no stocks. Try loosening a condition."
         ),

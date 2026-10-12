@@ -147,7 +147,8 @@ Hard rules:
 GENERAL_SYSTEM_PROMPT = """
 You are an AI financial research assistant inside a stock prediction and analysis web app (Bullseye).
 Your job is to help retail investors understand markets, stocks, indicators, and strategies, and to
-answer general questions clearly. You are a knowledgeable, friendly guide — not a hype machine.
+answer general questions clearly. You are a knowledgeable, friendly guide, not a hype machine.
+Write plain sentences and never use em dashes.
 
 How to answer:
 - Give clear, structured, beginner-friendly answers. Define jargon the first time you use it
@@ -477,7 +478,7 @@ def _narrate(
     messages.append({"role": "user", "content": user_prompt})
     try:
         result = llm_client.chat(messages, temperature=0.35, max_tokens=900)
-        return result["text"], result["model"]
+        return llm_client.plain_dashes(result["text"]), result["model"]
     except Exception as exc:  # noqa: BLE001
         print(f"[AskAI] narration failed: {exc}")
         return fallback, "local"
@@ -782,7 +783,7 @@ def _cross_scan(
     # is "the largest N", and a reader can then judge the result themselves.
     coverage_line = (
         f"Universe scanned: {scanned} of the {total_universe} largest NSE stocks by market cap"
-        + (" (stopped at the time budget — ask again to continue)" if partial else "")
+        + (" (stopped at the time budget; ask again to continue)" if partial else "")
         + f"; {len(traded)} produced at least one trade."
     )
     data_lines = [
@@ -1245,7 +1246,7 @@ def _movers_unavailable_message(prompt: str) -> dict[str, Any]:
     direction = "biggest decliners" if losers else "biggest gainers"
     return {
         "answer": (
-            "I don't have today's full-market scan ready yet — the daily market snapshot "
+            "I don't have today's full-market scan ready yet. The daily market snapshot "
             "hasn't been built. Once it's populated I can instantly rank the top movers "
             "across every NSE stock. Please try again shortly."
         ),
@@ -1386,7 +1387,7 @@ def _market_movers_inmemory(
             return {
                 "answer": (
                     "I'm scanning the full market right now to answer that accurately "
-                    f"(about {pct}% done). Give me a few seconds and ask again — I'll have "
+                    f"(about {pct}% done). Give me a few seconds and ask again, and I'll have "
                     "the complete list of movers for that session."
                 ),
                 "mode": "movers",
@@ -1440,7 +1441,7 @@ def _market_movers_inmemory(
     if status != "ready":
         pct = int(done / total * 100) if total else 0
         answer = (
-            f"{answer}\n\n_(Still scanning the full market — about {pct}% done. "
+            f"{answer}\n\n_(Still scanning the full market, about {pct}% done. "
             f"This list covers the {len(moves_snapshot)} stocks checked so far; "
             f"ask again in a moment for the complete ranking.)_"
         )
@@ -1799,7 +1800,7 @@ def _general_chat(
         return {
             "answer": (
                 "I can't reach the AI engine right now (no model API key is configured). "
-                "I can still run backtests and stock scans on our data — try asking something like "
+                "I can still run backtests and stock scans on our data. Try asking something like "
                 "\"backtest buy when RSI crosses 30 and sell at 70 on RELIANCE\" or "
                 "\"which NSE stocks work best with a gap-up momentum strategy?\""
             ),
@@ -1849,7 +1850,7 @@ def _general_chat(
 
     try:
         result = llm_client.chat(messages, temperature=0.4, max_tokens=900)
-        answer, model_used = result["text"], result["model"]
+        answer, model_used = llm_client.plain_dashes(result["text"]), result["model"]
         if is_off_topic_marker(answer):
             answer = OFF_TOPIC_REPLY
     except Exception as exc:  # noqa: BLE001
@@ -1909,8 +1910,8 @@ def _strategy_alert(prompt: str, history: list[dict[str, Any]] | None = None) ->
         f"avg per trade {stats.get('avg_return_per_trade')}%; median {stats.get('median_return')}%; "
         f"max drawdown {stats.get('max_drawdown')}%.",
         f"Out-of-sample avg per trade: {oos.get('avg_return_per_trade')}%.",
-        f"Stocks scanned: {bt.get('scanned')}" + (" (partial — time budget reached)" if bt.get("partial") else "") + ".",
-        f"Quality gate: {'PASSED — eligible for daily alerts.' if alertable else 'NOT met.'} {bt.get('quality', {}).get('reason', '')}",
+        f"Stocks scanned: {bt.get('scanned')}" + (" (partial: time budget reached)" if bt.get("partial") else "") + ".",
+        f"Quality gate: {'PASSED, eligible for daily alerts.' if alertable else 'NOT met.'} {bt.get('quality', {}).get('reason', '')}",
     ]
     fallback = (
         f"I backtested that: {stats.get('trades')} trades, {stats.get('win_rate')}% win rate, "

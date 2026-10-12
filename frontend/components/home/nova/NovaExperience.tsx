@@ -100,7 +100,7 @@ const STORY: { index: string; label: string; lead: string; em: string; body: str
     label: "Your move",
     lead: "See your",
     em: "number.",
-    body: "Open the screener for today’s ranked short list, or ask anything in plain English.",
+    body: "Screen every NSE stock in plain English, get the evening short list by email, or ask anything about a stock.",
   },
 ];
 
@@ -425,8 +425,8 @@ export function NovaExperience({ signedIn, onOpenDailySignals, stockStrip }: Nov
                   →
                 </span>
               </Link>
-              <Link href="/ask-ai" className="nova-btn nova-btn-ghost">
-                Ask AI
+              <Link href="/ask-ai" className="nova-btn nova-btn-link">
+                or ask AI about a stock
               </Link>
             </div>
             <div className="nova-scroll-cue mt-10 hidden items-center gap-3 sm:flex">
@@ -466,7 +466,7 @@ export function NovaExperience({ signedIn, onOpenDailySignals, stockStrip }: Nov
                     →
                   </span>
                 </Link>
-                <Link href="/ask-ai" className="nova-btn nova-btn-ghost">
+                <Link href="/ask-ai" className="nova-btn nova-btn-link">
                   Ask AI
                 </Link>
                 <button type="button" onClick={onOpenDailySignals} className="nova-btn nova-btn-link">

@@ -487,7 +487,7 @@ const MarketAssetCard = ({
 
       <div className="mt-5 flex flex-wrap items-end justify-between gap-x-2 gap-y-1.5">
         <div className="min-w-0 font-numeric text-[19px] leading-none tracking-tight text-paper sm:text-[22px]">
-          {hasPrice ? `${stock.currency}${quickPrice.toLocaleString('en-IN')}` : '—'}
+          {hasPrice ? `${stock.currency}${quickPrice.toLocaleString('en-IN')}` : '–'}
         </div>
         {hasChange ? (
           <span
@@ -698,7 +698,7 @@ const StockPreviewModal = ({
           <div className="mt-5 flex items-end justify-between gap-4">
             <div>
               <div className="font-numeric text-[34px] leading-none tracking-tight text-paper">
-                {hasPrice ? `${stock.currency}${quickPrice.toLocaleString('en-IN')}` : '—'}
+                {hasPrice ? `${stock.currency}${quickPrice.toLocaleString('en-IN')}` : '–'}
               </div>
               {hasChange ? (
                 <div className={`mt-2 inline-flex rounded-full px-2.5 py-0.5 font-numeric text-[12px] ${quickChange >= 0 ? 'bg-[color:var(--up)]/12 text-[color:var(--up)]' : 'bg-[color:var(--down)]/12 text-[color:var(--down)]'}`}>
@@ -751,8 +751,8 @@ const StockPreviewModal = ({
                     <div className="h-full rounded-full" style={{ width: `${analysisView.confidenceLevel}%`, background: verdictColor }} />
                   </div>
                 </div>
-                {stat('Target', isHold ? '—' : `${stock.currency}${analysisView.target}`, isHold ? undefined : 'var(--up)')}
-                {stat('Stop', isHold ? '—' : `${stock.currency}${analysisView.stop_loss}`, isHold ? undefined : 'var(--down)')}
+                {stat('Target', isHold ? '–' : `${stock.currency}${analysisView.target}`, isHold ? undefined : 'var(--up)')}
+                {stat('Stop', isHold ? '–' : `${stock.currency}${analysisView.stop_loss}`, isHold ? undefined : 'var(--down)')}
               </div>
               {isHold ? (
                 <p className="mt-3 text-[13px] leading-5 text-[color:var(--ink-2)]">
