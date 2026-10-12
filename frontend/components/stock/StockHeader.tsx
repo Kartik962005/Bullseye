@@ -58,7 +58,7 @@ export function StockHeader({
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <span className="sx-chip font-numeric">{symbol}</span>
-            {exchange ? <span className="text-[13px] text-[#9f99c2]">{exchange}</span> : null}
+            {exchange ? <span className="text-[13px] text-[color:var(--ink-3)]">{exchange}</span> : null}
           </div>
           <h1 className="mt-3 break-words font-display text-[clamp(2.4rem,5vw,4rem)] font-normal leading-[0.98] tracking-[-0.015em] text-paper">
             {name || symbol}

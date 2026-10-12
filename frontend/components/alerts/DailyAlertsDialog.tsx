@@ -45,7 +45,7 @@ function Segmented<T extends string>({
 }) {
   return (
     <div>
-      <div className="mb-2 text-[12.5px] text-[#9f99c2]">{label}</div>
+      <div className="mb-2 text-[12.5px] text-[color:var(--ink-3)]">{label}</div>
       <div className="sx-seg flex w-full" role="radiogroup" aria-label={label}>
         {options.map(option => (
           <button
@@ -143,7 +143,7 @@ export function DailyAlertsDialog({
               <h2 id="daily-alerts-title" className="text-[19px] font-semibold tracking-[-0.01em] sm:text-[21px]">
                 Daily stock alerts
               </h2>
-              <p className="mt-0.5 truncate text-[13px] text-[#9f99c2]">
+              <p className="mt-0.5 truncate text-[13px] text-[color:var(--ink-3)]">
                 Bullseye&apos;s top picks, emailed to {userEmail || 'your account'}
               </p>
             </div>
@@ -157,10 +157,10 @@ export function DailyAlertsDialog({
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-5 sm:px-7">
             <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_290px]">
               <div className="flex min-w-0 flex-col gap-5">
-                <div className={`flex items-center gap-4 rounded-[20px] border p-4 transition-colors ${enabled ? 'border-[#ff4fa3]/35 bg-[#ff4fa3]/[0.07]' : 'border-white/[0.08] bg-white/[0.035]'}`}>
+                <div className={`flex items-center gap-4 rounded-[20px] border p-4 transition-colors ${enabled ? 'border-[color:var(--accent)]/35 bg-[color:var(--accent)]/[0.07]' : 'border-white/[0.08] bg-white/[0.035]'}`}>
                   <div className="min-w-0 flex-1">
                     <div className="text-[15px] font-medium">Email me every trading day</div>
-                    <p className="mt-0.5 text-[13px] leading-5 text-[#b9b4d6]">
+                    <p className="mt-0.5 text-[13px] leading-5 text-[color:var(--ink-2)]">
                       {enabled
                         ? `On. Your picks arrive around ${preference.email_time} IST, after the market closes.`
                         : 'The model’s best setups for the next session, after the market closes.'}
@@ -184,7 +184,7 @@ export function DailyAlertsDialog({
                     <Segmented label="Risk level" value={preference.risk_level} options={RISKS.map(r => ({ value: r, label: r }))} onChange={risk_level => onChange({ risk_level })} />
                   </div>
                   <label className="block sm:col-span-2">
-                    <span className="mb-2 block text-[12.5px] text-[#9f99c2]">Email time (after {minTime} IST)</span>
+                    <span className="mb-2 block text-[12.5px] text-[color:var(--ink-3)]">Email time (after {minTime} IST)</span>
                     <input
                       type="time"
                       value={preference.email_time}
@@ -196,26 +196,26 @@ export function DailyAlertsDialog({
                 </div>
 
                 <div>
-                  <div className="mb-2 text-[12.5px] text-[#9f99c2]">Send one now</div>
+                  <div className="mb-2 text-[12.5px] text-[color:var(--ink-3)]">Send one now</div>
                   <div className="grid grid-cols-2 gap-2">
                     <button type="button" disabled={isSaving} onClick={() => onSendNow('today')} className="sx-btn-ghost !h-auto flex-col !items-start !gap-0.5 !rounded-2xl !py-2.5 text-left disabled:opacity-50">
                       <span className="text-[14px] font-medium text-white">Today&apos;s picks</span>
-                      <span className="text-[12px] text-[#9f99c2]">Intraday, from the latest data</span>
+                      <span className="text-[12px] text-[color:var(--ink-3)]">Intraday, from the latest data</span>
                     </button>
                     <button type="button" disabled={isSaving} onClick={() => onSendNow('next_day')} className="sx-btn-ghost !h-auto flex-col !items-start !gap-0.5 !rounded-2xl !py-2.5 text-left disabled:opacity-50">
                       <span className="text-[14px] font-medium text-white">Tomorrow&apos;s picks</span>
-                      <span className="text-[12px] text-[#9f99c2]">For the next session</span>
+                      <span className="text-[12px] text-[color:var(--ink-3)]">For the next session</span>
                     </button>
                   </div>
                 </div>
 
-                {error && <p className="rounded-2xl border border-[#ff5c7a]/30 bg-[#ff5c7a]/[0.08] px-4 py-3 text-[13px] text-[#ffc2cf]">{error}</p>}
-                {message && <p className="rounded-2xl border border-[#3dffa2]/25 bg-[#3dffa2]/[0.07] px-4 py-3 text-[13px] text-[#9ff5cb]">{message}</p>}
+                {error && <p className="rounded-2xl border border-[color:var(--down)]/30 bg-[color:var(--down)]/[0.08] px-4 py-3 text-[13px] text-[color:var(--down)]">{error}</p>}
+                {message && <p className="rounded-2xl border border-[color:var(--up)]/25 bg-[color:var(--up)]/[0.07] px-4 py-3 text-[13px] text-[color:var(--up)]">{message}</p>}
               </div>
 
               <aside className="min-w-0 rounded-[20px] border border-white/[0.07] bg-white/[0.03] p-4">
                 <div className="text-[13px] font-medium">What the email looks like</div>
-                <p className="mt-1 text-[12.5px] leading-5 text-[#9f99c2]">
+                <p className="mt-1 text-[12.5px] leading-5 text-[color:var(--ink-3)]">
                   Up to 10 stocks with entry, target and stop. Fewer, or none, on weak days.
                 </p>
                 <div className="mt-3 flex flex-col gap-2">
@@ -224,17 +224,17 @@ export function DailyAlertsDialog({
                       <div key={signal.symbol} className="rounded-2xl bg-black/25 px-3.5 py-3">
                         <div className="flex items-center justify-between gap-2">
                           <span className="truncate font-numeric text-[13.5px]">{signal.symbol}</span>
-                          <span className={`shrink-0 rounded-full px-2 py-0.5 font-numeric text-[11px] ${signal.direction === 'BUY' ? 'bg-[#3dffa2]/12 text-[#6ff0b5]' : 'bg-[#ff5c7a]/12 text-[#ff8aa0]'}`}>
+                          <span className={`shrink-0 rounded-full px-2 py-0.5 font-numeric text-[11px] ${signal.direction === 'BUY' ? 'bg-[color:var(--up)]/12 text-[color:var(--up)]' : 'bg-[color:var(--down)]/12 text-[color:var(--down)]'}`}>
                             {signal.direction} · {Math.round((signal.confidence ?? 0) * 100)}%
                           </span>
                         </div>
-                        <div className="mt-1.5 font-numeric text-[11.5px] leading-5 text-[#b9b4d6]">
+                        <div className="mt-1.5 font-numeric text-[11.5px] leading-5 text-[color:var(--ink-2)]">
                           Entry {money(signal.entry_low)}–{money(signal.entry_high)} · Target {money(signal.target_price)} · Stop {money(signal.stop_loss)}
                         </div>
                       </div>
                     ))
                   ) : (
-                    <p className="rounded-2xl border border-dashed border-white/10 px-3.5 py-5 text-center text-[12.5px] text-[#9f99c2]">
+                    <p className="rounded-2xl border border-dashed border-white/10 px-3.5 py-5 text-center text-[12.5px] text-[color:var(--ink-3)]">
                       Tonight&apos;s picks appear here once the model has run.
                     </p>
                   )}
@@ -244,7 +244,7 @@ export function DailyAlertsDialog({
           </div>
 
           <footer className="flex items-center gap-3 border-t border-white/[0.07] px-5 py-3.5 pb-[calc(0.875rem+env(safe-area-inset-bottom,0px))] sm:px-7">
-            <p className="hidden min-w-0 flex-1 text-[12px] leading-5 text-[#7d7799] sm:block">
+            <p className="hidden min-w-0 flex-1 text-[12px] leading-5 text-[color:var(--ink-4)] sm:block">
               Model-generated research, not advice. Turn it off any time.
             </p>
             <button type="button" onClick={onSave} disabled={isSaving} className="nova-btn nova-btn-primary w-full !h-11 !text-[14px] disabled:opacity-60 sm:w-auto">
@@ -266,8 +266,8 @@ export function DailyAlertsDialog({
                   'Returns are not guaranteed, and past results don’t predict future ones.',
                   'You can turn emails off or unsubscribe at any time.',
                 ].map(line => (
-                  <li key={line} className="flex gap-3 text-[14px] leading-6 text-[#cfc9ea]">
-                    <span aria-hidden className="mt-2.5 h-1.5 w-1.5 shrink-0 rounded-full bg-[#ff4fa3]" />
+                  <li key={line} className="flex gap-3 text-[14px] leading-6 text-[color:var(--ink-2)]">
+                    <span aria-hidden className="mt-2.5 h-1.5 w-1.5 shrink-0 rounded-full bg-[color:var(--accent)]" />
                     {line}
                   </li>
                 ))}

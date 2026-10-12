@@ -93,13 +93,20 @@ void main() {
 
 const FRAG = /* glsl */ `
 uniform float uOpacity;
+uniform float uLight;
 varying vec3 vColor;
 varying float vAlpha;
 void main() {
   float d = length(gl_PointCoord - 0.5);
   if (d > 0.5) discard;
   float a = pow(smoothstep(0.5, 0.0, d), 1.7) * vAlpha * uOpacity;
-  gl_FragColor = vec4(vColor, a);
+  // Light page: neutral dots become dark graphite, the pink stays pink.
+  vec3 c = vColor;
+  float mx = max(c.r, max(c.g, c.b));
+  float sat = mx - min(c.r, min(c.g, c.b));
+  vec3 neutral = vec3(0.08, 0.09, 0.1) + vec3(0.22) * (1.0 - clamp(mx, 0.0, 1.0));
+  vec3 onLight = mix(neutral, c * 0.82, smoothstep(0.25, 0.45, sat));
+  gl_FragColor = vec4(mix(c, onLight, uLight), a);
 }
 `;
 
@@ -174,6 +181,7 @@ export class NovaScene {
         uScale: { value: 1 },
         uIntro: { value: 0 },
         uOpacity: { value: 1 },
+        uLight: { value: 0 },
       },
       transparent: true,
       depthWrite: false,
@@ -196,6 +204,14 @@ export class NovaScene {
   setPointer(x: number, y: number) {
     this.pointerTarget.x = x;
     this.pointerTarget.y = y;
+  }
+
+  /** Light pages need normal blending: additive dots vanish on white. */
+  setTheme(light: boolean) {
+    this.material.uniforms.uLight.value = light ? 1 : 0;
+    this.material.blending = light ? THREE.NormalBlending : THREE.AdditiveBlending;
+    this.material.needsUpdate = true;
+    this.wake();
   }
 
   /** 0 hides the scene and stops the render loop entirely. */

@@ -39,7 +39,7 @@ export default function ScreenDetailPage() {
           <h1 className="mt-4 text-[clamp(1.8rem,4vw,2.6rem)] font-semibold tracking-[-0.02em] text-white">
             {retired ? retired.title : 'There is no screen here'}
           </h1>
-          <p className="mt-4 text-[15px] leading-7 text-[#b9b4d6]">
+          <p className="mt-4 text-[15px] leading-7 text-[color:var(--ink-2)]">
             {retired && retired.needs
               ? `This screen needs ${retired.needs}, which Bullseye's data doesn't include yet. Rather than show a made-up list, it has been removed.`
               : retired
@@ -80,7 +80,7 @@ export default function ScreenDetailPage() {
           <h1 className="mt-3 text-[clamp(2rem,5vw,3.2rem)] font-semibold leading-[1.05] tracking-[-0.03em] text-white">
             {screen.title}
           </h1>
-          <p className="mt-3 max-w-[58ch] text-[16px] leading-7 text-[#b9b4d6]">{screen.description}</p>
+          <p className="mt-3 max-w-[58ch] text-[16px] leading-7 text-[color:var(--ink-2)]">{screen.description}</p>
         </div>
         <dl className="grid grid-cols-3 gap-6 sm:gap-8">
           {[
@@ -89,7 +89,7 @@ export default function ScreenDetailPage() {
             ['Median ROE', loading ? '…' : stat(median(rows.map(r => r.roe)), '%')],
           ].map(([label, value]) => (
             <div key={label}>
-              <dt className="text-[12px] text-[#9f99c2]">{label}</dt>
+              <dt className="text-[12px] text-[color:var(--ink-3)]">{label}</dt>
               <dd className="mt-1 font-numeric text-[22px] text-white">{value}</dd>
             </div>
           ))}
@@ -98,7 +98,7 @@ export default function ScreenDetailPage() {
 
       <section className="mt-8 flex flex-col gap-3">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="mr-1 text-[13px] text-[#9f99c2]">Rules</span>
+          <span className="mr-1 text-[13px] text-[color:var(--ink-3)]">Rules</span>
           {screen.rules.map(rule => (
             <span key={rule} className="scr-rule">
               {rule}
@@ -136,7 +136,7 @@ export default function ScreenDetailPage() {
                 </span>
               </div>
               <h3 className="mt-3 text-[16px] font-semibold text-white">{item.title}</h3>
-              <p className="mt-1 text-[13px] leading-6 text-[#b9b4d6]">{item.description}</p>
+              <p className="mt-1 text-[13px] leading-6 text-[color:var(--ink-2)]">{item.description}</p>
             </Link>
           ))}
         </div>

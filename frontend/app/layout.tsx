@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Instrument_Serif, Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import BackendWarmup from "@/components/BackendWarmup";
+import { THEME_BOOT_SCRIPT } from "@/lib/theme-boot";
 
 // ── Type system ─────────────────────────────────────────────────────────────
 // Three families, site-wide: an editorial serif for headings, a clean sans for
@@ -41,7 +42,13 @@ export default function RootLayout({
     <html
       lang="en"
       className={`${displaySerif.variable} ${bodySans.variable} ${numericMono.variable} h-full antialiased`}
+      data-theme="dark"
+      suppressHydrationWarning
     >
+      <head>
+        {/* Sets the saved or OS theme before first paint, so it never flashes. */}
+        <script dangerouslySetInnerHTML={{ __html: THEME_BOOT_SCRIPT }} />
+      </head>
       <body className="min-h-full flex flex-col">
         {children}
         <BackendWarmup />

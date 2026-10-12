@@ -16,17 +16,16 @@ function ConfidenceRing({ value, color }: { value: number; color: string }) {
   return (
     <div className="relative h-[68px] w-[68px] shrink-0" role="img" aria-label={`Confidence ${Math.round(pct)} out of 100`}>
       <svg viewBox="0 0 64 64" className="h-full w-full -rotate-90">
-        <circle cx="32" cy="32" r={r} fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="5" />
+        <circle cx="32" cy="32" r={r} fill="none" style={{ stroke: "rgb(var(--fg-rgb)/0.08)" }} strokeWidth="5" />
         <circle
           cx="32"
           cy="32"
           r={r}
           fill="none"
-          stroke={color}
           strokeWidth="5"
           strokeLinecap="round"
           strokeDasharray={`${(pct / 100) * c} ${c}`}
-          style={{ transition: "stroke-dasharray 1s cubic-bezier(.22,.61,.36,1)" }}
+          style={{ stroke: color, transition: "stroke-dasharray 1s cubic-bezier(.22,.61,.36,1)" }}
         />
       </svg>
       <div className="absolute inset-0 grid place-items-center font-numeric text-[17px] text-paper">{Math.round(pct)}</div>
@@ -53,7 +52,7 @@ export function VerdictPanel({
     return (
       <aside className="sx-card sx-verdict p-6">
         <div className="sx-label">Bullseye&apos;s call</div>
-        <div className="mt-5 flex items-center gap-3 text-[14px] text-[#b9b4d6]">
+        <div className="mt-5 flex items-center gap-3 text-[14px] text-[color:var(--ink-2)]">
           <span className="nova-spinner" aria-hidden />
           Running the analysis…
         </div>
@@ -70,14 +69,14 @@ export function VerdictPanel({
     return (
       <aside className="sx-card sx-verdict p-6">
         <div className="sx-label">Bullseye&apos;s call</div>
-        <p className="mt-4 text-[14px] leading-6 text-[#b9b4d6]">
+        <p className="mt-4 text-[14px] leading-6 text-[color:var(--ink-2)]">
           The analysis isn&apos;t available for this stock right now. Try again in a moment.
         </p>
       </aside>
     );
   }
 
-  const color = v.isBullish ? "#3dffa2" : v.isBearish ? "#ff5c7a" : "#b9b4d6";
+  const color = v.isBullish ? "var(--up)" : v.isBearish ? "var(--down)" : "var(--ink-2)";
   const word = String(v.displayVerdict);
   const entry = Number(v.entry);
   const move = (to: number) => (entry ? ((to - entry) / entry) * 100 : 0);
@@ -111,7 +110,7 @@ export function VerdictPanel({
       </div>
 
       {v.isHold ? (
-        <p className="mt-5 rounded-2xl bg-white/[0.04] px-4 py-3 text-[13.5px] leading-6 text-[#c9c3e6]">
+        <p className="mt-5 rounded-2xl bg-white/[0.04] px-4 py-3 text-[13.5px] leading-6 text-[color:var(--ink-2)]">
           No clear edge right now, so no entry, target or stop is issued. The honest call is to sit this one out.
         </p>
       ) : (
@@ -128,7 +127,7 @@ export function VerdictPanel({
               <dd>
                 <span className="font-numeric text-paper">{value}</span>
                 {change !== null ? (
-                  <span className={`font-numeric text-[12px] ${change >= 0 ? "text-[#6ff0b5]" : "text-[#ff8aa0]"}`}>{pctText(change)}</span>
+                  <span className={`font-numeric text-[12px] ${change >= 0 ? "text-[color:var(--up)]" : "text-[color:var(--down)]"}`}>{pctText(change)}</span>
                 ) : null}
               </dd>
             </div>
@@ -149,8 +148,8 @@ export function VerdictPanel({
             {why.map(([label, value, note]) => (
               <div key={label}>
                 <div className="font-numeric text-[19px] leading-none text-paper">{value}</div>
-                <div className="mt-1.5 text-[12.5px] text-[#e9e5ff]">{label}</div>
-                <div className="mt-0.5 text-[11.5px] leading-snug text-[#8f89ad]">{note}</div>
+                <div className="mt-1.5 text-[12.5px] text-[color:var(--fg)]">{label}</div>
+                <div className="mt-0.5 text-[11.5px] leading-snug text-[color:var(--ink-3)]">{note}</div>
               </div>
             ))}
           </div>

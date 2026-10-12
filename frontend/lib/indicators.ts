@@ -87,8 +87,8 @@ export function formatIndicatorValue(value: number, name: string) {
 
 export function getIndicatorColor(name: string) {
   if (/macd|momentum|oscillator|rate|trix|tsi/i.test(name)) return '#38bdf8';
-  if (/volume|money|accumulation|vwap/i.test(name)) return '#22c55e';
+  if (/volume|money|accumulation|vwap/i.test(name)) return 'var(--up)';
   if (/volatility|atr|deviation|error|band/i.test(name)) return '#f59e0b';
-  if (/rsi|stochastic|williams|cci|aroon/i.test(name)) return '#a78bfa';
-  return '#06b6d4';
+  if (/rsi|stochastic|williams|cci|aroon/i.test(name)) return 'var(--accent)';
+  return 'var(--accent)';
 }

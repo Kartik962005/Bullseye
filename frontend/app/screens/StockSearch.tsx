@@ -65,10 +65,10 @@ export default function StockSearch({ compact = false }: { compact?: boolean }) 
               className="flex items-center justify-between gap-3 rounded-xl px-3 py-2.5 transition-colors hover:bg-white/[0.07]"
             >
               <span className="min-w-0">
-                <span className="block truncate text-[14px] text-[#e9e5ff]">{stock.name}</span>
-                <span className="mt-0.5 block font-numeric text-[12px] text-[#ff79c0]">{stock.symbol}</span>
+                <span className="block truncate text-[14px] text-[color:var(--fg)]">{stock.name}</span>
+                <span className="mt-0.5 block font-numeric text-[12px] text-[color:var(--accent-text)]">{stock.symbol}</span>
               </span>
-              <span className="shrink-0 rounded-md bg-white/[0.06] px-2 py-0.5 font-numeric text-[11px] text-[#9f99c2]">{stock.exchange}</span>
+              <span className="shrink-0 rounded-md bg-white/[0.06] px-2 py-0.5 font-numeric text-[11px] text-[color:var(--ink-3)]">{stock.exchange}</span>
             </Link>
           ))}
         </div>

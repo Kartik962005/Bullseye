@@ -26,7 +26,7 @@ export function AboutSection() {
         <div className="max-w-[34rem]">
           <div className="flex items-center gap-3">
             <span className="nova-dot" aria-hidden />
-            <span className="font-numeric text-[11px] font-medium uppercase tracking-[0.3em] text-[#cfc9ea]">
+            <span className="font-numeric text-[11px] font-medium uppercase tracking-[0.3em] text-[color:var(--ink-2)]">
               Why Bullseye
             </span>
           </div>
@@ -39,19 +39,19 @@ export function AboutSection() {
           {PRINCIPLES.map((principle) => (
             <div key={principle.title} className="border-t border-white/12 pt-5">
               <h3 className="font-display text-[22px] leading-snug text-paper">{principle.title}</h3>
-              <p className="mt-2 font-body text-[14px] leading-6 text-[#c9c3e6]">{principle.body}</p>
+              <p className="mt-2 font-body text-[14px] leading-6 text-[color:var(--ink-2)]">{principle.body}</p>
             </div>
           ))}
         </div>
 
         <aside
           aria-labelledby="disclaimer-heading"
-          className="mt-12 rounded-2xl border border-[#ffb547]/30 bg-[#ffb547]/[0.06] p-5 sm:p-6"
+          className="mt-12 rounded-2xl border border-[color:var(--warn)]/30 bg-[color:var(--warn)]/[0.06] p-5 sm:p-6"
         >
-          <h3 id="disclaimer-heading" className="font-body text-[13px] font-semibold uppercase tracking-[0.16em] text-[#ffcf85]">
+          <h3 id="disclaimer-heading" className="font-body text-[13px] font-semibold uppercase tracking-[0.16em] text-[color:var(--warn)]">
             Disclaimer
           </h3>
-          <p className="mt-2 font-body text-[14px] leading-6 text-[#e9e5ff]">
+          <p className="mt-2 font-body text-[14px] leading-6 text-[color:var(--fg)]">
             Bullseye is a research and education tool, not investment advice. It is not registered with SEBI as an
             investment adviser or research analyst. Signals are produced by statistical models and can be wrong;
             past hit rates do not guarantee future results. Trading and investing in equities carries risk,

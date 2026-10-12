@@ -20,8 +20,8 @@ const EXAMPLES = [
   "Current RSI and support / resistance",
 ];
 
-const UP = "#6ff0b5";
-const DOWN = "#ff8aa0";
+const UP = "var(--up)";
+const DOWN = "var(--down)";
 
 function tone(value: unknown) {
   const n = Number(value);
@@ -52,11 +52,11 @@ function humanLabel(label: string) {
 function Tile({ label, value, color, hint }: { label: string; value: React.ReactNode; color?: string; hint?: string }) {
   return (
     <div className="min-w-0 rounded-2xl bg-white/[0.04] px-4 py-3">
-      <div className="text-[12px] text-[#9f99c2]">{label}</div>
+      <div className="text-[12px] text-[color:var(--ink-3)]">{label}</div>
       <div className="mt-1 truncate font-numeric text-[17px] text-paper" style={color ? { color } : undefined}>
         {value}
       </div>
-      {hint ? <div className="mt-0.5 text-[11.5px] text-[#8f89ad]">{hint}</div> : null}
+      {hint ? <div className="mt-0.5 text-[11.5px] text-[color:var(--ink-3)]">{hint}</div> : null}
     </div>
   );
 }
@@ -64,9 +64,9 @@ function Tile({ label, value, color, hint }: { label: string; value: React.React
 function Summary({ text }: { text?: string | null }) {
   if (!text) return null;
   return (
-    <div className="flex gap-3 rounded-2xl border border-[#ff4fa3]/20 bg-[#ff4fa3]/[0.06] px-4 py-3.5">
-      <SparkIcon className="mt-0.5 h-4 w-4 shrink-0 text-[#ff79c0]" />
-      <p className="text-[14px] leading-6 text-[#e9e5ff]">{text}</p>
+    <div className="flex gap-3 rounded-2xl border border-[color:var(--accent)]/20 bg-[color:var(--accent)]/[0.06] px-4 py-3.5">
+      <SparkIcon className="mt-0.5 h-4 w-4 shrink-0 text-[color:var(--accent-text)]" />
+      <p className="text-[14px] leading-6 text-[color:var(--fg)]">{text}</p>
     </div>
   );
 }
@@ -91,10 +91,10 @@ function EquityCurve({ trades }: { trades: any[] }) {
   const H = 120;
   const pts = values.map((v, i) => `${((i / (values.length - 1)) * W).toFixed(1)},${(H - ((v - min) / span) * (H - 12) - 6).toFixed(1)}`);
   const up = values[values.length - 1] >= values[0];
-  const color = up ? "#2fe0a0" : "#ff5c7a";
+  const color = up ? "var(--up)" : "var(--down)";
   return (
     <div className="rounded-2xl bg-white/[0.03] px-4 pb-3 pt-3.5">
-      <div className="flex items-center justify-between text-[12px] text-[#9f99c2]">
+      <div className="flex items-center justify-between text-[12px] text-[color:var(--ink-3)]">
         <span>Growth of ₹100, trade by trade</span>
         <span className="font-numeric" style={{ color }}>
           ₹{fmtNumber(values[values.length - 1])}
@@ -103,12 +103,12 @@ function EquityCurve({ trades }: { trades: any[] }) {
       <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="mt-2 h-24 w-full" role="img" aria-label="Equity curve of the backtest">
         <defs>
           <linearGradient id="eq-fill" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" stopColor={color} stopOpacity="0.3" />
-            <stop offset="1" stopColor={color} stopOpacity="0" />
+            <stop offset="0" style={{ stopColor: color, stopOpacity: 0.3 }} />
+            <stop offset="1" style={{ stopColor: color, stopOpacity: 0 }} />
           </linearGradient>
         </defs>
         <path d={`M${pts.join(" L")} L${W},${H} L0,${H} Z`} fill="url(#eq-fill)" />
-        <polyline points={pts.join(" ")} fill="none" stroke={color} strokeWidth="2" vectorEffect="non-scaling-stroke" strokeLinejoin="round" />
+        <polyline points={pts.join(" ")} fill="none" style={{ stroke: color }} strokeWidth="2" vectorEffect="non-scaling-stroke" strokeLinejoin="round" />
       </svg>
     </div>
   );
@@ -138,26 +138,26 @@ function StrategyResult({ result, currency }: { result: any; currency: string })
 
       <div className="grid gap-2 sm:grid-cols-2">
         <div className="rounded-2xl bg-white/[0.03] px-4 py-3">
-          <div className="text-[12px] text-[#9f99c2]">Entry rule</div>
+          <div className="text-[12px] text-[color:var(--ink-3)]">Entry rule</div>
           <div className="mt-1 text-[13.5px] text-paper">{m.buy_expr || "—"}</div>
         </div>
         <div className="rounded-2xl bg-white/[0.03] px-4 py-3">
-          <div className="text-[12px] text-[#9f99c2]">Exit rule</div>
+          <div className="text-[12px] text-[color:var(--ink-3)]">Exit rule</div>
           <div className="mt-1 text-[13.5px] text-paper">{m.sell_expr || "—"}</div>
         </div>
       </div>
 
       {!projected && <EquityCurve trades={trades} />}
 
-      <p className="text-[13px] leading-6 text-[#9f99c2]">
+      <p className="text-[13px] leading-6 text-[color:var(--ink-3)]">
         {m.analysis_text || result.answer}
         {" "}Worst trade {signedPct(s.worst_trade_pct ?? m.worst_trade_pct)}, best {signedPct(s.best_trade_pct ?? m.best_trade_pct)}, max drawdown{" "}
         {signedPct(s.max_drawdown_pct ?? m.max_drawdown_pct)}.
       </p>
 
       {m.open_trade && (
-        <div className="rounded-2xl border border-[#ffb547]/25 bg-[#ffb547]/[0.06] px-4 py-3">
-          <div className="text-[12px] font-medium text-[#ffcf85]">Open trade</div>
+        <div className="rounded-2xl border border-[color:var(--warn)]/25 bg-[color:var(--warn)]/[0.06] px-4 py-3">
+          <div className="text-[12px] font-medium text-[color:var(--warn)]">Open trade</div>
           <div className="mt-1.5 flex flex-wrap gap-x-6 gap-y-1 font-numeric text-[13px] text-paper">
             <span>Bought {m.open_trade.buy_date}{m.open_trade.buy_day ? ` (${m.open_trade.buy_day})` : ""}</span>
             <span>at {currency}{fmtNumber(m.open_trade.buy_price)}</span>
@@ -172,14 +172,14 @@ function StrategyResult({ result, currency }: { result: any; currency: string })
         <div className="overflow-hidden rounded-2xl border border-white/[0.07]">
           <div className="flex items-center justify-between bg-white/[0.03] px-4 py-2.5">
             <span className="text-[13px] font-medium text-paper">{projected ? "Projected setups" : "Trade log"}</span>
-            <span className="text-[12px] text-[#8f89ad]">{projected ? m.scope : `Latest ${trades.length}`}</span>
+            <span className="text-[12px] text-[color:var(--ink-3)]">{projected ? m.scope : `Latest ${trades.length}`}</span>
           </div>
           <div className="max-h-[360px] overflow-auto" data-lenis-prevent>
             <table className="w-full min-w-[640px] border-collapse text-left">
-              <thead className="sticky top-0 bg-[#141029]">
+              <thead className="sticky top-0 bg-[color:var(--surface)]">
                 <tr>
                   {["Bought", "Buy", "Sold", "Sell", "Held", "Return", ""].map((h) => (
-                    <th key={h} className="px-4 py-2.5 text-[11.5px] font-medium text-[#9f99c2]">
+                    <th key={h} className="px-4 py-2.5 text-[11.5px] font-medium text-[color:var(--ink-3)]">
                       {h}
                     </th>
                   ))}
@@ -188,17 +188,17 @@ function StrategyResult({ result, currency }: { result: any; currency: string })
               <tbody>
                 {[...trades].reverse().map((t, i) => (
                   <tr key={`${t.buy_date}-${t.sell_date}-${i}`} className="border-t border-white/[0.05] transition-colors hover:bg-white/[0.03]">
-                    <td className="px-4 py-2.5 font-numeric text-[12.5px] text-[#e9e5ff]">
+                    <td className="px-4 py-2.5 font-numeric text-[12.5px] text-[color:var(--fg)]">
                       {t.buy_date}
-                      <span className="ml-1.5 text-[#8f89ad]">{String(t.buy_day || "").slice(0, 3)}</span>
+                      <span className="ml-1.5 text-[color:var(--ink-3)]">{String(t.buy_day || "").slice(0, 3)}</span>
                     </td>
                     <td className="px-4 py-2.5 font-numeric text-[12.5px] text-paper">{currency}{fmtNumber(t.buy_price)}</td>
-                    <td className="px-4 py-2.5 font-numeric text-[12.5px] text-[#e9e5ff]">
+                    <td className="px-4 py-2.5 font-numeric text-[12.5px] text-[color:var(--fg)]">
                       {t.sell_date}
-                      <span className="ml-1.5 text-[#8f89ad]">{String(t.sell_day || "").slice(0, 3)}</span>
+                      <span className="ml-1.5 text-[color:var(--ink-3)]">{String(t.sell_day || "").slice(0, 3)}</span>
                     </td>
                     <td className="px-4 py-2.5 font-numeric text-[12.5px] text-paper">{currency}{fmtNumber(t.sell_price)}</td>
-                    <td className="px-4 py-2.5 font-numeric text-[12.5px] text-[#c9c3e6]">{t.holding_days}d</td>
+                    <td className="px-4 py-2.5 font-numeric text-[12.5px] text-[color:var(--ink-2)]">{t.holding_days}d</td>
                     <td className="px-4 py-2.5 font-numeric text-[12.5px]" style={{ color: tone(t.return_pct) }}>
                       {signedPct(t.return_pct)}
                     </td>
@@ -206,10 +206,10 @@ function StrategyResult({ result, currency }: { result: any; currency: string })
                       <span
                         className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${
                           t.result === "WIN"
-                            ? "bg-[#3dffa2]/12 text-[#6ff0b5]"
+                            ? "bg-[color:var(--up)]/12 text-[color:var(--up)]"
                             : t.result === "PROJECTED"
-                              ? "bg-white/[0.07] text-[#c9c3e6]"
-                              : "bg-[#ff5c7a]/12 text-[#ff8aa0]"
+                              ? "bg-white/[0.07] text-[color:var(--ink-2)]"
+                              : "bg-[color:var(--down)]/12 text-[color:var(--down)]"
                         }`}
                       >
                         {t.result === "WIN" ? "Win" : t.result === "PROJECTED" ? "Projected" : "Loss"}
@@ -232,12 +232,12 @@ function RoiResult({ result, currency }: { result: any; currency: string }) {
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-end justify-between gap-3 rounded-2xl bg-white/[0.03] px-5 py-4">
         <div>
-          <div className="text-[12px] text-[#9f99c2]">{pnl >= 0 ? "Profit" : "Loss"}</div>
+          <div className="text-[12px] text-[color:var(--ink-3)]">{pnl >= 0 ? "Profit" : "Loss"}</div>
           <div className="mt-1 font-numeric text-[28px] leading-none" style={{ color: pnl >= 0 ? UP : DOWN }}>
             {pnl >= 0 ? "+" : "−"}{currency}{fmtNumber(Math.abs(pnl))}
           </div>
         </div>
-        <span className="rounded-full px-3 py-1 font-numeric text-[14px]" style={{ color: pnl >= 0 ? UP : DOWN, background: pnl >= 0 ? "rgba(61,255,162,.12)" : "rgba(255,92,122,.12)" }}>
+        <span className="rounded-full px-3 py-1 font-numeric text-[14px]" style={{ color: pnl >= 0 ? UP : DOWN, background: pnl >= 0 ? "rgb(var(--up-rgb)/.12)" : "rgb(var(--down-rgb)/.12)" }}>
           {signedPct(result.return_pct)}
         </span>
       </div>
@@ -249,7 +249,7 @@ function RoiResult({ result, currency }: { result: any; currency: string }) {
         <Tile label="Value now" value={`${currency}${fmtNumber(result.current_value)}`} hint={`Invested ${currency}${fmtNumber(result.invested)}`} />
       </div>
       {result.exact_match === false && (
-        <p className="text-[12.5px] text-[#ffcf85]">That date wasn&apos;t a trading day, so the nearest session was used.</p>
+        <p className="text-[12.5px] text-[color:var(--warn)]">That date wasn&apos;t a trading day, so the nearest session was used.</p>
       )}
     </div>
   );
@@ -257,7 +257,7 @@ function RoiResult({ result, currency }: { result: any; currency: string }) {
 
 function PriceResult({ result, currency }: { result: any; currency: string }) {
   const c = result.candle;
-  if (!c) return <p className="text-[14px] text-[#c9c3e6]">No trading data was found for {result.requested_date}.</p>;
+  if (!c) return <p className="text-[14px] text-[color:var(--ink-2)]">No trading data was found for {result.requested_date}.</p>;
   return (
     <div className="flex flex-col gap-3">
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -268,7 +268,7 @@ function PriceResult({ result, currency }: { result: any; currency: string }) {
       </div>
       <Summary text={result.ai_summary} />
       {result.exact_match === false && (
-        <p className="text-[12.5px] text-[#ffcf85]">
+        <p className="text-[12.5px] text-[color:var(--warn)]">
           {result.requested_date} wasn&apos;t a trading day, so the nearest session is shown.
         </p>
       )}
@@ -301,12 +301,12 @@ function AnswerResult({ result, currency }: { result: any; currency: string }) {
     <div className="flex flex-col gap-3">
       <div className="rounded-2xl bg-white/[0.03] px-5 py-4">
         {result.title && result.title !== "Answer" ? (
-          <div className="mb-1.5 text-[13px] font-medium text-[#ff79c0]">{result.title}</div>
+          <div className="mb-1.5 text-[13px] font-medium text-[color:var(--accent-text)]">{result.title}</div>
         ) : null}
-        <p className="whitespace-pre-line text-[15px] leading-7 text-[#efecff]">{result.answer}</p>
+        <p className="whitespace-pre-line text-[15px] leading-7 text-[color:var(--fg)]">{result.answer}</p>
         {result.answered_by === "ai" ? (
-          <div className="mt-3 flex items-center gap-1.5 text-[12px] text-[#8f89ad]">
-            <SparkIcon className="h-3.5 w-3.5 text-[#ff79c0]" />
+          <div className="mt-3 flex items-center gap-1.5 text-[12px] text-[color:var(--ink-3)]">
+            <SparkIcon className="h-3.5 w-3.5 text-[color:var(--accent-text)]" />
             Written by AI from this stock&apos;s price data
           </div>
         ) : null}
@@ -316,7 +316,7 @@ function AnswerResult({ result, currency }: { result: any; currency: string }) {
           <button
             type="button"
             onClick={() => setShowData((v) => !v)}
-            className="flex items-center gap-1.5 text-[13px] text-[#c9c3e6] transition hover:text-white"
+            className="flex items-center gap-1.5 text-[13px] text-[color:var(--ink-2)] transition hover:text-white"
             aria-expanded={showData}
           >
             <svg viewBox="0 0 20 20" className={`h-4 w-4 transition-transform ${showData ? "rotate-90" : ""}`} fill="none" aria-hidden>
@@ -413,12 +413,12 @@ export function AiMarketSearch({
   return (
     <section className="sx-card p-5 sm:p-6">
       <div className="flex items-center gap-2.5">
-        <span className="grid h-8 w-8 place-items-center rounded-xl bg-gradient-to-br from-[#7c5cff] to-[#ff2e97]">
+        <span className="grid h-8 w-8 place-items-center rounded-xl bg-[color:var(--surface-2)] ring-1 ring-[color:var(--line)]">
           <SparkIcon className="h-4 w-4 text-white" />
         </span>
         <div>
           <h2 className="text-[16px] font-semibold tracking-[-0.01em] text-paper">Ask about {symbol}</h2>
-          <p className="text-[12.5px] text-[#9f99c2]">Questions, profit/loss, or test a buy/sell rule on its real history.</p>
+          <p className="text-[12.5px] text-[color:var(--ink-3)]">Questions, profit/loss, or test a buy/sell rule on its real history.</p>
         </div>
       </div>
 
@@ -441,7 +441,7 @@ export function AiMarketSearch({
         <button
           type="submit"
           disabled={running || !prompt.trim()}
-          className="h-12 shrink-0 rounded-2xl bg-[#ff4fa3] px-5 text-[14px] font-semibold text-[#14051a] transition hover:bg-[#ff6db3] disabled:opacity-40"
+          className="h-12 shrink-0 rounded-2xl bg-[color:var(--accent)] px-5 text-[14px] font-semibold text-[color:var(--on-accent)] transition hover:bg-[color:var(--accent)] disabled:opacity-40"
         >
           {running ? "Thinking…" : "Ask"}
         </button>
@@ -454,7 +454,7 @@ export function AiMarketSearch({
             type="button"
             onClick={() => void ask(example)}
             disabled={running}
-            className="rounded-full bg-white/[0.05] px-3 py-1.5 text-[12.5px] text-[#c9c3e6] transition hover:bg-white/[0.09] hover:text-white disabled:opacity-50"
+            className="rounded-full bg-white/[0.05] px-3 py-1.5 text-[12.5px] text-[color:var(--ink-2)] transition hover:bg-white/[0.09] hover:text-white disabled:opacity-50"
           >
             {example}
           </button>
@@ -463,7 +463,7 @@ export function AiMarketSearch({
 
       {running && (
         <div className="mt-5 flex flex-col gap-2" aria-live="polite">
-          <div className="flex items-center gap-3 text-[13px] text-[#b9b4d6]">
+          <div className="flex items-center gap-3 text-[13px] text-[color:var(--ink-2)]">
             <span className="nova-spinner" aria-hidden />
             {loader}
           </div>
@@ -475,7 +475,7 @@ export function AiMarketSearch({
       {result && !running && (
         <div className="mt-5 animate-in fade-in slide-in-from-bottom-2 duration-300" aria-live="polite">
           {result.type === "error" || result.error || result.custom_metrics?.error ? (
-            <div className="rounded-2xl border border-[#ff5c7a]/25 bg-[#ff5c7a]/[0.07] px-4 py-3 text-[14px] text-[#ffb3c1]">
+            <div className="rounded-2xl border border-[color:var(--down)]/25 bg-[color:var(--down)]/[0.07] px-4 py-3 text-[14px] text-[color:var(--down)]">
               {result.answer || result.error || result.custom_metrics?.error}
             </div>
           ) : result.type === "strategy_test" || result.custom_metrics ? (

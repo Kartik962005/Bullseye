@@ -40,7 +40,7 @@ function Shell({ subtitle, children }: { subtitle: string; children: React.React
     <section className="sx-card p-6 sm:p-7">
       <div className="mb-5">
         <h3 className="text-[18px] font-semibold tracking-[-0.01em] text-paper">Against its sector</h3>
-        <p className="mt-1.5 text-[13px] leading-relaxed text-[#9f99c2]">{subtitle}</p>
+        <p className="mt-1.5 text-[13px] leading-relaxed text-[color:var(--ink-3)]">{subtitle}</p>
       </div>
       {children}
     </section>
@@ -107,7 +107,7 @@ export function PeerComparison({ ticker }: { ticker?: string | null }) {
               <div className="relative mt-2 h-1.5 rounded-full bg-white/[0.08]">
                 <div
                   className={`absolute inset-y-0 left-0 rounded-full ${
-                    metric.better_than_median ? 'bg-[#3dffa2]/70' : 'bg-[#ff4fa3]/70'
+                    metric.better_than_median ? 'bg-[color:var(--up)]/70' : 'bg-[color:var(--accent)]/70'
                   }`}
                   style={{ width: `${pct}%` }}
                 />
@@ -133,7 +133,7 @@ export function PeerComparison({ ticker }: { ticker?: string | null }) {
             {data.peers.map(peer => (
               <span
                 key={peer.symbol}
-                className="rounded-full bg-white/[0.05] px-3 py-1 font-numeric text-[12px] text-[#c9c3e6]"
+                className="rounded-full bg-white/[0.05] px-3 py-1 font-numeric text-[12px] text-[color:var(--ink-2)]"
               >
                 {peer.symbol}
               </span>

@@ -168,7 +168,7 @@ function ScreenerPage() {
         <h1 className="mt-4 font-display text-[clamp(2.4rem,6vw,4.2rem)] leading-[1.02] tracking-[-0.01em] text-white">
           Find the stocks <em className="nova-gradient-text italic">worth a look.</em>
         </h1>
-        <p className="mx-auto mt-4 max-w-[52ch] text-[15px] leading-7 text-[#b9b4d6]">
+        <p className="mx-auto mt-4 max-w-[52ch] text-[15px] leading-7 text-[color:var(--ink-2)]">
           Describe what you want in plain English, or Hinglish. Bullseye turns it into a screen over
           today&apos;s prices, fundamentals and technicals, and shows you exactly how it read you.
         </p>
@@ -216,7 +216,7 @@ function ScreenerPage() {
                 </button>
               ))}
             </div>
-            <span className="hidden text-[12px] text-[#7d7799] sm:inline">
+            <span className="hidden text-[12px] text-[color:var(--ink-4)] sm:inline">
               {mode === 'sql' ? 'Read-only SELECT over stock_snapshot' : 'Enter to search · Shift+Enter for a new line'}
             </span>
             <button type="submit" disabled={!query.trim() || busy} className="nova-btn nova-btn-primary ml-auto !h-11 !px-6 !text-[14px] disabled:opacity-50">
@@ -242,12 +242,12 @@ function ScreenerPage() {
 
         {mode === 'sql' && (
           <details className="sx-card mt-5 p-4 text-left">
-            <summary className="cursor-pointer text-[13px] text-[#cfc9ea]">Columns you can query</summary>
+            <summary className="cursor-pointer text-[13px] text-[color:var(--ink-2)]">Columns you can query</summary>
             <dl className="mt-3 grid gap-x-8 gap-y-1.5 sm:grid-cols-2">
               {FIELDS.map(([field, meaning]) => (
                 <div key={field} className="flex items-baseline justify-between gap-4 border-b border-white/[0.05] py-1.5">
                   <dt className="font-numeric text-[12px] text-white">{field}</dt>
-                  <dd className="text-right text-[12px] text-[#9f99c2]">{meaning}</dd>
+                  <dd className="text-right text-[12px] text-[color:var(--ink-3)]">{meaning}</dd>
                 </div>
               ))}
             </dl>
@@ -265,7 +265,7 @@ function ScreenerPage() {
           ) : result?.mode === 'answer' || result?.mode === 'unavailable' ? (
             <div className="sx-card mx-auto max-w-[760px] p-6 sm:p-7">
               <Eyebrow>Bullseye AI</Eyebrow>
-              <p className="mt-3 text-[16px] leading-7 text-[#ece8ff]">{result.answer ?? result.explanation}</p>
+              <p className="mt-3 text-[16px] leading-7 text-[color:var(--fg)]">{result.answer ?? result.explanation}</p>
               <div className="mt-5 flex flex-wrap gap-2">
                 {AI_EXAMPLES.slice(0, 3).map(example => (
                   <button key={example} type="button" className="scr-example" onClick={() => run(example, 'auto')}>
@@ -277,8 +277,8 @@ function ScreenerPage() {
           ) : result?.error ? (
             <div className="sx-card p-6">
               <Eyebrow>Couldn&apos;t run that</Eyebrow>
-              <p className="mt-3 text-[15px] leading-7 text-[#ffc2cf]">{result.error}</p>
-              <p className="mt-2 text-[13px] text-[#9f99c2]">Only one read-only SELECT over stock_snapshot is allowed.</p>
+              <p className="mt-3 text-[15px] leading-7 text-[color:var(--down)]">{result.error}</p>
+              <p className="mt-2 text-[13px] text-[color:var(--ink-3)]">Only one read-only SELECT over stock_snapshot is allowed.</p>
             </div>
           ) : result ? (
             <div className="flex flex-col gap-4">
@@ -323,7 +323,7 @@ function ScreenerPage() {
                   <button type="button" onClick={copySql} className="sx-btn-ghost absolute right-3 top-3 !h-8 !text-[12px]">
                     {copied ? 'Copied' : 'Copy'}
                   </button>
-                  <pre className="overflow-x-auto whitespace-pre-wrap pr-20 font-numeric text-[12.5px] leading-6 text-[#bfe9ff]">
+                  <pre className="overflow-x-auto whitespace-pre-wrap pr-20 font-numeric text-[12.5px] leading-6 text-[color:var(--accent-text)]">
                     <code>{result.generated_sql}</code>
                   </pre>
                 </div>
@@ -393,8 +393,8 @@ function ScreenerPage() {
                 </span>
               </div>
               <h3 className="mt-3 text-[17px] font-semibold tracking-[-0.01em] text-white">{screen.title}</h3>
-              <p className="mt-1.5 text-[13.5px] leading-6 text-[#b9b4d6]">{screen.description}</p>
-              <p className="mt-auto pt-4 font-numeric text-[11px] text-[#7d7799]">{screen.rules.join(' · ')}</p>
+              <p className="mt-1.5 text-[13.5px] leading-6 text-[color:var(--ink-2)]">{screen.description}</p>
+              <p className="mt-auto pt-4 font-numeric text-[11px] text-[color:var(--ink-4)]">{screen.rules.join(' · ')}</p>
             </Link>
           ))}
         </div>
@@ -404,14 +404,14 @@ function ScreenerPage() {
       <section className="mt-20">
         <Eyebrow>Browse by sector</Eyebrow>
         <h2 className="mt-2 text-[clamp(1.5rem,3vw,2rem)] font-semibold tracking-[-0.02em] text-white">Start from an industry</h2>
-        <p className="mt-2 max-w-[62ch] text-[14px] leading-6 text-[#9f99c2]">
+        <p className="mt-2 max-w-[62ch] text-[14px] leading-6 text-[color:var(--ink-3)]">
           Median 1-year return and P/E for every stock in the sector{sectors?.asOf ? `, as of the ${sectors.asOf} close` : ''}.
         </p>
         <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {sectors
             ? sectors.list.map((s, index) => {
                 const info = SECTOR_INFO[s.sector];
-                const tone = (s.median_ret_1y ?? 0) >= 0 ? 'text-[#6ff0b5]' : 'text-[#ff8aa0]';
+                const tone = (s.median_ret_1y ?? 0) >= 0 ? 'text-[color:var(--up)]' : 'text-[color:var(--down)]';
                 return (
                   <Link
                     key={s.sector}
@@ -422,7 +422,7 @@ function ScreenerPage() {
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <h3 className="text-[17px] font-semibold tracking-[-0.01em] text-white">{info?.label ?? s.sector}</h3>
-                        <p className="mt-0.5 text-[12.5px] text-[#9f99c2]">{info?.examples ?? s.sector}</p>
+                        <p className="mt-0.5 text-[12.5px] text-[color:var(--ink-3)]">{info?.examples ?? s.sector}</p>
                       </div>
                       <span className="scr-tile-arrow" aria-hidden>
                         →
@@ -430,19 +430,19 @@ function ScreenerPage() {
                     </div>
                     <dl className="mt-4 grid grid-cols-3 gap-2">
                       <div>
-                        <dt className="text-[11px] text-[#7d7799]">Stocks</dt>
+                        <dt className="text-[11px] text-[color:var(--ink-4)]">Stocks</dt>
                         <dd className="font-numeric text-[15px] text-white">{s.stocks}</dd>
                       </div>
                       <div>
-                        <dt className="text-[11px] text-[#7d7799]">Median 1Y</dt>
+                        <dt className="text-[11px] text-[color:var(--ink-4)]">Median 1Y</dt>
                         <dd className={`font-numeric text-[15px] ${tone}`}>{signed(s.median_ret_1y)}</dd>
                       </div>
                       <div>
-                        <dt className="text-[11px] text-[#7d7799]">Median P/E</dt>
+                        <dt className="text-[11px] text-[color:var(--ink-4)]">Median P/E</dt>
                         <dd className="font-numeric text-[15px] text-white">{s.median_pe ? s.median_pe.toFixed(1) : '—'}</dd>
                       </div>
                     </dl>
-                    <p className="mt-auto truncate pt-4 text-[12px] text-[#7d7799]">
+                    <p className="mt-auto truncate pt-4 text-[12px] text-[color:var(--ink-4)]">
                       {s.leaders.map(l => l.symbol).join(' · ')} · {crore(s.market_cap_cr)}
                     </p>
                   </Link>
@@ -452,7 +452,7 @@ function ScreenerPage() {
         </div>
       </section>
 
-      <p className="mt-16 text-center text-[12px] leading-6 text-[#7d7799]">
+      <p className="mt-16 text-center text-[12px] leading-6 text-[color:var(--ink-4)]">
         Screens are for research, not recommendations. Data is from the latest market close and Yahoo Finance fundamentals,
         which can be missing or late for smaller companies.
         {' '}

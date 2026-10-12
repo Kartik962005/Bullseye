@@ -13,8 +13,9 @@ import Link from "next/link";
 import { createPortal } from "react-dom";
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import type { NovaScene } from "./NovaScene";
+import { THEME_EVENT } from "@/lib/theme";
 
-type SceneLike = Pick<NovaScene, "setMorph" | "setPointer" | "setOpacity" | "resize" | "start" | "stop" | "dispose">;
+type SceneLike = Pick<NovaScene, "setMorph" | "setPointer" | "setOpacity" | "setTheme" | "resize" | "start" | "stop" | "dispose">;
 
 const noopSubscribe = () => () => {};
 
@@ -56,13 +57,14 @@ interface NovaExperienceProps {
 
 const STOP_LABELS = ["Start", "The market", "The read", "The verdict", "Your move"];
 
-// Each formation has its own colour wash behind the particles.
+// A faint light pool behind each formation, placed where the shape sits.
+// Neutral with a trace of the accent: the dots carry the colour.
 const AURORAS = [
-  "radial-gradient(55% 60% at 72% 40%, rgba(139,92,246,0.42), transparent 70%), radial-gradient(45% 50% at 20% 85%, rgba(255,46,151,0.28), transparent 70%)",
-  "radial-gradient(55% 55% at 50% 58%, rgba(0,229,255,0.30), transparent 70%), radial-gradient(50% 50% at 85% 15%, rgba(139,92,246,0.35), transparent 70%)",
-  "radial-gradient(60% 50% at 30% 70%, rgba(255,46,151,0.34), transparent 70%), radial-gradient(45% 45% at 80% 30%, rgba(255,181,71,0.24), transparent 70%)",
-  "radial-gradient(50% 55% at 50% 40%, rgba(255,46,151,0.30), transparent 70%), radial-gradient(40% 45% at 15% 20%, rgba(0,229,255,0.24), transparent 70%)",
-  "radial-gradient(55% 55% at 35% 50%, rgba(184,255,60,0.20), transparent 70%), radial-gradient(50% 50% at 80% 70%, rgba(0,229,255,0.28), transparent 70%)",
+  "radial-gradient(55% 60% at 72% 40%, rgb(var(--fg-rgb)/0.07), transparent 70%), radial-gradient(45% 50% at 20% 85%, rgb(var(--accent-rgb)/0.06), transparent 70%)",
+  "radial-gradient(55% 55% at 50% 58%, rgb(var(--fg-rgb)/0.06), transparent 70%), radial-gradient(50% 50% at 85% 15%, rgb(var(--accent-rgb)/0.06), transparent 70%)",
+  "radial-gradient(60% 50% at 30% 70%, rgb(var(--fg-rgb)/0.06), transparent 70%), radial-gradient(45% 45% at 80% 30%, rgb(var(--accent-rgb)/0.07), transparent 70%)",
+  "radial-gradient(50% 55% at 50% 40%, rgb(var(--fg-rgb)/0.06), transparent 70%), radial-gradient(40% 45% at 15% 20%, rgb(var(--accent-rgb)/0.06), transparent 70%)",
+  "radial-gradient(55% 55% at 35% 50%, rgb(var(--fg-rgb)/0.05), transparent 70%), radial-gradient(50% 50% at 80% 70%, rgb(var(--accent-rgb)/0.07), transparent 70%)",
 ];
 
 // The four story beats. Every beat uses the same layout (copy in a left
@@ -106,7 +108,7 @@ function Eyebrow({ index, label }: { index: string; label: string }) {
   return (
     <div className="flex items-center gap-3">
       <span className="nova-dot" aria-hidden />
-      <span className="font-numeric text-[11px] font-medium uppercase tracking-[0.3em] text-[#cfc9ea]">
+      <span className="font-numeric text-[11px] font-medium uppercase tracking-[0.3em] text-[color:var(--ink-2)]">
         <span className="text-paper">{index}</span>
         <span className="mx-2 opacity-50">/</span>
         {label}
@@ -220,6 +222,7 @@ export function NovaExperience({ signedIn, onOpenDailySignals, stockStrip }: Nov
         return;
       }
       sceneRef.current = scene;
+      scene.setTheme(document.documentElement.dataset.theme === "light");
       const resize = () => scene.resize(window.innerWidth, window.innerHeight);
       resize();
       scene.start();
@@ -232,10 +235,13 @@ export function NovaExperience({ signedIn, onOpenDailySignals, stockStrip }: Nov
         scene.setPointer((e.clientX / window.innerWidth) * 2 - 1, -((e.clientY / window.innerHeight) * 2 - 1));
       };
       const onVisibility = () => (document.hidden ? scene.stop() : scene.start());
+      const onTheme = () => scene.setTheme(document.documentElement.dataset.theme === "light");
+      window.addEventListener(THEME_EVENT, onTheme);
       window.addEventListener("resize", resize);
       window.addEventListener("pointermove", onPointer, { passive: true });
       document.addEventListener("visibilitychange", onVisibility);
       cleanup = () => {
+        window.removeEventListener(THEME_EVENT, onTheme);
         window.removeEventListener("resize", resize);
         window.removeEventListener("pointermove", onPointer);
         document.removeEventListener("visibilitychange", onVisibility);
@@ -351,7 +357,7 @@ export function NovaExperience({ signedIn, onOpenDailySignals, stockStrip }: Nov
   };
 
   const fixedLayer = (
-    <div aria-hidden className="pointer-events-none fixed inset-0 z-0 overflow-hidden bg-[#070514]">
+    <div aria-hidden className="pointer-events-none fixed inset-0 z-0 overflow-hidden bg-[color:var(--bg)]">
       {AURORAS.map((bg, i) => (
         <div
           key={i}
@@ -405,7 +411,7 @@ export function NovaExperience({ signedIn, onOpenDailySignals, stockStrip }: Nov
               <br />
               <em className="nova-gradient-text italic">verdict.</em>
             </h1>
-            <p className="mt-6 max-w-[46ch] font-body text-[16px] leading-7 text-[#d6d0f0]">
+            <p className="mt-6 max-w-[46ch] font-body text-[16px] leading-7 text-[color:var(--ink-2)]">
               Bullseye reads the whole market every evening and hands you the short list: entry,
               target, stop, and an honest conviction score.
             </p>
@@ -422,7 +428,7 @@ export function NovaExperience({ signedIn, onOpenDailySignals, stockStrip }: Nov
             </div>
             <div className="nova-scroll-cue mt-10 hidden items-center gap-3 sm:flex">
               <span className="nova-scroll-line" aria-hidden />
-              <span className="font-numeric text-[11px] uppercase tracking-[0.28em] text-[#cfc9ea]">
+              <span className="font-numeric text-[11px] uppercase tracking-[0.28em] text-[color:var(--ink-2)]">
                 Scroll to fly through the market
               </span>
             </div>
@@ -439,7 +445,7 @@ export function NovaExperience({ signedIn, onOpenDailySignals, stockStrip }: Nov
               <br />
               <em className="nova-gradient-text italic">{beat.em}</em>
             </h2>
-            <p className="mt-5 max-w-[44ch] font-body text-[16px] leading-7 text-[#d6d0f0]">{beat.body}</p>
+            <p className="mt-5 max-w-[44ch] font-body text-[16px] leading-7 text-[color:var(--ink-2)]">{beat.body}</p>
             {beat.chips ? (
               <div className="mt-6 flex flex-wrap gap-2">
                 {beat.chips.map((chip) => (

@@ -67,7 +67,7 @@ export default function SectorDetailPage() {
         <h1 className="mt-3 text-[clamp(2rem,5vw,3.2rem)] font-semibold leading-[1.05] tracking-[-0.03em] text-white">
           {info?.label ?? sector}
         </h1>
-        <p className="mt-3 max-w-[60ch] text-[16px] leading-7 text-[#b9b4d6]">
+        <p className="mt-3 max-w-[60ch] text-[16px] leading-7 text-[color:var(--ink-2)]">
           {info ? `${info.examples}. ` : ''}Every NSE stock Yahoo Finance files under “{sector}”, largest first.
           {raw !== sector ? ` (“${raw}” is now part of this sector.)` : ''}
         </p>
@@ -81,10 +81,10 @@ export default function SectorDetailPage() {
           ['Best 1Y (over ₹1,000 cr)', loading ? '…' : best ? best.stock.symbol : '—', best ? signed(best.technical?.return1yPct ?? null) : ''],
         ].map(([label, value, extra]) => (
           <div key={label} className="sx-card px-4 py-3.5">
-            <dt className="text-[12px] text-[#9f99c2]">{label}</dt>
+            <dt className="text-[12px] text-[color:var(--ink-3)]">{label}</dt>
             <dd className="mt-1 flex items-baseline gap-2 font-numeric text-[20px] text-white">
               {value}
-              {extra ? <span className="text-[13px] text-[#6ff0b5]">{extra}</span> : null}
+              {extra ? <span className="text-[13px] text-[color:var(--up)]">{extra}</span> : null}
             </dd>
           </div>
         ))}
@@ -98,7 +98,7 @@ export default function SectorDetailPage() {
             </button>
           ))}
         </div>
-        <span className="text-[12px] text-[#7d7799]">Large ≥ ₹1L cr · Mid ₹30,000 cr–₹1L cr · Small under ₹30,000 cr</span>
+        <span className="text-[12px] text-[color:var(--ink-4)]">Large ≥ ₹1L cr · Mid ₹30,000 cr–₹1L cr · Small under ₹30,000 cr</span>
       </div>
 
       <section className="mt-4">

@@ -4,7 +4,7 @@
 // Mirrors the maths in NovaScene's vertex shader.
 
 import * as THREE from "three";
-import { buildFormations, type Formations } from "./formations";
+import { buildFormations, lightModeColor, type Formations } from "./formations";
 import { FOV, viewAt } from "./camera";
 
 const smoothstep = (a: number, b: number, x: number) => {
@@ -38,6 +38,7 @@ export class NovaScene2D {
   private width = 1;
   private height = 1;
   private still: boolean;
+  private light = false;
 
   constructor({ canvas, count, still = false }: NovaScene2DOptions) {
     const ctx = canvas.getContext("2d");
@@ -62,6 +63,11 @@ export class NovaScene2D {
     this.opacity = value;
     if (value <= 0.01) this.stop();
     else this.start();
+  }
+
+  setTheme(light: boolean) {
+    this.light = light;
+    this.start();
   }
 
   resize(width: number, height: number) {
@@ -121,7 +127,7 @@ export class NovaScene2D {
     const { ctx, width: W, height: H } = this;
     ctx.globalCompositeOperation = "source-over";
     ctx.clearRect(0, 0, W, H);
-    ctx.globalCompositeOperation = "lighter";
+    ctx.globalCompositeOperation = this.light ? "source-over" : "lighter";
 
     const { positions: P, colors: C, random: R, count: N } = this.f;
     const t = this.time;
@@ -207,9 +213,10 @@ export class NovaScene2D {
       const cr = mix(mix(mix(mix(C[0][i3], C[1][i3], k1), C[2][i3], k2), C[3][i3], k3), C[4][i3], k4) * (1 + burst * 0.3);
       const cg = mix(mix(mix(mix(C[0][i3 + 1], C[1][i3 + 1], k1), C[2][i3 + 1], k2), C[3][i3 + 1], k3), C[4][i3 + 1], k4) * (1 + burst * 0.3);
       const cb = mix(mix(mix(mix(C[0][i3 + 2], C[1][i3 + 2], k1), C[2][i3 + 2], k2), C[3][i3 + 2], k3), C[4][i3 + 2], k4) * (1 + burst * 0.3);
-      const r = Math.min(255, cr * 255) | 0;
-      const g = Math.min(255, cg * 255) | 0;
-      const b = Math.min(255, cb * 255) | 0;
+      const [lr, lg, lb] = this.light ? lightModeColor(cr, cg, cb) : [cr, cg, cb];
+      const r = Math.min(255, lr * 255) | 0;
+      const g = Math.min(255, lg * 255) | 0;
+      const b = Math.min(255, lb * 255) | 0;
       const radius = Math.min(9, Math.max(0.7, (R[i * 4 + 2] * 0.048 * scale) / cw) * 0.32);
 
       if (radius > 2.2) {

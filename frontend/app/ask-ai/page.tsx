@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { BullseyeLogo, BullseyeMark } from '@/components/brand/BullseyeLogo';
 import { usePresence } from '@/components/motion/usePresence';
+import { ThemeToggle } from '@/components/ThemeToggle';
 import { Markdown } from './Markdown';
 import { BacktestCard, MoversCard, ScanCard, ScreenerCard, StrategyCard } from './ResultCards';
 import type { AskAiResponse, ChatMessage, ConversationSummary, MoversScan, Scan } from './types';
@@ -404,7 +405,7 @@ export default function AskAiPage() {
               type="button"
               onClick={() => loadConversations().catch(() => {})}
               disabled={conversationsLoading}
-              className="text-[12px] text-[#9f99c2] hover:text-white disabled:opacity-40"
+              className="text-[12px] text-[color:var(--ink-3)] hover:text-white disabled:opacity-40"
             >
               Refresh
             </button>
@@ -423,11 +424,11 @@ export default function AskAiPage() {
                 className={`ai-history ${c.id === conversationId ? 'is-active' : ''}`}
               >
                 <span className="block truncate text-[13.5px]">{c.title || 'Untitled chat'}</span>
-                <span className="mt-0.5 block text-[11.5px] text-[#7d7799]">{relativeTime(c.updated_at)}</span>
+                <span className="mt-0.5 block text-[11.5px] text-[color:var(--ink-4)]">{relativeTime(c.updated_at)}</span>
               </button>
             ))
           ) : (
-            <p className="rounded-2xl border border-dashed border-white/10 px-3.5 py-4 text-[13px] leading-6 text-[#9f99c2]">
+            <p className="rounded-2xl border border-dashed border-white/10 px-3.5 py-4 text-[13px] leading-6 text-[color:var(--ink-3)]">
               {user ? (
                 'Your chats from the last 48 hours show up here.'
               ) : (
@@ -442,21 +443,21 @@ export default function AskAiPage() {
           )}
         </div>
       </div>
-      <p className="px-1 text-[11.5px] leading-5 text-[#7d7799]">
+      <p className="px-1 text-[11.5px] leading-5 text-[color:var(--ink-4)]">
         Research on historical data, not investment advice. Past results don&apos;t predict future returns.
       </p>
     </div>
   );
 
   return (
-    <main className="relative flex h-dvh flex-col overflow-hidden bg-[#070514] font-body text-white">
+    <main className="relative flex h-dvh flex-col overflow-hidden bg-[color:var(--bg)] font-body text-white">
       <div aria-hidden className="sx-backdrop" />
 
-      <header className="relative z-30 flex h-16 shrink-0 items-center gap-3 border-b border-white/[0.06] bg-[#070514]/70 px-4 backdrop-blur-xl sm:px-5">
+      <header className="relative z-30 flex h-16 shrink-0 items-center gap-3 border-b border-white/[0.06] bg-[color:var(--bg)]/70 px-4 backdrop-blur-xl sm:px-5">
         <button
           type="button"
           onClick={() => setDrawerOpen(true)}
-          className="grid h-10 w-10 place-items-center rounded-full text-[#c9c3e6] hover:bg-white/[0.06] lg:hidden"
+          className="grid h-10 w-10 place-items-center rounded-full text-[color:var(--ink-2)] hover:bg-white/[0.06] lg:hidden"
           aria-label="Open chat history"
         >
           <Icon d="M4 7h16M4 12h16M4 17h10" />
@@ -464,8 +465,9 @@ export default function AskAiPage() {
         <Link href="/" aria-label="Bullseye home">
           <BullseyeLogo size={26} wordClassName="text-[20px]" />
         </Link>
-        <span className="hidden rounded-full border border-white/10 px-2.5 py-1 text-[11px] text-[#c9c3e6] sm:inline">Ask AI</span>
+        <span className="hidden rounded-full border border-white/10 px-2.5 py-1 text-[11px] text-[color:var(--ink-2)] sm:inline">Ask AI</span>
         <nav className="ml-auto flex items-center gap-2 sm:gap-4">
+          <ThemeToggle />
           {!isEmpty && (
             // The wrapper hides it on desktop: .sx-btn-ghost's own display
             // would override a lg:hidden on the button itself.
@@ -479,17 +481,17 @@ export default function AskAiPage() {
             <svg viewBox="0 0 24 24" className="h-[18px] w-[18px]" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M12 3a6 6 0 0 0-6 6v3.5L4.5 16h15L18 12.5V9a6 6 0 0 0-6-6ZM9.5 19a2.5 2.5 0 0 0 5 0" /></svg>
             <span className="hdr-label">Daily alerts</span>
           </Link>
-          <Link href="/screens" className="hidden text-[13px] font-medium text-[#c9c3e6] hover:text-white sm:inline">
+          <Link href="/screens" className="hidden text-[13px] font-medium text-[color:var(--ink-2)] hover:text-white sm:inline">
             Screener
           </Link>
-          <Link href="/" className="hidden text-[13px] font-medium text-[#c9c3e6] hover:text-white sm:inline">
+          <Link href="/" className="hidden text-[13px] font-medium text-[color:var(--ink-2)] hover:text-white sm:inline">
             Home
           </Link>
         </nav>
       </header>
 
       <div className="relative z-10 flex min-h-0 flex-1">
-        <aside className="hidden w-[280px] shrink-0 border-r border-white/[0.06] bg-[#0b0820]/60 lg:block">{sidebar}</aside>
+        <aside className="hidden w-[280px] shrink-0 border-r border-white/[0.06] bg-[color:var(--bg)]/60 lg:block">{sidebar}</aside>
 
         <section className="flex min-w-0 flex-1 flex-col">
           <div ref={threadRef} className="min-h-0 flex-1 overflow-y-auto" data-lenis-prevent>
@@ -502,24 +504,24 @@ export default function AskAiPage() {
                   <h1 className="mt-6 font-display text-[clamp(2.2rem,5.5vw,3.6rem)] leading-[1.04] text-white">
                     What do you want to <em className="nova-gradient-text italic">know?</em>
                   </h1>
-                  <p className="mt-3 max-w-[48ch] text-[15px] leading-7 text-[#b9b4d6]">
+                  <p className="mt-3 max-w-[48ch] text-[15px] leading-7 text-[color:var(--ink-2)]">
                     Ask about any NSE stock, test a trading rule on real history, or get a concept explained.
                   </p>
                 </div>
                 <div className="ai-rise mt-8" style={{ animationDelay: '80ms' }}>
                   {composer}
-                  <p className="mt-2.5 text-center text-[12px] text-[#7d7799]">Enter to send · Shift + Enter for a new line</p>
+                  <p className="mt-2.5 text-center text-[12px] text-[color:var(--ink-4)]">Enter to send · Shift + Enter for a new line</p>
                 </div>
                 <div className="mb-auto mt-10 grid gap-3 sm:grid-cols-2">
                   {CAPABILITIES.map((cap, index) => (
                     <div key={cap.title} className="ai-rise ai-cap" style={{ animationDelay: `${160 + index * 60}ms` }}>
                       <div className="flex items-center gap-2.5">
-                        <span className="grid h-8 w-8 place-items-center rounded-xl bg-white/[0.06] text-[#ff79c0]">
+                        <span className="grid h-8 w-8 place-items-center rounded-xl bg-white/[0.06] text-[color:var(--accent-text)]">
                           <Icon d={cap.icon} className="h-4 w-4" />
                         </span>
                         <span className="text-[15px] font-semibold text-white">{cap.title}</span>
                       </div>
-                      <p className="mt-2 text-[13px] leading-6 text-[#9f99c2]">{cap.blurb}</p>
+                      <p className="mt-2 text-[13px] leading-6 text-[color:var(--ink-3)]">{cap.blurb}</p>
                       <div className="mt-3 flex flex-col gap-1.5">
                         {cap.prompts.map(prompt => (
                           <button key={prompt} type="button" onClick={() => send(prompt)} className="ai-prompt">
@@ -545,8 +547,8 @@ export default function AskAiPage() {
                       </span>
                       <div className="min-w-0 flex-1 pt-0.5">
                         {message.error ? (
-                          <div className="rounded-2xl border border-[#ff5c7a]/30 bg-[#ff5c7a]/[0.07] px-4 py-3">
-                            <p className="text-[14.5px] leading-7 text-[#ffc2cf]">{message.content}</p>
+                          <div className="rounded-2xl border border-[color:var(--down)]/30 bg-[color:var(--down)]/[0.07] px-4 py-3">
+                            <p className="text-[14.5px] leading-7 text-[color:var(--down)]">{message.content}</p>
                             {message.retryPrompt && (
                               <button type="button" onClick={() => send(message.retryPrompt!)} disabled={loading} className="sx-btn-ghost mt-2 !h-8 !text-[12px]">
                                 Try again
@@ -563,7 +565,7 @@ export default function AskAiPage() {
                             {message.data?.mode === 'movers' && message.data.scan && <MoversCard data={message.data.scan as MoversScan} />}
                             {message.data?.mode === 'cross_scan' && message.data.scan && <ScanCard data={message.data.scan as Scan} />}
                             {message.data?.mode === 'screener' && message.data.screener && <ScreenerCard data={message.data.screener} />}
-                            <div className="mt-3 flex items-center gap-3 text-[12px] text-[#7d7799]">
+                            <div className="mt-3 flex items-center gap-3 text-[12px] text-[color:var(--ink-4)]">
                               {message.thoughtMs !== undefined && <span>Answered in {duration(message.thoughtMs)}</span>}
                               <button type="button" onClick={() => copyAnswer(message)} className="inline-flex items-center gap-1 hover:text-white">
                                 <Icon d="M9 9h10v10H9zM5 15V5h10" className="h-3.5 w-3.5" />
@@ -592,7 +594,7 @@ export default function AskAiPage() {
                     </span>
                     <div className="flex flex-wrap items-center gap-3 pt-1.5">
                       <span className="ai-shimmer text-[14.5px]">{thinkingLabel(elapsedMs)}</span>
-                      <span className="font-numeric text-[12px] text-[#7d7799]">{duration(elapsedMs)}</span>
+                      <span className="font-numeric text-[12px] text-[color:var(--ink-4)]">{duration(elapsedMs)}</span>
                     </div>
                   </div>
                 )}
@@ -604,7 +606,7 @@ export default function AskAiPage() {
             <div className="shrink-0 px-4 pb-4 pt-2 sm:px-6">
               <div className="mx-auto w-full max-w-[800px]">
                 {composer}
-                <p className="mt-2 text-center text-[11.5px] text-[#7d7799]">
+                <p className="mt-2 text-center text-[11.5px] text-[color:var(--ink-4)]">
                   Research on historical data, not investment advice.
                 </p>
               </div>
@@ -617,7 +619,7 @@ export default function AskAiPage() {
       {drawer.mounted && (
         <div className="fixed inset-0 z-50 lg:hidden">
           <div data-state={drawer.state} className="anim-fade absolute inset-0 bg-black/60" onClick={() => setDrawerOpen(false)} />
-          <div data-state={drawer.state} className="ai-drawer absolute inset-y-0 left-0 w-[86vw] max-w-[320px] border-r border-white/10 bg-[#0d0a1f]">
+          <div data-state={drawer.state} className="ai-drawer absolute inset-y-0 left-0 w-[86vw] max-w-[320px] border-r border-white/10 bg-[color:var(--surface)]">
             {sidebar}
           </div>
         </div>

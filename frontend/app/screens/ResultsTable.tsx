@@ -185,7 +185,7 @@ export default function ResultsTable({
       <div className="flex flex-wrap items-center gap-3 border-b border-white/[0.07] px-4 py-3 sm:px-5">
         <div className="mr-auto flex items-baseline gap-2">
           <span className="font-numeric text-[15px] text-white">{loading ? '—' : shown.length}</span>
-          <span className="text-[13px] text-[#9f99c2]">
+          <span className="text-[13px] text-[color:var(--ink-3)]">
             {shown.length === 1 ? 'stock' : 'stocks'}
             {asOf ? <> · close of {asOf}</> : null}
           </span>
@@ -210,7 +210,7 @@ export default function ResultsTable({
                     key={id}
                     type="button"
                     onClick={() => setVisible(v => (on ? v.filter(x => x !== id) : [...v, id]))}
-                    className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-[13px] text-[#d9d4f2] hover:bg-white/[0.06]"
+                    className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-[13px] text-[color:var(--ink-2)] hover:bg-white/[0.06]"
                   >
                     {col.label}
                     <span className={`scr-check ${on ? 'is-on' : ''}`} aria-hidden />
@@ -265,12 +265,12 @@ export default function ResultsTable({
                     <tr key={row.stock.ticker} onClick={() => router.push(href)} className="scr-row" style={{ animationDelay: `${Math.min(index, 12) * 18}ms` }}>
                       <td className="scr-sticky">
                         <div className="flex items-center gap-3">
-                          <span className="font-numeric w-6 shrink-0 text-right text-[11px] text-[#6f6a8f]">{index + 1}</span>
+                          <span className="font-numeric w-6 shrink-0 text-right text-[11px] text-[color:var(--ink-4)]">{index + 1}</span>
                           <div className="min-w-0">
-                            <Link href={href} onClick={e => e.stopPropagation()} className="block max-w-[15rem] truncate text-[14px] font-medium text-white hover:text-[#ff79c0]">
+                            <Link href={href} onClick={e => e.stopPropagation()} className="block max-w-[15rem] truncate text-[14px] font-medium text-white hover:text-[color:var(--accent-text)]">
                               {row.stock.name}
                             </Link>
-                            <div className="mt-0.5 flex items-center gap-2 text-[11px] text-[#8e88b3]">
+                            <div className="mt-0.5 flex items-center gap-2 text-[11px] text-[color:var(--ink-3)]">
                               <span className="font-numeric">{row.stock.symbol}</span>
                               {row.sector ? <span className="truncate">· {row.sector}</span> : null}
                             </div>
@@ -284,7 +284,7 @@ export default function ResultsTable({
                           col.tone === 'signed' && typeof value === 'number' ? (value > 0 ? 'is-up' : value < 0 ? 'is-down' : '') : '';
                         return (
                           <td key={id} className={tone}>
-                            {typeof value === 'number' && Number.isFinite(value) ? col.format(value) : <span className="text-[#5d5880]">—</span>}
+                            {typeof value === 'number' && Number.isFinite(value) ? col.format(value) : <span className="text-[color:var(--ink-4)]">—</span>}
                           </td>
                         );
                       })}
@@ -296,7 +296,7 @@ export default function ResultsTable({
         {!loading && !shown.length && (
           <div className="px-6 py-14 text-center">
             <p className="text-[15px] text-white">{filter ? `Nothing in these results matches “${filter}”.` : emptyText}</p>
-            {!filter && <p className="mt-1.5 text-[13px] text-[#9f99c2]">Try loosening one of the conditions.</p>}
+            {!filter && <p className="mt-1.5 text-[13px] text-[color:var(--ink-3)]">Try loosening one of the conditions.</p>}
           </div>
         )}
       </div>

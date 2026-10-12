@@ -3,17 +3,35 @@
 // the page scrolls. Built once on the CPU with a seeded RNG (stable layout on
 // every visit), then uploaded as static attributes — the GPU does the rest.
 
+// Graphite and white with the logo pink as the only colour. The names are the
+// formations' roles, kept from the original palette so the shapes read the
+// same: "pink" is the accent, the rest are steps of white and silver. In light
+// mode the shader turns the neutrals dark (see NovaScene).
 export const PALETTE = {
-  amber: [1.0, 0.72, 0.3],
-  pink: [1.0, 0.18, 0.59],
-  violet: [0.55, 0.36, 0.96],
-  cyan: [0.0, 0.9, 1.0],
-  lime: [0.72, 1.0, 0.24],
-  white: [1.0, 0.95, 0.88],
-  deepViolet: [0.36, 0.13, 0.71],
+  amber: [1.0, 0.96, 0.92],
+  pink: [1.0, 0.31, 0.64],
+  violet: [0.6, 0.62, 0.68],
+  cyan: [0.84, 0.86, 0.9],
+  lime: [1.0, 0.31, 0.64],
+  white: [1.0, 1.0, 1.0],
+  deepViolet: [0.36, 0.38, 0.43],
 } as const;
 
 type RGB = readonly [number, number, number] | readonly number[];
+
+/** A dot colour for a light page: neutrals turn dark graphite, the accent
+ *  stays pink but deeper. Mirrors the fragment shader in NovaScene. */
+export function lightModeColor(r: number, g: number, b: number): [number, number, number] {
+  const mx = Math.max(r, g, b);
+  const sat = mx - Math.min(r, g, b);
+  const accentWeight = Math.min(1, Math.max(0, (sat - 0.25) / 0.2));
+  const neutral = 0.08 + 0.22 * (1 - Math.min(1, mx));
+  return [
+    neutral + (r * 0.82 - neutral) * accentWeight,
+    neutral + 0.01 + (g * 0.82 - neutral - 0.01) * accentWeight,
+    neutral + 0.02 + (b * 0.82 - neutral - 0.02) * accentWeight,
+  ];
+}
 
 export interface Formations {
   count: number;

@@ -36,7 +36,7 @@ function inline(text: string, key: string, onRun?: (prompt: string) => void): Re
             <span aria-hidden> ↵</span>
           </button>
         ) : (
-          <code key={`${key}-c${i}`} className="rounded-md bg-white/[0.07] px-1.5 py-0.5 font-numeric text-[0.86em] text-[#ffb3d9]">
+          <code key={`${key}-c${i}`} className="rounded-md bg-white/[0.07] px-1.5 py-0.5 font-numeric text-[0.86em] text-[color:var(--accent-text)]">
             {code}
           </code>
         ),
@@ -103,7 +103,7 @@ export function Markdown({ text, onRun }: { text: string; onRun?: (prompt: strin
       }
       const List = ordered ? 'ol' : 'ul';
       blocks.push(
-        <List key={`l${k++}`} className={`my-2 space-y-1.5 pl-5 ${ordered ? 'list-decimal' : 'list-disc'} marker:text-[#ff79c0]`}>
+        <List key={`l${k++}`} className={`my-2 space-y-1.5 pl-5 ${ordered ? 'list-decimal' : 'list-disc'} marker:text-[color:var(--accent-text)]`}>
           {items.map((item, j) => (
             <li key={j}>{inline(item, `li${k}${j}`, onRun)}</li>
           ))}

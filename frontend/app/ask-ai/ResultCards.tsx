@@ -11,7 +11,7 @@ export function pct(value: number | undefined | null) {
 
 function tone(value: number | undefined | null) {
   if (value === undefined || value === null || Number.isNaN(value) || value === 0) return 'text-white';
-  return value > 0 ? 'text-[#6ff0b5]' : 'text-[#ff8aa0]';
+  return value > 0 ? 'text-[color:var(--up)]' : 'text-[color:var(--down)]';
 }
 
 function num(value: number | undefined | null, digits = 2) {
@@ -36,7 +36,7 @@ function Card({ title, badge, children }: { title: string; badge?: ReactNode; ch
 function Stat({ label, value, className = 'text-white' }: { label: string; value: string; className?: string }) {
   return (
     <div className="rounded-2xl bg-white/[0.04] px-3.5 py-2.5">
-      <div className="text-[11.5px] text-[#9f99c2]">{label}</div>
+      <div className="text-[11.5px] text-[color:var(--ink-3)]">{label}</div>
       <div className={`mt-0.5 font-numeric text-[17px] ${className}`}>{value}</div>
     </div>
   );
@@ -48,14 +48,14 @@ function Rule({ buy, sell }: { buy?: string; sell?: string }) {
     <div className="mt-3 flex flex-col gap-1.5">
       {buy && (
         <div className="flex items-start gap-2 text-[12px]">
-          <span className="rounded-md bg-[#3dffa2]/15 px-1.5 py-0.5 font-numeric text-[10.5px] text-[#6ff0b5]">BUY</span>
-          <code className="min-w-0 break-all font-numeric text-[#c9c3e6]">{buy}</code>
+          <span className="rounded-md bg-[color:var(--up)]/15 px-1.5 py-0.5 font-numeric text-[10.5px] text-[color:var(--up)]">BUY</span>
+          <code className="min-w-0 break-all font-numeric text-[color:var(--ink-2)]">{buy}</code>
         </div>
       )}
       {sell && (
         <div className="flex items-start gap-2 text-[12px]">
-          <span className="rounded-md bg-[#ff5c7a]/15 px-1.5 py-0.5 font-numeric text-[10.5px] text-[#ff8aa0]">SELL</span>
-          <code className="min-w-0 break-all font-numeric text-[#c9c3e6]">{sell}</code>
+          <span className="rounded-md bg-[color:var(--down)]/15 px-1.5 py-0.5 font-numeric text-[10.5px] text-[color:var(--down)]">SELL</span>
+          <code className="min-w-0 break-all font-numeric text-[color:var(--ink-2)]">{sell}</code>
         </div>
       )}
     </div>
@@ -88,10 +88,10 @@ function Table({ head, children }: { head: string[]; children: ReactNode }) {
 function StockCell({ ticker, symbol, name }: { ticker: string; symbol?: string; name?: string }) {
   return (
     <td className="scr-sticky">
-      <Link href={stockHref(ticker)} className="block text-[13.5px] font-medium text-white hover:text-[#ff79c0]">
+      <Link href={stockHref(ticker)} className="block text-[13.5px] font-medium text-white hover:text-[color:var(--accent-text)]">
         {symbol || ticker}
       </Link>
-      {name && <div className="max-w-[12rem] truncate text-[11px] text-[#8e88b3]">{name}</div>}
+      {name && <div className="max-w-[12rem] truncate text-[11px] text-[color:var(--ink-3)]">{name}</div>}
     </td>
   );
 }
@@ -115,7 +115,7 @@ export function BacktestCard({ data, ticker }: { data: Backtest; ticker: string 
           <Stat label="Buy & hold" value={pct(data.buy_and_hold_return_pct)} className={tone(data.buy_and_hold_return_pct)} />
           <Stat label="Beat buy & hold by" value={pct(data.alpha_vs_buy_hold_pct)} className={tone(data.alpha_vs_buy_hold_pct)} />
           <Stat label="Average trade" value={pct(s.avg_return_per_trade_pct)} className={tone(s.avg_return_per_trade_pct)} />
-          <Stat label="Worst drawdown" value={pct(s.max_drawdown_pct)} className="text-[#ff8aa0]" />
+          <Stat label="Worst drawdown" value={pct(s.max_drawdown_pct)} className="text-[color:var(--down)]" />
           <Stat label="Profit factor" value={s.profit_factor !== undefined ? String(s.profit_factor) : '—'} />
         </div>
       ) : (
@@ -123,13 +123,13 @@ export function BacktestCard({ data, ticker }: { data: Backtest; ticker: string 
       )}
       {data.trades && data.trades.length > 0 && (
         <details className="mt-4">
-          <summary className="cursor-pointer text-[13px] text-[#c9c3e6] hover:text-white">
+          <summary className="cursor-pointer text-[13px] text-[color:var(--ink-2)] hover:text-white">
             Last {Math.min(data.trades.length, 12)} trades
           </summary>
           <Table head={['Bought', 'Sold', 'Days', 'Return']}>
             {data.trades.slice(-12).reverse().map((t, i) => (
               <tr key={i}>
-                <td className="scr-sticky font-numeric text-[12px] text-[#c9c3e6]">
+                <td className="scr-sticky font-numeric text-[12px] text-[color:var(--ink-2)]">
                   {t.buy_date} · ₹{num(t.buy_price)}
                 </td>
                 <td>
@@ -153,7 +153,7 @@ export function ScanCard({ data }: { data: Scan }) {
       <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-5">
         <Stat label="Scanned" value={data.universe ? `${data.scanned} / ${data.universe}` : String(data.scanned)} />
         <Stat label="Traded" value={String(data.traded)} />
-        <Stat label="Profitable" value={`${data.profitable} / ${data.traded}`} className="text-[#6ff0b5]" />
+        <Stat label="Profitable" value={`${data.profitable} / ${data.traded}`} className="text-[color:var(--up)]" />
         <Stat label="Beat buy & hold" value={`${data.beat_buy_hold} / ${data.traded}`} />
         <Stat label="Average return" value={pct(data.avg_total_return_pct)} className={tone(data.avg_total_return_pct)} />
       </div>
@@ -186,7 +186,7 @@ export function MoversCard({ data }: { data: MoversScan }) {
     <Card
       title={`${losers ? 'Biggest fallers' : 'Biggest gainers'}${data.session_date ? ` · ${data.session_date}` : ''}`}
       badge={
-        <span className="text-[12px] text-[#9f99c2]">
+        <span className="text-[12px] text-[color:var(--ink-3)]">
           {data.ready ? `${data.universe} stocks checked` : `Checking ${data.coverage} of ${data.universe}`}
         </span>
       }
@@ -205,7 +205,7 @@ export function MoversCard({ data }: { data: MoversScan }) {
         <Notice>Scanning the whole market now. Ask again in a moment for the full ranking.</Notice>
       )}
       {!data.ready && data.rows.length > 0 && (
-        <p className="mt-3 text-[12px] text-[#9f99c2]">
+        <p className="mt-3 text-[12px] text-[color:var(--ink-3)]">
           Still scanning ({data.coverage} of {data.universe}). Ask again shortly for the complete list.
         </p>
       )}
@@ -216,7 +216,7 @@ export function MoversCard({ data }: { data: MoversScan }) {
 export function ScreenerCard({ data }: { data: ScreenerResult }) {
   const rows = data.rows || [];
   return (
-    <Card title="Matching stocks" badge={<span className="text-[12px] text-[#9f99c2]">{rows.length} found</span>}>
+    <Card title="Matching stocks" badge={<span className="text-[12px] text-[color:var(--ink-3)]">{rows.length} found</span>}>
       {data.matchedRules && data.matchedRules.length > 0 && (
         <div className="mt-3 flex flex-wrap gap-1.5">
           {data.matchedRules.slice(0, 6).map(rule => (
@@ -272,16 +272,16 @@ export function StrategyCard({
             <Stat label="Trades" value={String(Number(stats.trades ?? 0))} />
             <Stat label="Win rate" value={`${Number(stats.win_rate ?? 0).toFixed(1)}%`} />
             <Stat label="Average trade" value={pct(Number(stats.avg_return_per_trade ?? 0))} className={tone(Number(stats.avg_return_per_trade ?? 0))} />
-            <Stat label="Worst drawdown" value={pct(Number(stats.max_drawdown ?? 0))} className="text-[#ff8aa0]" />
+            <Stat label="Worst drawdown" value={pct(Number(stats.max_drawdown ?? 0))} className="text-[color:var(--down)]" />
           </div>
           {!alert.alertable && alert.quality?.reason && <Notice>{alert.quality.reason}</Notice>}
         </Card>
       )}
       {alert.alertable && data.strategy_json && (
-        <div className="mt-4 flex flex-wrap items-center gap-4 rounded-[20px] border border-[#3dffa2]/25 bg-[#3dffa2]/[0.06] p-4">
+        <div className="mt-4 flex flex-wrap items-center gap-4 rounded-[20px] border border-[color:var(--up)]/25 bg-[color:var(--up)]/[0.06] p-4">
           <div className="min-w-0 flex-1">
             <div className="text-[14px] font-medium text-white">Get this as a daily email alert</div>
-            <p className="mt-0.5 text-[13px] leading-6 text-[#b9b4d6]">
+            <p className="mt-0.5 text-[13px] leading-6 text-[color:var(--ink-2)]">
               {alert.quality?.reason || 'This strategy passed the quality checks.'}
             </p>
           </div>

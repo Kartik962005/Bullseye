@@ -48,10 +48,10 @@ type TrackRecordResponse = {
 };
 
 const OUTCOME_STYLE: Record<string, string> = {
-  WIN: 'border-[#3dffa2]/30 bg-[#3dffa2]/10 text-[#6ff0b5]',
-  LOSS: 'border-[#ff5c7a]/30 bg-[#ff5c7a]/10 text-[#ff8aa0]',
-  NEUTRAL: 'border-white/10 bg-white/[0.04] text-[#b9b4d6]',
-  PENDING: 'border-[#ff4fa3]/30 bg-[#ff4fa3]/10 text-[#ff79c0]',
+  WIN: 'border-[color:var(--up)]/30 bg-[color:var(--up)]/10 text-[color:var(--up)]',
+  LOSS: 'border-[color:var(--down)]/30 bg-[color:var(--down)]/10 text-[color:var(--down)]',
+  NEUTRAL: 'border-white/10 bg-white/[0.04] text-[color:var(--ink-2)]',
+  PENDING: 'border-[color:var(--accent)]/30 bg-[color:var(--accent)]/10 text-[color:var(--accent-text)]',
 };
 
 const OUTCOME_LABEL: Record<string, string> = {
@@ -66,7 +66,7 @@ function Shell({ children }: { children: React.ReactNode }) {
     <section className="sx-card p-6 sm:p-7">
       <div className="mb-5">
         <h3 className="text-[18px] font-semibold tracking-[-0.01em] text-paper">Our track record here</h3>
-        <p className="mt-1.5 text-[13px] leading-relaxed text-[#9f99c2]">
+        <p className="mt-1.5 text-[13px] leading-relaxed text-[color:var(--ink-3)]">
           Past Bullseye calls on this stock and how each one resolved. Hit rate counts
           closed calls only.
         </p>
@@ -135,7 +135,7 @@ export function TrackRecord({ symbol, currency = '₹' }: { symbol?: string | nu
               ? '—'
               : `${Math.round(hitRate * 100)}%`}
           </div>
-          <div className="mt-1 text-[12px] text-[#8f89ad]">
+          <div className="mt-1 text-[12px] text-[color:var(--ink-3)]">
             {resolved > 0 ? `over ${resolved} closed call${resolved === 1 ? '' : 's'}` : 'nothing closed yet'}
           </div>
         </div>
@@ -148,14 +148,14 @@ export function TrackRecord({ symbol, currency = '₹' }: { symbol?: string | nu
               ? '—'
               : summary.avg_realized_r.toFixed(2)}
           </div>
-          <div className="mt-1 text-[12px] text-[#8f89ad]">per closed call</div>
+          <div className="mt-1 text-[12px] text-[color:var(--ink-3)]">per closed call</div>
         </div>
         <div>
           <div className="sx-label">
             Calls
           </div>
           <div className="mt-1.5 font-numeric text-[26px] leading-none text-paper">{summary?.total ?? signals.length}</div>
-          <div className="mt-1 text-[12px] text-[#8f89ad]">
+          <div className="mt-1 text-[12px] text-[color:var(--ink-3)]">
             {summary?.pending ? `${summary.pending} still open` : 'all closed'}
           </div>
         </div>

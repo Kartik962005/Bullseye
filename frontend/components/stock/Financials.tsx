@@ -30,7 +30,7 @@ const STATEMENTS = [
 
 function Sparkline({ values }: { values: number[] }) {
   const pts = values.filter((v) => Number.isFinite(v));
-  if (pts.length < 2) return <span className="text-[#5f5a7d]">—</span>;
+  if (pts.length < 2) return <span className="text-[color:var(--ink-4)]">—</span>;
   const min = Math.min(...pts);
   const max = Math.max(...pts);
   const span = Math.max(max - min, 1e-9);
@@ -40,7 +40,7 @@ function Sparkline({ values }: { values: number[] }) {
   const up = pts[pts.length - 1] >= pts[0];
   return (
     <svg viewBox={`0 0 ${W} ${H}`} className="h-[22px] w-[72px]" aria-hidden>
-      <path d={d} fill="none" stroke={up ? "#2fe0a0" : "#ff5c7a"} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+      <path d={d} fill="none" stroke={up ? "var(--up)" : "var(--down)"} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
@@ -58,7 +58,7 @@ function StatementTable({ table, currency }: { table: any; currency: string }) {
   if (!rows.length || !columns.length) {
     return (
       <div className="sx-empty h-40">
-        <div className="text-[14px] text-[#c9c3e6]">This statement isn&apos;t available for this stock yet.</div>
+        <div className="text-[14px] text-[color:var(--ink-2)]">This statement isn&apos;t available for this stock yet.</div>
       </div>
     );
   }
@@ -67,11 +67,11 @@ function StatementTable({ table, currency }: { table: any; currency: string }) {
       <table className="w-full min-w-[760px] border-collapse text-left">
         <thead>
           <tr className="bg-white/[0.03]">
-            <th className="sticky left-0 z-[1] bg-[#141029] px-4 py-3 text-[12px] font-medium text-[#9f99c2]">Line item</th>
-            <th className="px-3 py-3 text-[12px] font-medium text-[#9f99c2]">Trend</th>
-            <th className="px-3 py-3 text-right text-[12px] font-medium text-[#9f99c2]">Change</th>
+            <th className="sticky left-0 z-[1] bg-[color:var(--surface)] px-4 py-3 text-[12px] font-medium text-[color:var(--ink-3)]">Line item</th>
+            <th className="px-3 py-3 text-[12px] font-medium text-[color:var(--ink-3)]">Trend</th>
+            <th className="px-3 py-3 text-right text-[12px] font-medium text-[color:var(--ink-3)]">Change</th>
             {columns.map((c) => (
-              <th key={c} className="whitespace-nowrap px-4 py-3 text-right text-[12px] font-medium text-[#9f99c2]">
+              <th key={c} className="whitespace-nowrap px-4 py-3 text-right text-[12px] font-medium text-[color:var(--ink-3)]">
                 {c}
               </th>
             ))}
@@ -87,7 +87,7 @@ function StatementTable({ table, currency }: { table: any; currency: string }) {
             const change = Number.isFinite(latest) && Number.isFinite(prev) && prev !== 0 ? ((latest - prev) / Math.abs(prev)) * 100 : null;
             return (
               <tr key={row.label} className="border-t border-white/[0.05] transition-colors hover:bg-white/[0.025]">
-                <td className="sticky left-0 z-[1] whitespace-nowrap bg-[#110d24] px-4 py-2.5 text-[13.5px] text-[#e9e5ff]">
+                <td className="sticky left-0 z-[1] whitespace-nowrap bg-[color:var(--bg)] px-4 py-2.5 text-[13.5px] text-[color:var(--fg)]">
                   {humanizeLabel(row.label)}
                 </td>
                 <td className="px-3 py-2.5">
@@ -95,7 +95,7 @@ function StatementTable({ table, currency }: { table: any; currency: string }) {
                 </td>
                 <td
                   className="whitespace-nowrap px-3 py-2.5 text-right font-numeric text-[12.5px]"
-                  style={{ color: change === null ? "#8f89ad" : change >= 0 ? "#6ff0b5" : "#ff8aa0" }}
+                  style={{ color: change === null ? "var(--ink-3)" : change >= 0 ? "var(--up)" : "var(--down)" }}
                 >
                   {change === null ? "—" : `${change >= 0 ? "+" : "−"}${Math.abs(change).toFixed(1)}%`}
                 </td>
@@ -175,12 +175,12 @@ export function Financials({
       <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
         <section className="sx-card p-5 sm:p-6">
           <h2 className="text-[16px] font-semibold tracking-[-0.01em] text-paper">About {stock.name}</h2>
-          <p className={`mt-3 text-[14px] leading-7 text-[#d6d0f0] ${longAbout && !showFullAbout ? "line-clamp-4" : ""}`}>{about}</p>
+          <p className={`mt-3 text-[14px] leading-7 text-[color:var(--ink-2)] ${longAbout && !showFullAbout ? "line-clamp-4" : ""}`}>{about}</p>
           {longAbout && (
             <button
               type="button"
               onClick={() => setShowFullAbout((v) => !v)}
-              className="mt-2 text-[13px] font-medium text-[#ff79c0] transition hover:text-white"
+              className="mt-2 text-[13px] font-medium text-[color:var(--accent-text)] transition hover:text-white"
             >
               {showFullAbout ? "Show less" : "Read more"}
             </button>
@@ -189,10 +189,10 @@ export function Financials({
             <dl className="mt-5 grid grid-cols-2 gap-x-6 gap-y-3 border-t border-white/[0.07] pt-4">
               {facts.map(([label, value]) => (
                 <div key={label} className="min-w-0">
-                  <dt className="text-[12px] text-[#9f99c2]">{label}</dt>
+                  <dt className="text-[12px] text-[color:var(--ink-3)]">{label}</dt>
                   <dd className="mt-0.5 truncate text-[14px] text-paper">
                     {label === "Website" ? (
-                      <a href={String(value).startsWith("http") ? String(value) : `https://${value}`} target="_blank" rel="noreferrer" className="text-[#ff79c0] hover:underline">
+                      <a href={String(value).startsWith("http") ? String(value) : `https://${value}`} target="_blank" rel="noreferrer" className="text-[color:var(--accent-text)] hover:underline">
                         {String(value).replace(/^https?:\/\//, "")}
                       </a>
                     ) : (
@@ -208,12 +208,12 @@ export function Financials({
         <section className="sx-card p-5 sm:p-6">
           <div className="flex items-baseline justify-between gap-2">
             <h2 className="text-[16px] font-semibold tracking-[-0.01em] text-paper">At a glance</h2>
-            <span className="font-numeric text-[12px] text-[#8f89ad]">{ticker.replace(/\.(NS|BO)$/i, "")}</span>
+            <span className="font-numeric text-[12px] text-[color:var(--ink-3)]">{ticker.replace(/\.(NS|BO)$/i, "")}</span>
           </div>
           <div className="mt-4 grid grid-cols-2 gap-px overflow-hidden rounded-2xl bg-white/[0.06] sm:grid-cols-4">
             {glance.map(([label, value]) => (
-              <div key={label} className="min-w-0 bg-[#100c22] px-4 py-3.5">
-                <div className="text-[12px] text-[#9f99c2]">{label}</div>
+              <div key={label} className="min-w-0 bg-[color:var(--surface)] px-4 py-3.5">
+                <div className="text-[12px] text-[color:var(--ink-3)]">{label}</div>
                 <div className="mt-1 truncate font-numeric text-[15px] text-paper" title={String(value)}>
                   {value}
                 </div>
@@ -227,7 +227,7 @@ export function Financials({
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="text-[16px] font-semibold tracking-[-0.01em] text-paper">Financial statements</h2>
-            <p className="mt-0.5 text-[12.5px] text-[#8f89ad]">Newest period first. Large figures in crore (Cr) or lakh (L).</p>
+            <p className="mt-0.5 text-[12.5px] text-[color:var(--ink-3)]">Newest period first. Large figures in crore (Cr) or lakh (L).</p>
           </div>
           <div className="sx-seg overflow-x-auto" role="tablist" aria-label="Statement">
             {STATEMENTS.map(([key, label]) => (
@@ -248,13 +248,13 @@ export function Financials({
           <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
             {ratios.map((r: any) => (
               <div key={r.label} className="rounded-2xl bg-white/[0.04] px-4 py-3">
-                <div className="text-[12px] text-[#9f99c2]">{r.label}</div>
+                <div className="text-[12px] text-[color:var(--ink-3)]">{r.label}</div>
                 <div className="mt-1 font-numeric text-[16px] text-paper">{formatRatioValue(r.value, r.kind)}</div>
               </div>
             ))}
           </div>
         ) : (
-          <p className="mt-3 text-[13.5px] text-[#9f99c2]">Ratios aren&apos;t available for this stock yet.</p>
+          <p className="mt-3 text-[13.5px] text-[color:var(--ink-3)]">Ratios aren&apos;t available for this stock yet.</p>
         )}
       </section>
     </div>

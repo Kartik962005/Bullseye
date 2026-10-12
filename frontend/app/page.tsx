@@ -13,6 +13,8 @@ import { NovaSearch } from '@/components/home/NovaSearch';
 import { usePresence } from '@/components/motion/usePresence';
 import { BullseyeLogo, BullseyeMark } from '@/components/brand/BullseyeLogo';
 import { DailyAlertsDialog } from '@/components/alerts/DailyAlertsDialog';
+import { ThemeToggle } from '@/components/ThemeToggle';
+import { canvasColors, useTheme } from '@/lib/theme';
 import { TrackRecord } from '@/components/stock/TrackRecord';
 import { PeerComparison } from '@/components/stock/PeerComparison';
 import { StockHeader } from '@/components/stock/StockHeader';
@@ -276,7 +278,7 @@ const IndicatorChartPane = ({
         <button
           type="button"
           onClick={() => onRemove(panel.name)}
-          className="ml-auto flex h-7 w-7 items-center justify-center rounded-lg text-[#9f99c2] transition hover:bg-white/[0.07] hover:text-white"
+          className="ml-auto flex h-7 w-7 items-center justify-center rounded-lg text-[color:var(--ink-3)] transition hover:bg-white/[0.07] hover:text-white"
           aria-label={`Remove ${panel.name}`}
         >
           <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
@@ -433,7 +435,7 @@ const MarketAssetCard = ({
   const verdictBadge = isReady ? analysisView.displayVerdict.replace('Strong ', '') : 'Analyzing';
 
   // Verdict colour drives the card's border tint, glow and bar.
-  const verdictColor = isReady ? (isBull ? '#3dffa2' : isHold ? '#b9b4d6' : '#ff5c7a') : '#ff4fa3';
+  const verdictColor = isReady ? (isBull ? 'var(--up)' : isHold ? 'var(--ink-2)' : 'var(--down)') : 'var(--accent)';
   const hasPrice = Number.isFinite(quickPrice) && quickPrice > 0;
   const hasChange = Number.isFinite(quickChange) && quickQuote?.change_percent != null;
 
@@ -473,7 +475,7 @@ const MarketAssetCard = ({
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="truncate font-numeric text-[14px] font-medium tracking-tight text-paper">{stock.symbol}</div>
-          <div className="mt-1 truncate text-[13px] text-[#b9b4d6]" title={stock.name}>
+          <div className="mt-1 truncate text-[13px] text-[color:var(--ink-2)]" title={stock.name}>
             {stock.name}
           </div>
         </div>
@@ -487,7 +489,7 @@ const MarketAssetCard = ({
         {hasChange ? (
           <span
             className={`shrink-0 whitespace-nowrap rounded-full px-2 py-0.5 font-numeric text-[11.5px] sm:text-[12px] ${
-              quickChange >= 0 ? 'bg-[#3dffa2]/12 text-[#6ff0b5]' : 'bg-[#ff5c7a]/12 text-[#ff8aa0]'
+              quickChange >= 0 ? 'bg-[color:var(--up)]/12 text-[color:var(--up)]' : 'bg-[color:var(--down)]/12 text-[color:var(--down)]'
             }`}
           >
             {quickChange >= 0 ? '+' : '−'}
@@ -565,7 +567,7 @@ const StockPreviewModal = ({
   const hasChange = Number.isFinite(quickChange) && quickQuote?.change_percent != null;
   const isBull = analysisView?.isBullish;
   const isHold = analysisView?.isHold;
-  const verdictColor = analysisView ? (isBull ? '#3dffa2' : isHold ? '#b9b4d6' : '#ff5c7a') : '#ff4fa3';
+  const verdictColor = analysisView ? (isBull ? 'var(--up)' : isHold ? 'var(--ink-2)' : 'var(--down)') : 'var(--accent)';
   const verdictLabel = analysisView ? analysisView.displayVerdict.replace('Strong ', '') : 'Analysing';
   const gradientId = `ql-${useId().replace(/:/g, '')}`;
 
@@ -648,7 +650,7 @@ const StockPreviewModal = ({
 
   const stat = (label: string, value: string, tone?: string) => (
     <div className="rounded-2xl bg-white/[0.045] px-3.5 py-3">
-      <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-[#9f99c2]">{label}</div>
+      <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-[color:var(--ink-3)]">{label}</div>
       <div className="mt-1.5 truncate font-numeric text-[15px] text-paper" style={tone ? { color: tone } : undefined}>{value}</div>
     </div>
   );
@@ -674,7 +676,7 @@ const StockPreviewModal = ({
             <div className="min-w-0">
               <div className="flex items-center gap-2">
                 <span className="rounded-full bg-white/[0.08] px-2.5 py-1 font-numeric text-[12px] text-paper">{stock.symbol}</span>
-                <span className="text-[12px] text-[#9f99c2]">{stock.exchange}</span>
+                <span className="text-[12px] text-[color:var(--ink-3)]">{stock.exchange}</span>
               </div>
               <h2 className="mt-3 truncate font-display text-[30px] leading-[1.05] text-paper" title={stock.name}>{stock.name}</h2>
             </div>
@@ -682,7 +684,7 @@ const StockPreviewModal = ({
               type="button"
               onClick={animateClose}
               aria-label="Close quick look"
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/[0.07] text-[#d6d0f0] transition hover:rotate-90 hover:bg-white/15 hover:text-white"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/[0.07] text-[color:var(--ink-2)] transition hover:rotate-90 hover:bg-white/15 hover:text-white"
             >
               <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
                 <path d="M18 6 6 18M6 6l12 12" />
@@ -696,7 +698,7 @@ const StockPreviewModal = ({
                 {hasPrice ? `${stock.currency}${quickPrice.toLocaleString('en-IN')}` : '—'}
               </div>
               {hasChange ? (
-                <div className={`mt-2 inline-flex rounded-full px-2.5 py-0.5 font-numeric text-[12px] ${quickChange >= 0 ? 'bg-[#3dffa2]/12 text-[#6ff0b5]' : 'bg-[#ff5c7a]/12 text-[#ff8aa0]'}`}>
+                <div className={`mt-2 inline-flex rounded-full px-2.5 py-0.5 font-numeric text-[12px] ${quickChange >= 0 ? 'bg-[color:var(--up)]/12 text-[color:var(--up)]' : 'bg-[color:var(--down)]/12 text-[color:var(--down)]'}`}>
                   {quickChange >= 0 ? '+' : '−'}{Math.abs(quickChange).toFixed(2)}% today
                 </div>
               ) : null}
@@ -714,7 +716,7 @@ const StockPreviewModal = ({
           </div>
 
           <div className="nova-quicklook-chart mt-5 overflow-hidden rounded-2xl">
-            <div className="flex items-center justify-between px-4 pt-3 text-[12px] text-[#9f99c2]">
+            <div className="flex items-center justify-between px-4 pt-3 text-[12px] text-[color:var(--ink-3)]">
               <span>Last month</span>
               <span className="font-numeric">1M</span>
             </div>
@@ -731,7 +733,7 @@ const StockPreviewModal = ({
                   <path d={previewPath} fill="none" style={{ stroke: verdictColor }} strokeWidth="2.5" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
                 </>
               ) : (
-                <text x="360" y="95" textAnchor="middle" fill="#9f99c2" style={{ fontSize: 13 }}>Loading chart…</text>
+                <text x="360" y="95" textAnchor="middle" style={{ fontSize: 13, fill: "var(--ink-3)" }}>Loading chart…</text>
               )}
             </svg>
           </div>
@@ -740,23 +742,23 @@ const StockPreviewModal = ({
             <>
               <div className="mt-3 grid grid-cols-3 gap-2">
                 <div className="rounded-2xl bg-white/[0.045] px-3.5 py-3">
-                  <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-[#9f99c2]">Confidence</div>
+                  <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-[color:var(--ink-3)]">Confidence</div>
                   <div className="mt-1.5 font-numeric text-[15px] text-paper">{analysisView.confidenceLevel}%</div>
                   <div className="mt-2 h-1 overflow-hidden rounded-full bg-white/10">
                     <div className="h-full rounded-full" style={{ width: `${analysisView.confidenceLevel}%`, background: verdictColor }} />
                   </div>
                 </div>
-                {stat('Target', isHold ? '—' : `${stock.currency}${analysisView.target}`, isHold ? undefined : '#6ff0b5')}
-                {stat('Stop', isHold ? '—' : `${stock.currency}${analysisView.stop_loss}`, isHold ? undefined : '#ff8aa0')}
+                {stat('Target', isHold ? '—' : `${stock.currency}${analysisView.target}`, isHold ? undefined : 'var(--up)')}
+                {stat('Stop', isHold ? '—' : `${stock.currency}${analysisView.stop_loss}`, isHold ? undefined : 'var(--down)')}
               </div>
               {isHold ? (
-                <p className="mt-3 text-[13px] leading-5 text-[#b9b4d6]">
+                <p className="mt-3 text-[13px] leading-5 text-[color:var(--ink-2)]">
                   No active trade. Target and stop appear once the setup becomes actionable.
                 </p>
               ) : null}
             </>
           ) : (
-            <div className="mt-3 flex items-center gap-3 rounded-2xl bg-white/[0.045] px-4 py-3.5 text-[13px] text-[#b9b4d6]">
+            <div className="mt-3 flex items-center gap-3 rounded-2xl bg-white/[0.045] px-4 py-3.5 text-[13px] text-[color:var(--ink-2)]">
               <span className="nova-spinner" aria-hidden />
               Running the analysis…
             </div>
@@ -861,7 +863,7 @@ const FundamentalsSnapshotCard = ({
     <section className="sx-card p-5 sm:p-6">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="text-[16px] font-semibold tracking-[-0.01em] text-paper">Key stats</h2>
-        <span className="text-[12px] text-[#8f89ad]">Latest reported figures</span>
+        <span className="text-[12px] text-[color:var(--ink-3)]">Latest reported figures</span>
       </div>
       {isLoading && !fundamentals ? (
         <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -870,8 +872,8 @@ const FundamentalsSnapshotCard = ({
       ) : (
         <div className="mt-4 grid grid-cols-2 gap-px overflow-hidden rounded-2xl bg-white/[0.06] sm:grid-cols-4">
           {items.map(item => (
-            <div key={item.label} className="min-w-0 bg-[#100c22] px-4 py-3.5">
-              <div className="text-[12px] text-[#9f99c2]">{item.label}</div>
+            <div key={item.label} className="min-w-0 bg-[color:var(--surface)] px-4 py-3.5">
+              <div className="text-[12px] text-[color:var(--ink-3)]">{item.label}</div>
               <div className="mt-1 truncate font-numeric text-[15px] text-paper" title={item.value}>{item.value}</div>
             </div>
           ))}
@@ -918,6 +920,8 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
   const [input, setInput] = useState('');
   const [suggestions, setSuggestions] = useState<typeof STOCKS>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
+  // Charts draw on canvas with resolved colours, so they redraw on theme change.
+  const theme = useTheme();
   // On phones the search field opens from an icon instead of taking a row.
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
   const mobileSearch = usePresence(mobileSearchOpen, 160);
@@ -1707,28 +1711,28 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
       const initW = rect.width || container.clientWidth || 800;
       const initH = rect.height || container.clientHeight || 320;
       const indicatorHeight = 170;
-      const chart = createChart(container, {
+      const chart = createChart(container, canvasColors({
         width: initW,
         height: initH,
-        // Axis labels need real contrast against the dark panel — #c6c6cd was
+        // Axis labels need real contrast against the dark panel — var(--ink-2) was
         // washing out, which is why dates/prices read as invisible.
-        layout: { background: { color: 'transparent' }, textColor: '#c9c3e6', fontSize: 12 },
-        grid: { vertLines: { color: 'rgba(255,255,255,0.04)' }, horzLines: { color: 'rgba(255,255,255,0.05)' } },
+        layout: { background: { color: 'transparent' }, textColor: 'var(--ink-2)', fontSize: 12 },
+        grid: { vertLines: { color: 'rgb(var(--fg-rgb)/0.04)' }, horzLines: { color: 'rgb(var(--fg-rgb)/0.05)' } },
         crosshair: {
           mode: 1,
-          vertLine: { color: 'rgba(255,79,163,0.55)', labelBackgroundColor: '#ff4fa3' },
-          horzLine: { color: 'rgba(255,79,163,0.55)', labelBackgroundColor: '#ff4fa3' },
+          vertLine: { color: 'rgb(var(--accent-rgb)/0.55)', labelBackgroundColor: 'var(--accent)' },
+          horzLine: { color: 'rgb(var(--accent-rgb)/0.55)', labelBackgroundColor: 'var(--accent)' },
         },
         timeScale: {
           timeVisible: chartRange === '1d' || chartRange === '1w',
           secondsVisible: false,
-          borderColor: 'rgba(255,255,255,0.08)',
+          borderColor: 'rgb(var(--fg-rgb)/0.08)',
           fixLeftEdge: chartRange !== 'max',
           fixRightEdge: true,
           rightOffset: 5,
         },
-        rightPriceScale: { borderColor: 'rgba(255,255,255,0.08)' },
-      });
+        rightPriceScale: { borderColor: 'rgb(var(--fg-rgb)/0.08)' },
+      }));
 
       const isIntraday = chartRange === '1d' || chartRange === '1w';
       const formattedData = chartData
@@ -1744,29 +1748,29 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
       // Colour follows the move over the visible range: green up, red down.
       const points = formattedData.map((d: any) => ({ time: d.time, value: d.close }));
       const rising = points.length < 2 || points[points.length - 1].value >= points[0].value;
-      const lineColor = rising ? '#2fe0a0' : '#ff5c7a';
-      const priceSeries = chart.addSeries(AreaSeries, {
+      const lineColor = rising ? 'var(--up)' : 'var(--down)';
+      const priceSeries = chart.addSeries(AreaSeries, canvasColors({
         lineColor,
         lineWidth: 2,
-        topColor: rising ? 'rgba(47,224,160,0.26)' : 'rgba(255,92,122,0.24)',
-        bottomColor: 'rgba(7,5,20,0)',
+        topColor: rising ? 'rgb(var(--up-rgb)/0.26)' : 'rgb(var(--down-rgb)/0.24)',
+        bottomColor: 'rgb(var(--bg-rgb)/0)',
         priceLineColor: lineColor,
         crosshairMarkerRadius: 5,
-        crosshairMarkerBorderColor: '#ffffff',
+        crosshairMarkerBorderColor: 'var(--fg)',
         crosshairMarkerBackgroundColor: lineColor,
-      });
+      }));
       priceSeries.setData(points);
 
       // Entry / target / stop as labelled guides, so the call sits on the chart.
       const plan = getAnalysisPresentation(analysis);
       if (plan && !plan.isHold) {
         ([
-          [plan.entry, 'Entry', '#c9c3e6'],
-          [plan.target, 'Target', '#2fe0a0'],
-          [plan.stop_loss, 'Stop', '#ff5c7a'],
+          [plan.entry, 'Entry', 'var(--ink-2)'],
+          [plan.target, 'Target', 'var(--up)'],
+          [plan.stop_loss, 'Stop', 'var(--down)'],
         ] as Array<[number, string, string]>).forEach(([price, title, color]) => {
           if (Number.isFinite(Number(price)) && Number(price) > 0) {
-            priceSeries.createPriceLine({ price: Number(price), color, lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title });
+            priceSeries.createPriceLine(canvasColors({ price: Number(price), color, lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title }));
           }
         });
       }
@@ -1778,36 +1782,36 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
           pane.innerHTML = '';
           const paneRect = pane.getBoundingClientRect();
           const paneWidth = paneRect.width || pane.clientWidth || initW;
-          const indicatorChart = createChart(pane, {
+          const indicatorChart = createChart(pane, canvasColors({
             width: paneWidth,
             height: indicatorHeight,
-            layout: { background: { color: 'transparent' }, textColor: '#9f99c2' },
-            grid: { vertLines: { color: 'rgba(255,255,255,0.04)' }, horzLines: { color: 'rgba(255,255,255,0.05)' } },
+            layout: { background: { color: 'transparent' }, textColor: 'var(--ink-3)' },
+            grid: { vertLines: { color: 'rgb(var(--fg-rgb)/0.04)' }, horzLines: { color: 'rgb(var(--fg-rgb)/0.05)' } },
             crosshair: {
               mode: 1,
-              vertLine: { color: 'rgba(255,79,163,0.45)', labelBackgroundColor: '#ff4fa3' },
-              horzLine: { color: 'rgba(255,79,163,0.45)', labelBackgroundColor: '#ff4fa3' },
+              vertLine: { color: 'rgb(var(--accent-rgb)/0.45)', labelBackgroundColor: 'var(--accent)' },
+              horzLine: { color: 'rgb(var(--accent-rgb)/0.45)', labelBackgroundColor: 'var(--accent)' },
             },
             rightPriceScale: {
-              borderColor: 'rgba(255,255,255,0.08)',
+              borderColor: 'rgb(var(--fg-rgb)/0.08)',
               scaleMargins: { top: 0.2, bottom: 0.12 },
             },
             timeScale: {
               timeVisible: chartRange === '1d' || chartRange === '1w',
               secondsVisible: false,
-              borderColor: 'rgba(255,255,255,0.08)',
+              borderColor: 'rgb(var(--fg-rgb)/0.08)',
               fixLeftEdge: chartRange !== 'max',
               fixRightEdge: true,
               rightOffset: 5,
             },
-          });
-          const lineSeries = indicatorChart.addSeries(LineSeries, {
+          }));
+          const lineSeries = indicatorChart.addSeries(LineSeries, canvasColors({
             color: panel.color,
             lineWidth: 2,
             priceLineVisible: true,
             lastValueVisible: true,
             crosshairMarkerVisible: true,
-          });
+          }));
           const panelValues = panel.series;
           const panelTimes = formattedData.slice(-panelValues.length);
           lineSeries.setData(panelValues.map((point, index) => ({
@@ -1882,7 +1886,7 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
       cancelled = true;
       cleanup();
     };
-  }, [chartData, chartRange, indicatorPanels, ticker, dashboardView, analysis]);
+  }, [chartData, chartRange, indicatorPanels, ticker, dashboardView, analysis, theme]);
 
   const openStockView = (stock: typeof STOCKS[0], nextView: DashboardView = 'overview') => {
     withViewTransition(() => openStockViewNow(stock, nextView));
@@ -2130,7 +2134,7 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
   const dashboardAnalysisView = getAnalysisPresentation(analysis);
   const isBull = dashboardAnalysisView?.isBullish;
   const isHold = dashboardAnalysisView?.isHold;
-  const accentColor = isBull ? 'text-green-400 drop-shadow-[0_0_15px_rgba(74,222,128,0.5)]' : isHold ? 'text-zinc-300' : 'text-red-500 drop-shadow-[0_0_15px_rgba(239,68,68,0.5)]';
+  const accentColor = isBull ? 'text-green-400 drop-shadow-[0_0_15px_rgb(var(--up-rgb)/0.5)]' : isHold ? 'text-zinc-300' : 'text-red-500 drop-shadow-[0_0_15px_rgb(var(--down-rgb)/0.5)]';
   const previewStock = !ticker && expandedTicker ? STOCKS.find(stock => stock.ticker === expandedTicker) ?? null : null;
   const filteredIndicators = INDICATOR_NAMES.filter(name =>
     name.toLowerCase().includes(indicatorQuery.trim().toLowerCase())
@@ -2153,13 +2157,13 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
         @keyframes dataDrift { 0% { transform: translate3d(0, 0, 0); } 50% { transform: translate3d(14px, -10px, 0); } 100% { transform: translate3d(0, 0, 0); } }
         @keyframes scanLine { 0% { transform: translateX(-30%); opacity: 0; } 18%, 72% { opacity: 0.55; } 100% { transform: translateX(130%); opacity: 0; } }
         .brand-mark {
-          box-shadow: 0 16px 40px rgba(8,145,178,0.22), inset 0 1px 0 rgba(255,255,255,0.9);
+          box-shadow: 0 16px 40px rgb(var(--accent-rgb)/0.22), inset 0 1px 0 rgb(var(--fg-rgb)/0.9);
         }
         .market-visual {
           background-image:
-            linear-gradient(120deg, rgba(6,182,212,0.13), transparent 28%, rgba(16,185,129,0.10) 62%, transparent),
-            linear-gradient(rgba(8,145,178,0.08) 1px, transparent 1px),
-            linear-gradient(90deg, rgba(8,145,178,0.08) 1px, transparent 1px);
+            linear-gradient(120deg, rgb(var(--accent-rgb)/0.13), transparent 28%, rgb(var(--up-rgb)/0.10) 62%, transparent),
+            linear-gradient(rgb(var(--accent-rgb)/0.08) 1px, transparent 1px),
+            linear-gradient(90deg, rgb(var(--accent-rgb)/0.08) 1px, transparent 1px);
           background-size: 42px 42px;
           mask-image: linear-gradient(to bottom, black 0%, transparent 76%);
         }
@@ -2170,33 +2174,33 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
           animation: scanLine 6s ease-in-out infinite;
         }
         .disclaimer-panel {
-          background: linear-gradient(135deg, rgba(255,251,235,0.98), rgba(254,243,199,0.92)) !important;
-          border-color: rgba(217,119,6,0.34) !important;
-          box-shadow: 0 16px 42px rgba(146,64,14,0.10);
+          background: rgb(var(--warn-rgb)/0.08) !important;
+          border-color: rgb(var(--warn-rgb)/0.34) !important;
+          box-shadow: 0 16px 42px rgb(var(--warn-rgb)/0.10);
         }
         .disclaimer-panel, .disclaimer-panel * {
-          color: #78350f !important;
+          color: var(--ink-2) !important;
         }
         .force-light-text {
-          color: #ffffff !important;
+          color: var(--fg) !important;
         }
         .stock-view-toggle-active {
-          color: #000000 !important;
-          background: #ff4fa3 !important;
-          border-color: #ff4fa3 !important;
-          box-shadow: 0 12px 28px rgba(255, 79, 163, 0.22);
+          color: var(--on-accent) !important;
+          background: var(--accent) !important;
+          border-color: var(--accent) !important;
+          box-shadow: 0 12px 28px rgb(var(--accent-rgb)/0.22);
         }
         .stock-view-toggle-idle {
-          color: #c6c6cd !important;
-          background: rgba(255, 255, 255, 0.04) !important;
-          border-color: rgba(255, 255, 255, 0.12) !important;
+          color: var(--ink-2) !important;
+          background: rgb(var(--fg-rgb)/0.04) !important;
+          border-color: rgb(var(--fg-rgb)/0.12) !important;
         }
         .stock-view-toggle-idle:hover {
-          background: rgba(255, 255, 255, 0.07) !important;
-          border-color: rgba(255, 79, 163, 0.4) !important;
+          background: rgb(var(--fg-rgb)/0.07) !important;
+          border-color: rgb(var(--accent-rgb)/0.4) !important;
         }
         /* Active chart range button: preserve white text in light mode */
-        .chart-range-btn-active { color: #ffffff !important; }
+        .chart-range-btn-active { color: var(--fg) !important; }
         /* About description truncation with fade */
         .about-truncated {
           max-height: 88px;
@@ -2206,29 +2210,29 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
         }
         /* Metric card hover lift */
         .metric-card-hover { transition: transform 0.18s ease, box-shadow 0.18s ease; }
-        .metric-card-hover:hover { transform: translateY(-2px); box-shadow: 0 10px 28px rgba(6,182,212,0.13); }
+        .metric-card-hover:hover { transform: translateY(-2px); box-shadow: 0 10px 28px rgb(var(--accent-rgb)/0.13); }
         /* Animated confidence bar */
         @keyframes barShimmer {
           0% { background-position: -200% 0; }
           100% { background-position: 200% 0; }
         }
         .bar-shimmer {
-          background: linear-gradient(90deg, #ef4444 0%, #71717a 40%, #4ade80 80%);
+          background: linear-gradient(90deg, var(--down) 0%, var(--ink-4) 40%, var(--up) 80%);
           background-size: 200% 100%;
         }
         /* Verdict card glow pulse */
         @keyframes glowPulse {
-          0%, 100% { box-shadow: 0 0 18px rgba(74,222,128,0.10); }
-          50% { box-shadow: 0 0 32px rgba(74,222,128,0.24); }
+          0%, 100% { box-shadow: 0 0 18px rgb(var(--up-rgb)/0.10); }
+          50% { box-shadow: 0 0 32px rgb(var(--up-rgb)/0.24); }
         }
         @keyframes glowPulseRed {
-          0%, 100% { box-shadow: 0 0 18px rgba(239,68,68,0.10); }
-          50% { box-shadow: 0 0 32px rgba(239,68,68,0.24); }
+          0%, 100% { box-shadow: 0 0 18px rgb(var(--down-rgb)/0.10); }
+          50% { box-shadow: 0 0 32px rgb(var(--down-rgb)/0.24); }
         }
         .verdict-glow-bull { animation: glowPulse 2.8s ease-in-out infinite; }
         .verdict-glow-bear { animation: glowPulseRed 2.8s ease-in-out infinite; }
         /* Chart controls pill */
-        .chart-controls-pill { box-shadow: 0 2px 8px rgba(15,23,42,0.08), inset 0 1px 0 rgba(255,255,255,0.85); }
+        .chart-controls-pill { box-shadow: 0 2px 8px rgb(var(--bg-rgb)/0.08), inset 0 1px 0 rgb(var(--fg-rgb)/0.85); }
         /* Gradient top-border for highlight cards */
         .highlight-card { position: relative; overflow: hidden; }
         .highlight-card::before {
@@ -2236,7 +2240,7 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
           position: absolute;
           top: 0; left: 0; right: 0;
           height: 2px;
-          background: linear-gradient(90deg, rgba(6,182,212,0.6), rgba(16,185,129,0.4));
+          background: linear-gradient(90deg, rgb(var(--accent-rgb)/0.6), rgb(var(--up-rgb)/0.4));
           opacity: 0;
           transition: opacity 0.2s ease;
         }
@@ -2249,7 +2253,7 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
           position: absolute;
           bottom: 0; left: 10%; right: 10%;
           height: 2px;
-          background: linear-gradient(90deg, transparent, rgba(6,182,212,0.8), transparent);
+          background: linear-gradient(90deg, transparent, rgb(var(--accent-rgb)/0.8), transparent);
           border-radius: 2px;
         }
         .market-tab-active-us::after {
@@ -2257,11 +2261,11 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
           position: absolute;
           bottom: 0; left: 10%; right: 10%;
           height: 2px;
-          background: linear-gradient(90deg, transparent, rgba(217,70,239,0.8), transparent);
+          background: linear-gradient(90deg, transparent, rgb(var(--accent-rgb)/0.8), transparent);
           border-radius: 2px;
         }
         /* Hover glow on strategy rows */
-        .strategy-row:hover { background: rgba(6,182,212,0.04) !important; }
+        .strategy-row:hover { background: rgb(var(--accent-rgb)/0.04) !important; }
       `}} />
 
       {/* WELCOME — a small toast after sign-in that slides in, then away. */}
@@ -2270,14 +2274,14 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
           <BullseyeMark size={28} className="ml-1 text-white" />
           <div className="leading-tight">
             <div className="text-[14px] font-medium text-white">Welcome back, {welcomeName}</div>
-            <div className="text-[12.5px] text-[#9f99c2]">You&apos;re signed in.</div>
+            <div className="text-[12.5px] text-[color:var(--ink-3)]">You&apos;re signed in.</div>
           </div>
         </div>
       )}
 
       {/* Transparent on the homepage: the fixed 3D scene paints the ground
           there and sits beneath this (raised) page layer. */}
-      <div className={`min-h-screen overflow-x-clip ${ticker ? 'bg-[#04070f]' : 'bg-transparent'} text-slate-100 selection:bg-cyan-500/20 selection:text-cyan-100 flex flex-col font-body`}>
+      <div className={`min-h-screen overflow-x-clip ${ticker ? 'bg-[color:var(--bg)]' : 'bg-transparent'} text-slate-100 selection:bg-cyan-500/20 selection:text-cyan-100 flex flex-col font-body`}>
 
         {/* IMMERSIVE BACKGROUND — View 2 keeps the Market Globe; View 1's
             background is owned by the Nova scroll scene (its own fixed layer). */}
@@ -2292,7 +2296,7 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
           // index levels stay legible over whatever scrolls beneath it.
           <div
             className="bullseye-night fixed inset-x-0 top-0 z-[60] border-b border-hairline py-2.5 backdrop-blur-xl"
-            style={{ background: 'rgba(4,6,5,0.92)' }}
+            style={{ background: 'rgb(var(--bg-rgb)/0.92)' }}
           >
             <IndexTickerTape />
           </div>
@@ -2336,10 +2340,10 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
               <div data-lenis-prevent data-state={suggestionsPresence.state} className="anim-pop nova-modal absolute z-50 mt-2 max-h-[72vh] w-full overflow-y-auto overflow-x-hidden rounded-2xl p-1.5">
                 {suggestions.map((stock) => (
                   <div key={stock.ticker} onMouseDown={() => selectStock(stock)} className="group grid cursor-pointer grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-xl px-3 py-2.5 transition-colors hover:bg-white/[0.07] sm:px-4">
-                    <span className="min-w-0 truncate font-body text-[14px] text-[#e9e5ff] group-hover:text-white" title={stock.name}>{stock.name}</span>
+                    <span className="min-w-0 truncate font-body text-[14px] text-[color:var(--fg)] group-hover:text-white" title={stock.name}>{stock.name}</span>
                     <div className="flex min-w-0 max-w-[92px] shrink-0 items-center justify-end gap-1.5 sm:max-w-[140px] sm:gap-2">
                       <span className="rounded bg-white/5 px-1.5 py-0.5 font-numeric text-[8px] uppercase text-zinc-500 sm:px-2 sm:text-[9px]">{stock.exchange}</span>
-                      <span className="min-w-0 truncate font-numeric text-[12px] text-[#ff79c0]" title={stock.symbol}>{stock.symbol}</span>
+                      <span className="min-w-0 truncate font-numeric text-[12px] text-[color:var(--accent-text)]" title={stock.symbol}>{stock.symbol}</span>
                     </div>
                   </div>
                 ))}
@@ -2362,6 +2366,8 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
                 <svg viewBox="0 0 24 24" className="h-[18px] w-[18px]" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" aria-hidden><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
               </button>
             </span>
+
+            <span className="hidden sm:inline-flex"><ThemeToggle /></span>
 
             <button type="button" onClick={openDailySignalSettings} className="hdr-icon" aria-label="Daily alerts" title="Daily stock alerts">
               <svg viewBox="0 0 24 24" className="h-[18px] w-[18px]" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M12 3a6 6 0 0 0-6 6v3.5L4.5 16h15L18 12.5V9a6 6 0 0 0-6-6ZM9.5 19a2.5 2.5 0 0 0 5 0" /></svg>
@@ -2389,7 +2395,7 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
               </Link>
             </span>
             <span className="sm:hidden">
-              <Link href="/screens" onClick={() => setShowProfileMenu(false)} className="hdr-icon !border-transparent !bg-[linear-gradient(135deg,#ff2e97,#8b5cf6)]" aria-label="Screener">
+              <Link href="/screens" onClick={() => setShowProfileMenu(false)} className="hdr-icon !border-transparent !bg-[color:var(--fg)] !text-[color:var(--bg)]" aria-label="Screener">
                 <svg viewBox="0 0 24 24" className="h-[18px] w-[18px]" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" aria-hidden><path d="M4 6h16M7 12h10M10 18h4" /></svg>
               </Link>
             </span>
@@ -2440,7 +2446,7 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
                       </div>
                       <div className="min-w-0">
                         <div className="truncate text-[14px] font-medium text-white">{user.user_metadata?.full_name || 'Signed in'}</div>
-                        <div className="truncate text-[12.5px] text-[#9f99c2]">{user.email}</div>
+                        <div className="truncate text-[12.5px] text-[color:var(--ink-3)]">{user.email}</div>
                       </div>
                     </div>
                     <div className="mx-1.5 h-px bg-white/[0.07]" />
@@ -2450,41 +2456,41 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
                         setShowProfileMenu(false);
                         setShowNotificationSettings(true);
                       }}
-                      className="mt-1.5 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-[14px] text-[#e9e5ff] transition hover:bg-white/[0.06] hover:text-white"
+                      className="mt-1.5 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-[14px] text-[color:var(--fg)] transition hover:bg-white/[0.06] hover:text-white"
                     >
-                      <svg viewBox="0 0 20 20" className="h-4 w-4 text-[#9f99c2]" fill="none" aria-hidden><path d="M10 3a5 5 0 0 0-5 5v3l-1.5 2.5h13L15 11V8a5 5 0 0 0-5-5ZM8 16a2 2 0 0 0 4 0" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                      <svg viewBox="0 0 20 20" className="h-4 w-4 text-[color:var(--ink-3)]" fill="none" aria-hidden><path d="M10 3a5 5 0 0 0-5 5v3l-1.5 2.5h13L15 11V8a5 5 0 0 0-5-5ZM8 16a2 2 0 0 0 4 0" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
                       Daily alerts
                     </button>
                     <Link
                       href="/screens"
                       onClick={() => setShowProfileMenu(false)}
-                      className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-[14px] text-[#e9e5ff] transition hover:bg-white/[0.06] hover:text-white"
+                      className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-[14px] text-[color:var(--fg)] transition hover:bg-white/[0.06] hover:text-white"
                     >
-                      <svg viewBox="0 0 20 20" className="h-4 w-4 text-[#9f99c2]" fill="none" aria-hidden><path d="M3 5h14M5.5 10h9M8 15h4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></svg>
+                      <svg viewBox="0 0 20 20" className="h-4 w-4 text-[color:var(--ink-3)]" fill="none" aria-hidden><path d="M3 5h14M5.5 10h9M8 15h4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></svg>
                       Screener
                     </Link>
                     <button
                       type="button"
                       onClick={handleSignOut}
-                      className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-[14px] text-[#ff8aa0] transition hover:bg-[#ff5c7a]/10"
+                      className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-[14px] text-[color:var(--down)] transition hover:bg-[color:var(--down)]/10"
                     >
                       <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" aria-hidden><path d="M8 4H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3M13 13.5 16.5 10 13 6.5M16.5 10H8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
                       Sign out
                     </button>
                   </>
                 ) : !authReady && supabaseAvailable ? (
-                  <div className="flex items-center gap-3 px-3 py-4 text-[13.5px] text-[#b9b4d6]">
+                  <div className="flex items-center gap-3 px-3 py-4 text-[13.5px] text-[color:var(--ink-2)]">
                     <span className="nova-spinner" aria-hidden />
                     Checking your sign-in…
                   </div>
                 ) : (
                   <div className="p-2">
                     <div className="px-1 text-[14px] font-medium text-white">Your Bullseye account</div>
-                    <p className="mt-1 px-1 text-[13px] leading-5 text-[#9f99c2]">Sign in to save alerts and get the short list by email.</p>
+                    <p className="mt-1 px-1 text-[13px] leading-5 text-[color:var(--ink-3)]">Sign in to save alerts and get the short list by email.</p>
                     <button
                       type="button"
                       onClick={() => { setShowProfileMenu(false); setShowAuthModal(true); }}
-                      className="mt-3 h-10 w-full rounded-xl bg-white text-[14px] font-medium text-[#0f0b1f] transition hover:bg-white/90"
+                      className="mt-3 h-10 w-full rounded-xl bg-white text-[14px] font-medium text-[color:var(--bg)] transition hover:bg-white/90"
                     >
                       Sign in
                     </button>
@@ -2510,13 +2516,13 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
                     <div className="mb-3 flex items-center justify-between gap-3">
                       <span className="flex min-w-0 items-center gap-2.5 sm:gap-3">
                         <span className="nova-dot" aria-hidden />
-                        <span className="truncate font-numeric text-[10.5px] font-medium uppercase tracking-[0.2em] text-[#cfc9ea] sm:text-[11px] sm:tracking-[0.3em]">
+                        <span className="truncate font-numeric text-[10.5px] font-medium uppercase tracking-[0.2em] text-[color:var(--ink-2)] sm:text-[11px] sm:tracking-[0.3em]">
                           Live scan<span className="hidden min-[420px]:inline"> · today&apos;s short list</span>
                         </span>
                       </span>
                       <Link
                         href="/screens"
-                        className="shrink-0 whitespace-nowrap font-body text-[13px] font-medium text-[#ff79c0] underline-offset-4 transition hover:text-white hover:underline"
+                        className="shrink-0 whitespace-nowrap font-body text-[13px] font-medium text-[color:var(--accent-text)] underline-offset-4 transition hover:text-white hover:underline"
                       >
                         All screens →
                       </Link>
@@ -2631,7 +2637,7 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
                                     <button
                                       type="button"
                                       onClick={() => setShowIndicatorMenu(false)}
-                                      className="flex h-8 w-8 items-center justify-center rounded-lg text-[#9f99c2] transition hover:bg-white/[0.06] hover:text-white"
+                                      className="flex h-8 w-8 items-center justify-center rounded-lg text-[color:var(--ink-3)] transition hover:bg-white/[0.06] hover:text-white"
                                       aria-label="Close indicators"
                                     >
                                       <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
@@ -2656,11 +2662,11 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
                                           type="button"
                                           onClick={() => toggleIndicator(name)}
                                           className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-[14px] transition-colors ${
-                                            selected ? 'bg-white/[0.07] text-white' : 'text-[#c9c3e6] hover:bg-white/[0.04] hover:text-white'
+                                            selected ? 'bg-white/[0.07] text-white' : 'text-[color:var(--ink-2)] hover:bg-white/[0.04] hover:text-white'
                                           }`}
                                         >
                                           <span className={`flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-md border ${
-                                            selected ? 'border-[#ff4fa3] bg-[#ff4fa3] text-[#14051a]' : 'border-white/20'
+                                            selected ? 'border-[color:var(--accent)] bg-[color:var(--accent)] text-[color:var(--on-accent)]' : 'border-white/20'
                                           }`}>
                                             {selected ? (
                                               <svg viewBox="0 0 12 12" className="h-3 w-3" fill="none" aria-hidden>
@@ -2683,20 +2689,20 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
                       {chartError && !chartData ? (
                         <div className="sx-empty h-[320px] sm:h-[420px]">
                           <div className="text-[15px] font-semibold text-paper">Chart unavailable</div>
-                          <div className="mt-1 max-w-[46ch] text-[13px] text-[#9f99c2]">{chartError.message || 'The chart service returned an error. Try again in a moment.'}</div>
+                          <div className="mt-1 max-w-[46ch] text-[13px] text-[color:var(--ink-3)]">{chartError.message || 'The chart service returned an error. Try again in a moment.'}</div>
                         </div>
                       ) : !chartData ? (
                         <div className="sx-empty h-[320px] sm:h-[420px]">
                           <span className="nova-spinner" aria-hidden />
-                          <div className="mt-3 text-[13px] text-[#9f99c2]">Loading price history…</div>
+                          <div className="mt-3 text-[13px] text-[color:var(--ink-3)]">Loading price history…</div>
                         </div>
                       ) : !chartRowsAvailable ? (
                         <div className="sx-empty h-[320px] sm:h-[420px]">
                           <div className="text-[15px] font-semibold text-paper">No chart data yet</div>
-                          <div className="mt-1 text-[13px] text-[#9f99c2]">The data service didn&apos;t return candles for this symbol. Refresh in a moment.</div>
+                          <div className="mt-1 text-[13px] text-[color:var(--ink-3)]">The data service didn&apos;t return candles for this symbol. Refresh in a moment.</div>
                         </div>
                       ) : (
-                        <div className="w-full overflow-hidden rounded-2xl" style={{ background: 'rgba(7,5,20,0.45)' }}>
+                        <div className="w-full overflow-hidden rounded-2xl" style={{ background: 'rgb(var(--bg-rgb)/0.45)' }}>
                           <div ref={chartRef} className="h-[340px] w-full overflow-hidden sm:h-[440px]" />
                           {indicatorPanels.length > 0 && (
                             <div className="border-t border-white/[0.06]">
@@ -2715,7 +2721,7 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
                         </div>
                       )}
                       {indicatorPanels.length === 0 && chartRowsAvailable && (
-                        <p className="mt-3 text-[12.5px] text-[#8f89ad]">Add an indicator to open a study pane under the chart.</p>
+                        <p className="mt-3 text-[12.5px] text-[color:var(--ink-3)]">Add an indicator to open a study pane under the chart.</p>
                       )}
                     </section>
 
@@ -2776,11 +2782,11 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
               {/* ── DISCLAIMER ── shown after every analysis */}
               {((dashboardView === 'overview' && analysis && !analysis.error) || dashboardView === 'details') && (
                 <aside className="sx-card flex gap-3 p-5">
-                  <svg viewBox="0 0 20 20" fill="none" className="mt-0.5 h-5 w-5 shrink-0 text-[#ffb547]" aria-hidden>
+                  <svg viewBox="0 0 20 20" fill="none" className="mt-0.5 h-5 w-5 shrink-0 text-[color:var(--warn)]" aria-hidden>
                     <circle cx="10" cy="10" r="8" stroke="currentColor" strokeWidth="1.6" />
                     <path d="M10 6v5M10 13.5v.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
                   </svg>
-                  <p className="text-[13px] leading-6 text-[#b9b4d6]">
+                  <p className="text-[13px] leading-6 text-[color:var(--ink-2)]">
                     <span className="font-semibold text-paper">Disclaimer. </span>
                     Bullseye is a research tool, not investment advice, and is not a SEBI-registered investment adviser.
                     Signals come from statistical models and can be wrong. Invest at your own risk.
@@ -2813,7 +2819,7 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
 
       {/* ── AUTH MODAL ── */}
       {!showNotificationSettings && notificationMessage && (
-        <div className="fixed left-1/2 top-5 z-[85] w-[min(92vw,520px)] -translate-x-1/2 rounded-2xl border border-emerald-300/30 bg-slate-950/96 px-5 py-4 text-center shadow-[0_24px_80px_rgba(15,23,42,0.45)] backdrop-blur-xl">
+        <div className="fixed left-1/2 top-5 z-[85] w-[min(92vw,520px)] -translate-x-1/2 rounded-2xl border border-emerald-300/30 bg-slate-950/96 px-5 py-4 text-center shadow-[0_24px_80px_rgb(var(--bg-rgb)/0.45)] backdrop-blur-xl">
           <div className="text-[10px] font-black uppercase tracking-[0.18em] text-emerald-300 font-body">
             Logged-in Alerts
           </div>
@@ -2876,7 +2882,7 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
               <button
                 onClick={dismissAuthModal}
                 aria-label="Close sign-in and continue without an account"
-                className="-mr-1.5 flex h-8 w-8 items-center justify-center rounded-lg text-[#9f99c2] transition hover:bg-white/[0.06] hover:text-white"
+                className="-mr-1.5 flex h-8 w-8 items-center justify-center rounded-lg text-[color:var(--ink-3)] transition hover:bg-white/[0.06] hover:text-white"
               >
                 <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
                   <path d="M18 6 6 18M6 6l12 12" />
@@ -2887,14 +2893,14 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
             <h2 className="mt-6 text-[22px] font-semibold leading-tight tracking-[-0.02em] text-white">
               {authMode === 'signin' ? 'Sign in to Bullseye' : 'Create your account'}
             </h2>
-            <p className="mt-1.5 text-[14px] leading-6 text-[#9f99c2]">
+            <p className="mt-1.5 text-[14px] leading-6 text-[color:var(--ink-3)]">
               Save alerts and get the short list by email.
             </p>
 
             <button
               onClick={handleGoogleSignIn}
               disabled={authLoading}
-              className="mt-6 flex h-11 w-full items-center justify-center gap-2.5 rounded-xl bg-white text-[14px] font-medium text-[#111] transition hover:bg-white/90 disabled:opacity-50"
+              className="mt-6 flex h-11 w-full items-center justify-center gap-2.5 rounded-xl bg-white text-[14px] font-medium text-[color:var(--bg)] transition hover:bg-white/90 disabled:opacity-50"
             >
               <svg className="h-[18px] w-[18px]" viewBox="0 0 24 24" aria-hidden>
                 <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
@@ -2905,13 +2911,13 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
               Continue with Google
             </button>
 
-            <div className="my-5 flex items-center gap-3 text-[12px] text-[#6f6990]">
+            <div className="my-5 flex items-center gap-3 text-[12px] text-[color:var(--ink-3)]">
               <div className="h-px flex-1 bg-white/[0.08]" />
               or
               <div className="h-px flex-1 bg-white/[0.08]" />
             </div>
 
-            <label className="block text-[13px] font-medium text-[#c9c3e6]" htmlFor="auth-email">Email</label>
+            <label className="block text-[13px] font-medium text-[color:var(--ink-2)]" htmlFor="auth-email">Email</label>
             <input
               id="auth-email"
               type="email"
@@ -2921,7 +2927,7 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
               autoComplete="email"
               className="nova-field mt-1.5"
             />
-            <label className="mt-4 block text-[13px] font-medium text-[#c9c3e6]" htmlFor="auth-password">Password</label>
+            <label className="mt-4 block text-[13px] font-medium text-[color:var(--ink-2)]" htmlFor="auth-password">Password</label>
             <input
               id="auth-password"
               type="password"
@@ -2932,13 +2938,13 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
               className="nova-field mt-1.5"
             />
 
-            {authError && <p className="mt-3 text-[13px] text-[#ff7a93]">{authError}</p>}
-            {authSuccess && <p className="mt-3 text-[13px] text-[#6ff0b5]">{authSuccess}</p>}
+            {authError && <p className="mt-3 text-[13px] text-[color:var(--down)]">{authError}</p>}
+            {authSuccess && <p className="mt-3 text-[13px] text-[color:var(--up)]">{authSuccess}</p>}
 
             <button
               onClick={handleEmailAuth}
               disabled={authLoading}
-              className="mt-5 h-11 w-full rounded-xl bg-[#ff4fa3] text-[14px] font-semibold text-[#14051a] transition hover:bg-[#ff6db3] disabled:opacity-50"
+              className="mt-5 h-11 w-full rounded-xl bg-[color:var(--accent)] text-[14px] font-semibold text-[color:var(--on-accent)] transition hover:bg-[color:var(--accent)] disabled:opacity-50"
             >
               {authLoading ? 'Please wait…' : authMode === 'signin' ? 'Sign in' : 'Create account'}
             </button>
@@ -2947,16 +2953,16 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
               <button
                 type="button"
                 onClick={() => { setAuthMode(authMode === 'signin' ? 'signup' : 'signin'); setAuthError(''); setAuthSuccess(''); }}
-                className="text-[#c9c3e6] transition hover:text-white"
+                className="text-[color:var(--ink-2)] transition hover:text-white"
               >
                 {authMode === 'signin' ? 'Create an account' : 'I have an account'}
               </button>
-              <button onClick={dismissAuthModal} className="text-[#9f99c2] transition hover:text-white">
+              <button onClick={dismissAuthModal} className="text-[color:var(--ink-3)] transition hover:text-white">
                 Continue without signing in
               </button>
             </div>
 
-            <p className="mt-6 border-t border-white/[0.06] pt-4 text-[11.5px] leading-5 text-[#6f6990]">
+            <p className="mt-6 border-t border-white/[0.06] pt-4 text-[11.5px] leading-5 text-[color:var(--ink-3)]">
               Bullseye is research, not investment advice, and is not a SEBI-registered adviser.
             </p>
           </div>

@@ -14,7 +14,7 @@ export default function AlertsRedirectPage() {
     router.replace('/ask-ai');
   }, [router]);
   return (
-    <div className="flex min-h-screen items-center justify-center gap-3 bg-[#070514] font-body text-[#c9c3e6]">
+    <div className="flex min-h-screen items-center justify-center gap-3 bg-[color:var(--bg)] font-body text-[color:var(--ink-2)]">
       <span className="nova-spinner" aria-hidden />
       <p className="text-[14px]">Strategy alerts now live in Ask AI. Taking you there…</p>
     </div>
