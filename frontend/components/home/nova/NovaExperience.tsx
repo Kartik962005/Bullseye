@@ -187,11 +187,14 @@ export function NovaExperience({ signedIn, onOpenDailySignals, stockStrip }: Nov
       });
       instance = lenis;
       lenisRef.current = lenis as unknown as typeof lenisRef.current;
+      // The site-wide back-to-top button scrolls through Lenis when it exists.
+      (window as unknown as { __bullseyeLenis?: unknown }).__bullseyeLenis = lenis;
     });
     return () => {
       destroyed = true;
       instance?.destroy();
       lenisRef.current = null;
+      delete (window as unknown as { __bullseyeLenis?: unknown }).__bullseyeLenis;
     };
   }, []);
 

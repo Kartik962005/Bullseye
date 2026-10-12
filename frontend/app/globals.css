@@ -1981,3 +1981,143 @@ a[class*="btn"]:active {
     gap: 10px;
   }
 }
+
+/* Skip link: off screen until a keyboard user tabs to it. */
+.skip-link {
+  position: fixed;
+  left: 16px;
+  top: calc(12px + env(safe-area-inset-top, 0px));
+  z-index: 200;
+  padding: 10px 16px;
+  border-radius: 12px;
+  background: var(--fg);
+  color: var(--bg);
+  font: 600 14px var(--font-inter), system-ui, sans-serif;
+  transform: translateY(-160%);
+  transition: transform 0.18s var(--nova-ease, ease);
+}
+.skip-link:focus-visible {
+  transform: none;
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+#main:focus {
+  outline: none;
+}
+
+/* Reading progress along the top edge of long pages. */
+.scroll-progress {
+  position: fixed;
+  inset: 0 0 auto 0;
+  z-index: 120;
+  height: 2px;
+  background: var(--accent);
+  transform: scaleX(0);
+  transform-origin: 0 50%;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s;
+}
+
+.back-to-top {
+  position: fixed;
+  right: 16px;
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  z-index: 70;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 999px;
+  background: rgb(var(--surface-rgb)/0.92);
+  border: 1px solid rgb(var(--fg-rgb)/0.12);
+  color: var(--fg);
+  box-shadow: 0 14px 36px -16px rgb(var(--shadow-rgb)/0.9);
+  backdrop-filter: blur(12px);
+  opacity: 0;
+  transform: translateY(12px) scale(0.92);
+  pointer-events: none;
+  transition:
+    opacity 0.22s,
+    transform 0.22s var(--nova-ease, ease),
+    background-color 0.2s,
+    border-color 0.2s;
+}
+.back-to-top[data-show="true"] {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+}
+.back-to-top:hover {
+  border-color: rgb(var(--fg-rgb)/0.25);
+  background: rgb(var(--surface-rgb));
+}
+@media (min-width: 640px) {
+  .back-to-top {
+    right: 24px;
+    bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+  }
+}
+
+/* Print: the page content in black on white, no chrome or effects. */
+@media print {
+  :root,
+  :root[data-theme] {
+    --bg: #ffffff;
+    --bg-rgb: 255 255 255;
+    --surface: #ffffff;
+    --surface-rgb: 255 255 255;
+    --fg: #111111;
+    --fg-rgb: 17 17 17;
+    --ink-2: #333333;
+    --ink-3: #555555;
+    --ink-4: #666666;
+    color-scheme: light;
+  }
+  html,
+  body {
+    background: #fff !important;
+  }
+  .site-header,
+  nav,
+  footer,
+  canvas,
+  video,
+  .skip-link,
+  .scroll-progress,
+  .back-to-top,
+  .storage-notice,
+  .warmup-pill,
+  .sx-backdrop,
+  .nova-modal-backdrop,
+  [aria-hidden="true"].fixed {
+    display: none !important;
+  }
+  *,
+  *::before,
+  *::after {
+    box-shadow: none !important;
+    text-shadow: none !important;
+    backdrop-filter: none !important;
+    animation: none !important;
+    transition: none !important;
+  }
+  .sx-card,
+  .nova-card {
+    background: #fff !important;
+    border: 1px solid #ccc !important;
+    break-inside: avoid;
+  }
+  .legal-body a[href^="http"]::after {
+    content: " (" attr(href) ")";
+    font-size: 0.85em;
+  }
+  h1,
+  h2,
+  h3 {
+    break-after: avoid;
+  }
+  @page {
+    margin: 16mm;
+  }
+}

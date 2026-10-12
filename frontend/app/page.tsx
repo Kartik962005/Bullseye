@@ -12,6 +12,8 @@ import { NovaExperience } from '@/components/home/nova/NovaExperience';
 import { NovaSearch } from '@/components/home/NovaSearch';
 import { usePresence } from '@/components/motion/usePresence';
 import { DeleteAccountDialog } from '@/components/DeleteAccountDialog';
+import { SiteMenu } from '@/components/SiteMenu';
+import { Turnstile, TURNSTILE_SITE_KEY } from '@/components/Turnstile';
 import { BullseyeLogo, BullseyeMark } from '@/components/brand/BullseyeLogo';
 import { DailyAlertsDialog } from '@/components/alerts/DailyAlertsDialog';
 import { ThemeToggle } from '@/components/ThemeToggle';
@@ -953,6 +955,11 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
   const [authReady, setAuthReady] = useState(false);
   const [authEmail, setAuthEmail] = useState('');
   const [authPassword, setAuthPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [authFieldErrors, setAuthFieldErrors] = useState<{ email?: string; password?: string }>({});
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+  // Turnstile tokens are single use; bumping the key remounts the widget for a fresh one.
+  const [captchaKey, setCaptchaKey] = useState(0);
   const [authMode, setAuthMode] = useState<'signin' | 'signup'>('signin');
   const [showDeleteAccount, setShowDeleteAccount] = useState(false);
   const [authError, setAuthError] = useState('');
@@ -1154,7 +1161,21 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
   };
 
   const handleEmailAuth = async () => {
-    if (!authEmail || !authPassword) { setAuthError('Please fill in all fields.'); return; }
+    const email = authEmail.trim();
+    const fieldErrors: { email?: string; password?: string } = {};
+    if (!email) fieldErrors.email = 'Enter your email address.';
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) fieldErrors.email = 'That email address does not look right.';
+    if (!authPassword) fieldErrors.password = 'Enter your password.';
+    else if (authMode === 'signup' && authPassword.length < 8) fieldErrors.password = 'Use at least 8 characters.';
+    setAuthFieldErrors(fieldErrors);
+    if (fieldErrors.email || fieldErrors.password) {
+      setAuthError('');
+      return;
+    }
+    if (TURNSTILE_SITE_KEY && !captchaToken) {
+      setAuthError('Please wait for the check below to finish, then try again.');
+      return;
+    }
     if (!supabaseAvailable) {
       setAuthError('Sign-in is not configured for this deployment yet.');
       return;
@@ -1165,7 +1186,11 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
     try {
       const sb = await getSupabaseClient();
       if (authMode === 'signup') {
-        const { data, error } = await sb.auth.signUp({ email: authEmail, password: authPassword });
+        const { data, error } = await sb.auth.signUp({
+          email,
+          password: authPassword,
+          options: captchaToken ? { captchaToken } : undefined,
+        });
         if (error) throw error;
         if (data.user) {
           // onAuthStateChange 'SIGNED_IN' will handle welcome animation + modal close
@@ -1175,7 +1200,11 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
           setAuthSuccess('Account created! Check your email to verify.');
         }
       } else {
-        const { data, error } = await sb.auth.signInWithPassword({ email: authEmail, password: authPassword });
+        const { error } = await sb.auth.signInWithPassword({
+          email,
+          password: authPassword,
+          options: captchaToken ? { captchaToken } : undefined,
+        });
         if (error) throw error;
         // onAuthStateChange 'SIGNED_IN' handles welcome animation + modal/menu close
         goHome();
@@ -1184,6 +1213,10 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
       setAuthError(err.message || 'Authentication failed. Try again.');
     } finally {
       setAuthLoading(false);
+      if (TURNSTILE_SITE_KEY) {
+        setCaptchaToken(null);
+        setCaptchaKey(key => key + 1);
+      }
     }
   };
 
@@ -1517,6 +1550,15 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
     }
     setShowAuthModal(true);
   };
+
+  // The header stays pinned while scrolling; it gains a solid backing once the page moves under it.
+  const [navStuck, setNavStuck] = useState(false);
+  useEffect(() => {
+    const onScroll = () => setNavStuck(window.scrollY > 12);
+    onScroll();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
 
   // Other pages link to /?alerts=1 from their header bell.
   const alertsLinkHandled = useRef(false);
@@ -2307,7 +2349,13 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
 
         {/* NAV — one row at every width: on phones the search and Ask AI
             collapse to icons and the search opens beneath the bar. */}
-        <nav className={`relative z-20 mx-auto flex w-full max-w-[1400px] items-center gap-2 px-4 py-4 sm:gap-3 sm:px-8 sm:py-6 lg:gap-6 ${!ticker ? 'mt-12' : ''}`}>
+        <div
+          data-stuck={navStuck}
+          className={`site-header sticky z-40 w-full transition-[background-color,border-color,backdrop-filter] duration-300 ${!ticker ? 'top-10 mt-12' : 'top-0'} border-b ${
+            navStuck ? 'border-white/[0.06] bg-[color:var(--bg)]/90 backdrop-blur-xl' : 'border-transparent'
+          }`}
+        >
+        <nav aria-label="Main" className={`relative mx-auto flex w-full max-w-[1400px] items-center gap-2 px-4 py-3 sm:gap-3 sm:px-8 lg:gap-6 ${navStuck ? 'sm:py-3' : 'sm:py-6'} transition-[padding] duration-300`}>
           <button
             type="button"
             onClick={goHome}
@@ -2377,15 +2425,18 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
               {user && notificationPreference.daily_stock_email_enabled ? <span className="hdr-dot" aria-hidden /> : null}
             </button>
 
-            <Link
-              href="/ask-ai"
-              onClick={() => setShowProfileMenu(false)}
-              className="hdr-icon"
-              aria-label="Ask AI"
-            >
-              <svg viewBox="0 0 24 24" className="h-[18px] w-[18px]" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8Z" /><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8Z" /></svg>
-              <span className="hdr-label">Ask AI</span>
-            </Link>
+            {/* Phones reach Ask AI from the menu, which keeps the bar to one row. */}
+            <span className="hidden sm:inline-flex">
+              <Link
+                href="/ask-ai"
+                onClick={() => setShowProfileMenu(false)}
+                className="hdr-icon"
+                aria-label="Ask AI"
+              >
+                <svg viewBox="0 0 24 24" className="h-[18px] w-[18px]" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8Z" /><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8Z" /></svg>
+                <span className="hdr-label">Ask AI</span>
+              </Link>
+            </span>
 
             <span className="hidden sm:inline-flex">
               <Link
@@ -2401,6 +2452,8 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
                 <svg viewBox="0 0 24 24" className="h-[18px] w-[18px]" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" aria-hidden><path d="M4 6h16M7 12h10M10 18h4" /></svg>
               </Link>
             </span>
+
+          <SiteMenu onDailyAlerts={openDailySignalSettings} />
 
           {/* Account menu */}
           <div ref={accountMenuRef} className="relative shrink-0">
@@ -2514,9 +2567,10 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
           </div>
           </div>
         </nav>
+        </div>
 
         {/* MAIN */}
-        <main className="relative z-10 flex-1 w-full min-w-0 max-w-[1600px] mx-auto p-3 sm:p-6 lg:p-8 flex flex-col gap-6">
+        <main id="main" tabIndex={-1} className="relative z-10 flex-1 w-full min-w-0 max-w-[1600px] mx-auto p-3 sm:p-6 lg:p-8 flex flex-col gap-6">
 
           {/* ── VIEW 1: DISCOVERY HUB ── */}
           {!ticker && (
@@ -2930,42 +2984,94 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
               <div className="h-px flex-1 bg-white/[0.08]" />
             </div>
 
-            <label className="block text-[13px] font-medium text-[color:var(--ink-2)]" htmlFor="auth-email">Email</label>
-            <input
-              id="auth-email"
-              type="email"
-              value={authEmail}
-              onChange={e => setAuthEmail(e.target.value)}
-              placeholder="you@example.com"
-              autoComplete="email"
-              className="nova-field mt-1.5"
-            />
-            <label className="mt-4 block text-[13px] font-medium text-[color:var(--ink-2)]" htmlFor="auth-password">Password</label>
-            <input
-              id="auth-password"
-              type="password"
-              value={authPassword}
-              onChange={e => setAuthPassword(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && handleEmailAuth()}
-              autoComplete={authMode === 'signin' ? 'current-password' : 'new-password'}
-              className="nova-field mt-1.5"
-            />
-
-            {authError && <p className="mt-3 text-[13px] text-[color:var(--down)]">{authError}</p>}
-            {authSuccess && <p className="mt-3 text-[13px] text-[color:var(--up)]">{authSuccess}</p>}
-
-            <button
-              onClick={handleEmailAuth}
-              disabled={authLoading}
-              className="mt-5 h-11 w-full rounded-xl bg-[color:var(--accent)] text-[14px] font-semibold text-[color:var(--on-accent)] transition hover:bg-[color:var(--accent)] disabled:opacity-50"
+            <form
+              noValidate
+              onSubmit={event => {
+                event.preventDefault();
+                void handleEmailAuth();
+              }}
             >
-              {authLoading ? 'Please wait…' : authMode === 'signin' ? 'Sign in' : 'Create account'}
-            </button>
+              <label className="block text-[13px] font-medium text-[color:var(--ink-2)]" htmlFor="auth-email">Email</label>
+              <input
+                id="auth-email"
+                type="email"
+                inputMode="email"
+                value={authEmail}
+                onChange={e => {
+                  setAuthEmail(e.target.value);
+                  if (authFieldErrors.email) setAuthFieldErrors(prev => ({ ...prev, email: undefined }));
+                }}
+                placeholder="you@example.com"
+                autoComplete="email"
+                aria-invalid={Boolean(authFieldErrors.email)}
+                aria-describedby={authFieldErrors.email ? 'auth-email-error' : undefined}
+                className={`nova-field mt-1.5 ${authFieldErrors.email ? '!border-[color:var(--down)]' : ''}`}
+              />
+              {authFieldErrors.email && (
+                <p id="auth-email-error" className="mt-1.5 text-[12.5px] text-[color:var(--down)]">{authFieldErrors.email}</p>
+              )}
+
+              <div className="mt-4 flex items-baseline justify-between">
+                <label className="block text-[13px] font-medium text-[color:var(--ink-2)]" htmlFor="auth-password">Password</label>
+                {authMode === 'signup' && !authFieldErrors.password && (
+                  <span id="auth-password-hint" className="text-[12px] text-[color:var(--ink-3)]">At least 8 characters</span>
+                )}
+              </div>
+              <div className="relative mt-1.5">
+                <input
+                  id="auth-password"
+                  type={showPassword ? 'text' : 'password'}
+                  value={authPassword}
+                  onChange={e => {
+                    setAuthPassword(e.target.value);
+                    if (authFieldErrors.password) setAuthFieldErrors(prev => ({ ...prev, password: undefined }));
+                  }}
+                  autoComplete={authMode === 'signin' ? 'current-password' : 'new-password'}
+                  aria-invalid={Boolean(authFieldErrors.password)}
+                  aria-describedby={authFieldErrors.password ? 'auth-password-error' : authMode === 'signup' ? 'auth-password-hint' : undefined}
+                  className={`nova-field !pr-12 ${authFieldErrors.password ? '!border-[color:var(--down)]' : ''}`}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(value => !value)}
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  aria-pressed={showPassword}
+                  className="absolute inset-y-0 right-1 my-auto grid h-9 w-9 place-items-center rounded-lg text-[color:var(--ink-3)] transition hover:bg-white/[0.06] hover:text-white"
+                >
+                  {showPassword ? (
+                    <svg viewBox="0 0 24 24" className="h-[18px] w-[18px]" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                      <path d="M3 3l18 18M10.6 10.6a2 2 0 0 0 2.8 2.8M9.9 5.1A9.8 9.8 0 0 1 12 5c5 0 8.5 4.5 9.5 7a13 13 0 0 1-3 4.2M6.6 6.6A13 13 0 0 0 2.5 12c1 2.5 4.5 7 9.5 7a9.6 9.6 0 0 0 4.2-1" />
+                    </svg>
+                  ) : (
+                    <svg viewBox="0 0 24 24" className="h-[18px] w-[18px]" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                      <path d="M2.5 12c1-2.5 4.5-7 9.5-7s8.5 4.5 9.5 7c-1 2.5-4.5 7-9.5 7s-8.5-4.5-9.5-7Z" />
+                      <circle cx="12" cy="12" r="2.8" />
+                    </svg>
+                  )}
+                </button>
+              </div>
+              {authFieldErrors.password && (
+                <p id="auth-password-error" className="mt-1.5 text-[12.5px] text-[color:var(--down)]">{authFieldErrors.password}</p>
+              )}
+
+              <Turnstile key={captchaKey} onToken={setCaptchaToken} />
+
+              {authError && <p role="alert" className="mt-3 text-[13px] text-[color:var(--down)]">{authError}</p>}
+              {authSuccess && <p role="status" className="mt-3 text-[13px] text-[color:var(--up)]">{authSuccess}</p>}
+
+              <button
+                type="submit"
+                disabled={authLoading}
+                className="mt-5 h-11 w-full rounded-xl bg-[color:var(--accent)] text-[14px] font-semibold text-[color:var(--on-accent)] transition hover:bg-[color:var(--accent)] disabled:opacity-50"
+              >
+                {authLoading ? 'Please wait…' : authMode === 'signin' ? 'Sign in' : 'Create account'}
+              </button>
+            </form>
 
             <div className="mt-5 flex items-center justify-between text-[13px]">
               <button
                 type="button"
-                onClick={() => { setAuthMode(authMode === 'signin' ? 'signup' : 'signin'); setAuthError(''); setAuthSuccess(''); }}
+                onClick={() => { setAuthMode(authMode === 'signin' ? 'signup' : 'signin'); setAuthError(''); setAuthSuccess(''); setAuthFieldErrors({}); }}
                 className="text-[color:var(--ink-2)] transition hover:text-white"
               >
                 {authMode === 'signin' ? 'Create an account' : 'I have an account'}

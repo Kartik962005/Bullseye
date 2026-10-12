@@ -4,6 +4,7 @@ import { Instrument_Serif, Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import BackendWarmup from "@/components/BackendWarmup";
 import { StorageNotice } from "@/components/StorageNotice";
+import { ScrollAids } from "@/components/ScrollAids";
 import { Analytics } from "@vercel/analytics/next";
 import { THEME_BOOT_SCRIPT } from "@/lib/theme-boot";
 
@@ -77,7 +78,11 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: THEME_BOOT_SCRIPT }} />
       </head>
       <body className="min-h-full flex flex-col">
+        <a href="#main" className="skip-link">
+          Skip to content
+        </a>
         {children}
+        <ScrollAids />
         <BackendWarmup />
         <StorageNotice />
         <Analytics />

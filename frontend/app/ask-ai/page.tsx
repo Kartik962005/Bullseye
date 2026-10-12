@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { BullseyeLogo, BullseyeMark } from '@/components/brand/BullseyeLogo';
 import { usePresence } from '@/components/motion/usePresence';
+import { SiteMenu } from '@/components/SiteMenu';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { Markdown } from './Markdown';
 import { BacktestCard, MoversCard, ScanCard, ScreenerCard, StrategyCard } from './ResultCards';
@@ -453,21 +454,21 @@ export default function AskAiPage() {
     <main className="relative flex h-dvh flex-col overflow-hidden bg-[color:var(--bg)] font-body text-white">
       <div aria-hidden className="sx-backdrop" />
 
-      <header className="relative z-30 flex h-16 shrink-0 items-center gap-3 border-b border-white/[0.06] bg-[color:var(--bg)]/70 px-4 backdrop-blur-xl sm:px-5">
+      <header className="site-header relative z-30 flex h-16 shrink-0 items-center gap-3 border-b border-white/[0.06] bg-[color:var(--bg)]/70 px-4 backdrop-blur-xl sm:px-5">
         <button
           type="button"
           onClick={() => setDrawerOpen(true)}
           className="grid h-10 w-10 place-items-center rounded-full text-[color:var(--ink-2)] hover:bg-white/[0.06] lg:hidden"
           aria-label="Open chat history"
         >
-          <Icon d="M4 7h16M4 12h16M4 17h10" />
+          <Icon d="M3.5 12a8.5 8.5 0 1 0 2.5-6M3.5 4v4h4M12 7.5V12l3 2" />
         </button>
         <Link href="/" aria-label="Bullseye home">
           <BullseyeLogo size={26} wordClassName="text-[20px]" />
         </Link>
         <span className="hidden rounded-full border border-white/10 px-2.5 py-1 text-[11px] text-[color:var(--ink-2)] sm:inline">Ask AI</span>
         <nav className="ml-auto flex items-center gap-2 sm:gap-4">
-          <ThemeToggle />
+          <span className="hidden sm:inline-flex"><ThemeToggle /></span>
           {!isEmpty && (
             // The wrapper hides it on desktop: .sx-btn-ghost's own display
             // would override a lg:hidden on the button itself.
@@ -487,13 +488,14 @@ export default function AskAiPage() {
           <Link href="/" className="hidden text-[13px] font-medium text-[color:var(--ink-2)] hover:text-white sm:inline">
             Home
           </Link>
+          <SiteMenu />
         </nav>
       </header>
 
       <div className="relative z-10 flex min-h-0 flex-1">
         <aside className="hidden w-[280px] shrink-0 border-r border-white/[0.06] bg-[color:var(--bg)]/60 lg:block">{sidebar}</aside>
 
-        <section className="flex min-w-0 flex-1 flex-col">
+        <section id="main" tabIndex={-1} className="flex min-w-0 flex-1 flex-col">
           <div ref={threadRef} className="min-h-0 flex-1 overflow-y-auto" data-lenis-prevent>
             {isEmpty ? (
               <div className="mx-auto flex min-h-full w-full max-w-[760px] flex-col px-4 py-10 sm:px-6">
