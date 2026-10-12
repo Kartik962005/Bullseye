@@ -3,6 +3,7 @@ import { Suspense } from 'react';
 
 import { STOCKS } from '@/app/stocks';
 import { HomeContent } from '@/app/page';
+import { pageMetadata } from '@/lib/site';
 
 type StockRouteProps = {
   params: Promise<{ ticker: string }>;
@@ -17,10 +18,15 @@ export async function generateMetadata({ params }: StockRouteProps): Promise<Met
   const { ticker } = await params;
   const decoded = decodeURIComponent(ticker);
   const stock = STOCKS.find(item => item.ticker === decoded);
-  const label = stock ? `${stock.name} (${stock.symbol})` : decoded;
+  const label = !stock ? decoded : stock.name === stock.symbol ? stock.name : `${stock.name} (${stock.symbol})`;
+  const symbol = stock?.symbol ?? decoded.replace(/\.(NS|BO)$/, '');
   return {
-    title: `${label} — Bullseye`,
-    description: `Verdict, entry, target, stop loss and financials for ${label}.`,
+    ...pageMetadata({
+      title: label,
+      description: `Price chart, verdict, entry, target, stop loss and financials for ${label} on NSE. Research, not investment advice.`,
+      path: `/stock/${encodeURIComponent(decoded)}`,
+    }),
+    keywords: [symbol, stock?.name ?? symbol, `${symbol} share price`, `${symbol} analysis`],
   };
 }
 

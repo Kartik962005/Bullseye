@@ -1,4 +1,5 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
+import { SITE_DESCRIPTION, SITE_NAME, SITE_URL } from "@/lib/site";
 import { Instrument_Serif, Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import BackendWarmup from "@/components/BackendWarmup";
@@ -29,8 +30,32 @@ const numericMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Bullseye AI",
-  description: "AI-powered stock analysis and trading research dashboard.",
+  metadataBase: new URL(SITE_URL),
+  title: { default: "Bullseye · Research for Indian stocks", template: "%s · Bullseye" },
+  description: SITE_DESCRIPTION,
+  applicationName: SITE_NAME,
+  alternates: { canonical: "/" },
+  openGraph: {
+    type: "website",
+    siteName: SITE_NAME,
+    locale: "en_IN",
+    url: "/",
+    title: "Bullseye · Research for Indian stocks",
+    description: SITE_DESCRIPTION,
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Bullseye · Research for Indian stocks",
+    description: SITE_DESCRIPTION,
+  },
+  robots: { index: true, follow: true },
+};
+
+export const viewport: Viewport = {
+  themeColor: [
+    { media: "(prefers-color-scheme: dark)", color: "#0b0c0e" },
+    { media: "(prefers-color-scheme: light)", color: "#f6f6f7" },
+  ],
 };
 
 export default function RootLayout({

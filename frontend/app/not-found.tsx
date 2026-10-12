@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { StatusPage } from '@/components/StatusPage';
 
-export const metadata = { title: 'Page not found · Bullseye' };
+export const metadata = { title: 'Page not found', robots: { index: false } };
 
 export default function NotFound() {
   return (
