@@ -2472,7 +2472,7 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
               aria-expanded={showProfileMenu}
             >
               {user?.user_metadata?.avatar_url ? (
-                <img src={user.user_metadata.avatar_url} alt="avatar" referrerPolicy="no-referrer" className="w-full h-full object-cover" />
+                <img src={user.user_metadata.avatar_url} alt="" referrerPolicy="no-referrer" className="w-full h-full object-cover" />
               ) : user ? (
                 (user.user_metadata?.full_name || user.email || 'U').slice(0, 1)
               ) : (
