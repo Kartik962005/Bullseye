@@ -11,6 +11,7 @@ import {
 import { NovaExperience } from '@/components/home/nova/NovaExperience';
 import { NovaSearch } from '@/components/home/NovaSearch';
 import { usePresence } from '@/components/motion/usePresence';
+import { DeleteAccountDialog } from '@/components/DeleteAccountDialog';
 import { BullseyeLogo, BullseyeMark } from '@/components/brand/BullseyeLogo';
 import { DailyAlertsDialog } from '@/components/alerts/DailyAlertsDialog';
 import { ThemeToggle } from '@/components/ThemeToggle';
@@ -953,6 +954,7 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
   const [authEmail, setAuthEmail] = useState('');
   const [authPassword, setAuthPassword] = useState('');
   const [authMode, setAuthMode] = useState<'signin' | 'signup'>('signin');
+  const [showDeleteAccount, setShowDeleteAccount] = useState(false);
   const [authError, setAuthError] = useState('');
   const [authSuccess, setAuthSuccess] = useState('');
   const [showProfileMenu, setShowProfileMenu] = useState(false);
@@ -2477,6 +2479,17 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
                       <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" aria-hidden><path d="M8 4H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3M13 13.5 16.5 10 13 6.5M16.5 10H8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
                       Sign out
                     </button>
+                    <div className="mx-1.5 my-1 h-px bg-white/[0.07]" />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowProfileMenu(false);
+                        setShowDeleteAccount(true);
+                      }}
+                      className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-[12.5px] text-[color:var(--ink-3)] transition hover:bg-white/[0.06] hover:text-[color:var(--down)]"
+                    >
+                      Delete account and data
+                    </button>
                   </>
                 ) : !authReady && supabaseAvailable ? (
                   <div className="flex items-center gap-3 px-3 py-4 text-[13.5px] text-[color:var(--ink-2)]">
@@ -2558,7 +2571,7 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
 
               <AboutSection />
 
-              <SiteFooter />
+              <SiteFooter onDailyAlerts={openDailySignalSettings} />
             </div>
           )}
 
@@ -2969,6 +2982,14 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
         </div>,
         document.body,
       )}
+
+      <DeleteAccountDialog
+        open={showDeleteAccount}
+        email={user?.email}
+        onClose={() => setShowDeleteAccount(false)}
+        getAccessToken={getAccessToken}
+        onDeleted={handleSignOut}
+      />
     </>
   );
 }

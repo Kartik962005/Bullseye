@@ -73,6 +73,7 @@ from app.services.strategy_store import (
     update_strategy as update_ai_strategy,
     validate_strategy_json,
 )
+from app.services.account_service import delete_account
 from app.services.alert_service import (
     check_active_alerts,
     check_alert,
@@ -706,6 +707,20 @@ async def delete_ai_strategy_endpoint(request: Request, strategy_id: str):
         raise HTTPException(status_code=401 if "sign in" in str(e).lower() or "session" in str(e).lower() else 400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/v1/account")
+@limiter.limit("3/minute")
+async def delete_account_endpoint(request: Request):
+    try:
+        user = get_user_from_authorization(request.headers.get("authorization"))
+    except Exception:
+        raise HTTPException(status_code=401, detail="Your session has expired. Sign in again, then delete your account.")
+    try:
+        return delete_account(user["id"])
+    except Exception as exc:
+        print(f"[Account] delete failed for {user.get('id')}: {exc}")
+        raise HTTPException(status_code=500, detail="Your account could not be deleted right now. Please try again in a minute.")
 
 
 @app.get("/api/v1/strategies/{strategy_id}/signals")

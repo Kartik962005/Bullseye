@@ -3,6 +3,8 @@ import { SITE_DESCRIPTION, SITE_NAME, SITE_URL } from "@/lib/site";
 import { Instrument_Serif, Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import BackendWarmup from "@/components/BackendWarmup";
+import { StorageNotice } from "@/components/StorageNotice";
+import { Analytics } from "@vercel/analytics/next";
 import { THEME_BOOT_SCRIPT } from "@/lib/theme-boot";
 
 // ── Type system ─────────────────────────────────────────────────────────────
@@ -77,6 +79,8 @@ export default function RootLayout({
       <body className="min-h-full flex flex-col">
         {children}
         <BackendWarmup />
+        <StorageNotice />
+        <Analytics />
       </body>
     </html>
   );
