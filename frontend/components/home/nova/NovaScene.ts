@@ -258,9 +258,12 @@ export class NovaScene {
     this.renderer.setAnimationLoop(this.tick);
   }
 
+  private baseScale = 1;
+
   private updateScale() {
     const px = this.height * this.dpr;
-    this.material.uniforms.uScale.value = px / (2 * Math.tan(THREE.MathUtils.degToRad(FOV / 2)));
+    this.baseScale = px / (2 * Math.tan(THREE.MathUtils.degToRad(FOV / 2)));
+    this.material.uniforms.uScale.value = this.baseScale;
   }
 
   private tick = (now: number) => {
@@ -328,6 +331,11 @@ export class NovaScene {
     this.camera.lookAt(this.look);
 
     this.group.position.x = view.groupX;
+    this.group.position.y = view.groupY;
+    // A formation shrunk to fit gets slightly smaller dots too, so the denser
+    // shape keeps the same texture instead of glowing into a blob.
+    this.group.scale.setScalar(view.scale);
+    u.uScale.value = this.baseScale * Math.sqrt(view.scale);
     this.group.rotation.y = this.pointer.x * 0.1;
     this.group.rotation.x = -this.pointer.y * 0.05;
 

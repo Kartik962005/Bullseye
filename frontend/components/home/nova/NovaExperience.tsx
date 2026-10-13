@@ -277,12 +277,13 @@ export function NovaExperience({ signedIn, onOpenDailySignals, stockStrip }: Nov
       frame = 0;
       const vh = window.innerHeight || 1;
       const y = window.scrollY;
-      // Hop i spans ~1.15 screens of scroll, from act i sitting 75% down the
-      // screen to 40% past the top, so each re-formation plays out slowly
-      // and the finished shape then holds while its copy is pinned.
+      // Hop i plays out over the screen of scroll before act i's copy pins
+      // (from the act entering 90% down the screen to its top reaching the
+      // top), so the finished shape is in place when the copy arrives and
+      // then holds for the half screen the copy stays pinned.
       let morph = 0;
       starts.forEach((top) => {
-        morph += Math.min(1, Math.max(0, (y - (top - vh * 0.75)) / (vh * 1.15)));
+        morph += Math.min(1, Math.max(0, (y - (top - vh * 0.9)) / (vh * 0.9)));
       });
       sceneRef.current?.setMorph(morph);
 

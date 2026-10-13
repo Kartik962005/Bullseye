@@ -119,7 +119,8 @@ export class NovaScene2D {
     this.look.set(...view.look);
     this.camera.lookAt(this.look);
     this.camera.updateMatrixWorld();
-    this.group.position.set(view.groupX, 0, 0);
+    this.group.position.set(view.groupX, view.groupY, 0);
+    this.group.scale.setScalar(view.scale);
     this.group.rotation.set(-this.pointer.y * 0.05, this.pointer.x * 0.1, 0);
     this.group.updateMatrixWorld();
     const e = this.m.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse).multiply(this.group.matrixWorld).elements;
@@ -133,6 +134,7 @@ export class NovaScene2D {
     const t = this.time;
     const m = this.morph;
     const scale = H / (2 * Math.tan(THREE.MathUtils.degToRad(FOV / 2)));
+    const dotScale = Math.sqrt(view.scale);
     const tc = Math.cos(1.02);
     const ts = Math.sin(1.02);
     const sc = Math.cos(t * 0.11);
@@ -217,7 +219,7 @@ export class NovaScene2D {
       const r = Math.min(255, lr * 255) | 0;
       const g = Math.min(255, lg * 255) | 0;
       const b = Math.min(255, lb * 255) | 0;
-      const radius = Math.min(9, Math.max(0.7, (R[i * 4 + 2] * 0.048 * scale) / cw) * 0.32);
+      const radius = Math.min(9, Math.max(0.7, (R[i * 4 + 2] * 0.048 * scale * dotScale) / cw) * 0.32);
 
       if (radius > 2.2) {
         // Bright "stars" get a faint halo.
