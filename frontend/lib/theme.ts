@@ -2,17 +2,18 @@
 
 import { useSyncExternalStore } from 'react';
 
-import { THEME_EVENT, THEME_STORAGE_KEY, type Theme } from './theme-boot';
+import { DEFAULT_THEME, THEME_BAR_COLOR, THEME_EVENT, THEME_STORAGE_KEY, type Theme } from './theme-boot';
 
 export { THEME_EVENT, THEME_STORAGE_KEY, type Theme };
 
 export function currentTheme(): Theme {
-  if (typeof document === 'undefined') return 'dark';
-  return document.documentElement.dataset.theme === 'light' ? 'light' : 'dark';
+  if (typeof document === 'undefined') return DEFAULT_THEME;
+  return document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light';
 }
 
 export function setTheme(theme: Theme) {
   document.documentElement.dataset.theme = theme;
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', THEME_BAR_COLOR[theme]);
   try {
     localStorage.setItem(THEME_STORAGE_KEY, theme);
   } catch {
@@ -26,9 +27,9 @@ function subscribe(onChange: () => void) {
   return () => window.removeEventListener(THEME_EVENT, onChange);
 }
 
-/** The active theme, re-rendering when it changes. Server render assumes dark. */
+/** The active theme, re-rendering when it changes. Server render assumes the default (light). */
 export function useTheme(): Theme {
-  return useSyncExternalStore(subscribe, currentTheme, () => 'dark');
+  return useSyncExternalStore(subscribe, currentTheme, () => DEFAULT_THEME);
 }
 
 /** A CSS custom property's current value, for canvas code (charts) that can't use var(). */

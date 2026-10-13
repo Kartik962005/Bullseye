@@ -2121,3 +2121,9 @@ a[class*="btn"]:active {
     margin: 16mm;
   }
 }
+
+/* Theme-dependent content that must be right before hydration (theme switch). */
+html[data-theme="dark"] .theme-when-light,
+html:not([data-theme="dark"]) .theme-when-dark {
+  display: none !important;
+}

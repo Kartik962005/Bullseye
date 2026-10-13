@@ -6,7 +6,7 @@ import BackendWarmup from "@/components/BackendWarmup";
 import { StorageNotice } from "@/components/StorageNotice";
 import { ScrollAids } from "@/components/ScrollAids";
 import { Analytics } from "@vercel/analytics/next";
-import { THEME_BOOT_SCRIPT } from "@/lib/theme-boot";
+import { DEFAULT_THEME, THEME_BAR_COLOR, THEME_BOOT_SCRIPT } from "@/lib/theme-boot";
 
 // ── Type system ─────────────────────────────────────────────────────────────
 // Three families, site-wide: an editorial serif for headings, a clean sans for
@@ -55,10 +55,8 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: [
-    { media: "(prefers-color-scheme: dark)", color: "#0b0c0e" },
-    { media: "(prefers-color-scheme: light)", color: "#f6f6f7" },
-  ],
+  // Light by default; the boot script and the theme switch update it for dark.
+  themeColor: THEME_BAR_COLOR.light,
 };
 
 export default function RootLayout({
@@ -70,7 +68,7 @@ export default function RootLayout({
     <html
       lang="en"
       className={`${displaySerif.variable} ${bodySans.variable} ${numericMono.variable} h-full antialiased`}
-      data-theme="dark"
+      data-theme={DEFAULT_THEME}
       suppressHydrationWarning
     >
       <head>
