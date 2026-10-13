@@ -43,7 +43,7 @@ jobs:
               ;;
           esac
 
-          endpoint="${BACKEND_URL%/}/api/v1/daily-updates/run-scheduled"
+          endpoint="${BACKEND_URL%/}/api/v1/daily-updates/run-scheduled?wait=1"
           echo "Calling scheduled daily email endpoint: ${endpoint}"
           status_code="$(
             curl --silent --show-error --location \

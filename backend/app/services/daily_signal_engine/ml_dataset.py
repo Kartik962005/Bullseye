@@ -23,8 +23,8 @@ from datetime import date
 
 import pandas as pd
 
-from .backtest import _grade_multiday, _relative_strength, _sector_of
-from .config import RISK_PROFILES
+from .backtest import _grade_limit_entry, _grade_multiday, _relative_strength, _sector_of
+from .config import RISK_PROFILES, entry_zone, horizon_barrier_scale, is_publishable_setup
 from .feature_engineering import build_feature_frame
 from .market_regime import detect_market_regime
 from .technical_rules import evaluate_technical_setup
@@ -80,10 +80,16 @@ def build_labeled_dataset(
     ambiguous_as: str = "loss",
     warmup_days: int = 60,
     earnings_dates: dict[str, list[str]] | None = None,
+    grading: str = "limit_entry",
 ) -> pd.DataFrame:
+    """`grading='limit_entry'` (default) grades the order a reader can place and
+    drops setups that would not have filled; 'legacy' keeps the original
+    assume-filled grader for reproducing older results."""
     profile = RISK_PROFILES.get(risk_level, RISK_PROFILES["Balanced"])
-    target_mult = profile["target_atr_multiplier"]
-    stop_mult = profile["stop_atr_multiplier"]
+    # Barriers shrink with the holding period (identical to before at 5 days).
+    scale = horizon_barrier_scale(hold_days)
+    target_mult = profile["target_atr_multiplier"] * scale
+    stop_mult = profile["stop_atr_multiplier"] * scale
 
     # Per-ticker sorted earnings dates (date objects) for causal proximity feats.
     earn_dt: dict[str, list[date]] = {}
@@ -194,18 +200,20 @@ def build_labeled_dataset(
             sec = sector_strength.get(_sector_of(ticker), 0.0)
             setup = evaluate_technical_setup(latest.to_dict(), rs, sec)
             direction = setup["direction"]
+            if direction not in {"BUY", "SELL"}:
+                # "HOLD" means the rules see no trade. These rows used to be
+                # graded as if they were SELLs, which the live engine never
+                # does, and they skewed both training and the test.
+                continue
 
+            entry_low, entry_high = entry_zone(direction, close, atr, hold_days)
             if direction == "BUY":
                 target_price = close + atr * target_mult
                 stop_loss = close - atr * stop_mult
-                entry_low = close - atr * 0.15
-                entry_high = close + atr * 0.2
                 risk_reward = max((target_price - close) / max(close - stop_loss, 1e-6), 0)
             else:
                 target_price = close - atr * target_mult
                 stop_loss = close + atr * stop_mult
-                entry_low = close - atr * 0.2
-                entry_high = close + atr * 0.15
                 risk_reward = max((close - target_price) / max(stop_loss - close, 1e-6), 0)
 
             # forward grade
@@ -219,7 +227,14 @@ def build_labeled_dataset(
                 "direction": direction, "target_price": target_price, "stop_loss": stop_loss,
                 "entry_low": entry_low, "entry_high": entry_high, "risk_reward": risk_reward,
             }
-            graded = _grade_multiday(sig, fwd, ambiguous_as=ambiguous_as)
+            if grading == "legacy":
+                graded = _grade_multiday(sig, fwd, ambiguous_as=ambiguous_as)
+            else:
+                # NO_FILL rows stay in the table (0R, filled=0): the daily
+                # ranking must choose among every setup it could have sent,
+                # not only the ones that turned out to fill. Training uses
+                # filled rows only.
+                graded = _grade_limit_entry(sig, fwd, ambiguous_as=ambiguous_as)
 
             rows.append({
                 "date": day,
@@ -265,6 +280,10 @@ def build_labeled_dataset(
                 "outcome": graded["outcome"],
                 "realized_r": float(graded["realized_r"]),
                 "label_win": 1 if graded["outcome"] == "WIN" else 0,
+                "filled": 0 if graded["outcome"] == "NO_FILL" else 1,
+                "directional_edge": int(setup.get("directional_edge") or 0),
+                # Passes the live publishing gates; training and testing use these rows only.
+                "eligible": 1 if is_publishable_setup(setup) else 0,
             })
 
     return pd.DataFrame(rows)

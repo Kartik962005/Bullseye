@@ -8,6 +8,7 @@ import hmac
 import json
 import os
 import secrets
+import threading
 from typing import Any
 from uuid import uuid4
 from zoneinfo import ZoneInfo
@@ -48,8 +49,13 @@ from app.services.daily_signal_engine.config import (
     RISK_PROFILES,
     SECTOR_BY_SYMBOL,
     UNIVERSE_AVERAGE_WIN_RATE,
+    HORIZONS,
+    horizon_barrier_scale,
+    horizon_from_signal_type,
+    signal_type_for_horizon,
 )
 from app.services.daily_signal_engine.data_ingestion import fetch_price_history, get_symbol_metadata
+from app.services.daily_signal_engine.ml_interface import horizon_status
 
 
 IST = ZoneInfo("Asia/Kolkata")
@@ -66,8 +72,12 @@ _MEMORY_SIGNALS: list[dict[str, Any]] = []
 _MEMORY_OUTCOMES: list[dict[str, Any]] = []
 _MEMORY_EMAIL_LOGS: list[dict[str, Any]] = []
 
-MIN_DIRECTIONAL_EDGE = int(os.getenv("DAILY_MIN_DIRECTIONAL_EDGE", "2"))
-MIN_CHART_SETUP_QUALITY = float(os.getenv("DAILY_MIN_CHART_SETUP_QUALITY", "0.60"))
+# Shared with training (config.py) so both see the same publishable setups.
+from app.services.daily_signal_engine.config import (  # noqa: E402
+    MIN_CHART_SETUP_QUALITY,
+    MIN_DIRECTIONAL_EDGE,
+    entry_zone,
+)
 MIN_EXPECTED_R = float(os.getenv("DAILY_MIN_EXPECTED_R", "0.08"))
 # Absolute floor only. The real gate is derived from each setup's reward:risk
 # (see _build_candidate) — a hit rate is meaningless without the payoff it is
@@ -222,10 +232,12 @@ def _supabase_required():
 
 
 def _normalize_market(value: str | None) -> str:
+    # Bullseye covers Indian equities only. BSE used the same NSE universe and
+    # the US option is gone, so older rows with either resolve to NSE.
     market = (value or DEFAULT_MARKET).upper()
     if market not in MARKET_CLOSES:
         raise ValueError("Unsupported market.")
-    return market
+    return "NSE"
 
 
 def _normalize_risk(value: str | None) -> str:
@@ -236,10 +248,41 @@ def _normalize_risk(value: str | None) -> str:
 
 
 def _normalize_signal_type(value: str | None) -> str:
-    signal_type = (value or DEFAULT_SIGNAL_TYPE).strip()
-    if signal_type not in {"Next-day swing", "Intraday", "Both"}:
-        raise ValueError("Signal type must be Next-day swing, Intraday, or Both.")
-    return signal_type
+    """The signal type now names the holding period: '1-day', '3-day' or '5-day'.
+
+    Older values ('Next-day swing', 'Intraday', 'Both') were all graded as
+    5-session trades, so they become '5-day'.
+    """
+    return signal_type_for_horizon(horizon_from_signal_type(value or DEFAULT_SIGNAL_TYPE))
+
+
+def _session_complete(now: datetime | None = None) -> bool:
+    """True once today's session has closed and its bar is final (or no session today)."""
+    now = now or datetime.now(IST)
+    if _is_market_holiday(now.date()):
+        return True
+    close = MARKET_CLOSES.get(DEFAULT_MARKET, time(15, 30))
+    settled = (datetime.combine(now.date(), close) + timedelta(minutes=MIN_EMAIL_AFTER_CLOSE_MINUTES)).time()
+    return now.time() >= settled
+
+
+def _current_session_date(now: datetime | None = None) -> date:
+    """The session the picks on screen are for: today until the close, then the next one."""
+    now = now or datetime.now(IST)
+    today = now.date()
+    close = MARKET_CLOSES.get(DEFAULT_MARKET, time(15, 30))
+    if not _is_market_holiday(today) and now.time() < close:
+        return today
+    return _next_trading_day(today)
+
+
+def _last_completed_session(now: datetime | None = None) -> date:
+    """The latest session whose daily bar is final, which is the data a run uses."""
+    now = now or datetime.now(IST)
+    today = now.date()
+    if not _is_market_holiday(today) and _session_complete(now):
+        return today
+    return _previous_trading_day(today)
 
 
 def _normalize_delivery_mode(value: str | None) -> str:
@@ -512,7 +555,7 @@ def _setup_stats() -> dict[str, dict[str, int]]:
             setup_by_id = {row["id"]: row.get("setup_type") or "mixed_setup" for row in getattr(signal_rows, "data", None) or []}
             for outcome in getattr(outcome_rows, "data", None) or []:
                 setup = setup_by_id.get(outcome.get("stock_signal_id"))
-                if not setup:
+                if not setup or outcome.get("outcome") == "NO_FILL":
                     continue
                 stats[setup]["trades"] += 1
                 if outcome.get("outcome") == "WIN":
@@ -525,6 +568,8 @@ def _setup_stats() -> dict[str, dict[str, int]]:
     for signal in _MEMORY_SIGNALS:
         for outcome in _MEMORY_OUTCOMES:
             if outcome.get("stock_signal_id") != signal.get("id"):
+                continue
+            if outcome.get("outcome") == "NO_FILL":
                 continue
             setup = signal.get("setup_type") or "mixed_setup"
             stats[setup]["trades"] += 1
@@ -560,7 +605,8 @@ def _build_candidate(
     sector_strength: float,
     setup_stats: dict[str, dict[str, int]],
     risk_level: str,
-    signal_type: str,
+    horizon_days: int = 5,
+    market_breadth: dict[str, float] | None = None,
 ) -> dict[str, Any] | None:
     latest = feature_frame.iloc[-1]
     close = float(latest["close"])
@@ -584,6 +630,7 @@ def _build_candidate(
         regime,
         relative_strength=relative_strength,
         sector_strength=sector_strength,
+        market_breadth=market_breadth,
     )
     probabilities = predict_signal_probabilities(
         technical_setup,
@@ -593,25 +640,22 @@ def _build_candidate(
         validation["quality_score"],
         feature_values=feature_values,
         setup_type=technical_setup.get("setup_type"),
+        horizon_days=horizon_days,
     )
 
+    # Same geometry the model was trained on for this horizon.
     profile = _risk_profile(risk_level)
-    target_multiplier = profile["target_atr_multiplier"] * (0.9 if signal_type == "Intraday" else 1.0)
-    stop_multiplier = profile["stop_atr_multiplier"] * (0.8 if signal_type == "Intraday" else 1.0)
-    if signal_type == "Both":
-        target_multiplier *= 1.05
-        stop_multiplier *= 0.95
+    scale = horizon_barrier_scale(horizon_days)
+    target_multiplier = profile["target_atr_multiplier"] * scale
+    stop_multiplier = profile["stop_atr_multiplier"] * scale
 
+    entry_low, entry_high = entry_zone(technical_setup["direction"], close, atr, horizon_days)
     if technical_setup["direction"] == "BUY":
-        entry_low = close - atr * 0.15
-        entry_high = close + atr * 0.2
         target_price = close + atr * target_multiplier
         stop_loss = close - atr * stop_multiplier
         target_r = max((target_price - close) / max(close - stop_loss, 1e-6), 0)
         stop_r = 1.0
     else:
-        entry_low = close - atr * 0.2
-        entry_high = close + atr * 0.15
         target_price = close - atr * target_multiplier
         stop_loss = close + atr * stop_multiplier
         target_r = max((close - target_price) / max(stop_loss - close, 1e-6), 0)
@@ -624,7 +668,7 @@ def _build_candidate(
         conservative_p_loss,
         target_r,
         stop_r,
-        transaction_cost_r=0.03 if signal_type != "Intraday" else 0.04,
+        transaction_cost_r=0.03,
         slippage_r=0.02,
     )
     setup_stat = setup_stats.get(technical_setup["setup_type"], {"wins": 0, "trades": 0})
@@ -739,7 +783,9 @@ def _build_candidate(
             "probabilities": probabilities,
             "sector_strength": round(sector_strength, 4),
             "relative_strength": round(relative_strength, 4),
-            "signal_type": signal_type,
+            "signal_type": signal_type_for_horizon(horizon_days),
+            "horizon_days": int(horizon_days),
+            "market_breadth": {k: round(float(v), 4) for k, v in (market_breadth or {}).items()},
             "quality_gates": {
                 "min_directional_edge": MIN_DIRECTIONAL_EDGE,
                 "min_chart_setup_quality": MIN_CHART_SETUP_QUALITY,
@@ -750,6 +796,91 @@ def _build_candidate(
         },
         "recent_returns": returns,
     }
+
+
+def _market_breadth(feature_frames: dict[str, pd.DataFrame]) -> dict[str, Any]:
+    """Cross-sectional breadth as of the last bar, defined exactly as in training.
+
+    The model was trained with these features computed across the universe
+    (ml_dataset.build_labeled_dataset), but the live engine never passed them,
+    so ten of its thirty inputs were frozen at neutral defaults. A model fed
+    values it never saw in training is not the model that was tested.
+    """
+    today: list[tuple[str, dict[str, float]]] = []
+    previous_above50: list[float] = []
+    for ticker, frame in feature_frames.items():
+        if len(frame) < 52:
+            continue
+        last = frame.iloc[-1]
+        prev = frame.iloc[-2]
+        try:
+            snap = {
+                "close": float(last["close"]),
+                "ema20": float(last["ema20"]),
+                "ema50": float(last["ema50"]),
+                "ret5": float(last["ret5"]),
+            }
+            previous_above50.append(1.0 if float(prev["close"]) > float(prev["ema50"]) else 0.0)
+        except (KeyError, TypeError, ValueError):
+            continue
+        today.append((ticker, snap))
+    if not today:
+        return {"market": {}, "sectors": {}}
+    n = len(today)
+    above50 = sum(1 for _, s in today if s["close"] > s["ema50"]) / n
+    market = {
+        "mkt_above_ema50": above50,
+        "mkt_above_ema20": sum(1 for _, s in today if s["close"] > s["ema20"]) / n,
+        "mkt_adv5": sum(1 for _, s in today if s["ret5"] > 0) / n,
+        "mkt_breadth_chg": above50 - (sum(previous_above50) / len(previous_above50) if previous_above50 else above50),
+    }
+    members: dict[str, list[float]] = defaultdict(list)
+    for ticker, snap in today:
+        sector = SECTOR_BY_SYMBOL.get(ticker.replace(".NS", "").replace(".BO", ""), "General")
+        members[sector].append(1.0 if snap["close"] > snap["ema50"] else 0.0)
+    sectors = {sector: sum(v) / len(v) for sector, v in members.items()}
+    return {"market": market, "sectors": sectors}
+
+
+def _breadth_for(ticker: str, breadth: dict[str, Any]) -> dict[str, float]:
+    market = dict(breadth.get("market") or {})
+    if not market:
+        return {}
+    sector = SECTOR_BY_SYMBOL.get(ticker.replace(".NS", "").replace(".BO", ""), "General")
+    sector_above = float((breadth.get("sectors") or {}).get(sector, 0.0))
+    market["sector_above_ema50"] = sector_above
+    market["sector_vs_market"] = sector_above - float(market["mkt_above_ema50"])
+    return market
+
+
+# One evening run builds several horizons and risk levels from the same prices,
+# so the universe is fetched and featurised once and reused for a while.
+_UNIVERSE_CACHE: dict[str, Any] = {}
+_UNIVERSE_TTL_SECONDS = 30 * 60
+
+
+def _load_universe(market: str) -> dict[str, Any]:
+    key = f"{market}:{_last_completed_session().isoformat()}"
+    cached = _UNIVERSE_CACHE.get(key)
+    if cached and (datetime.now(timezone.utc) - cached["at"]).total_seconds() < _UNIVERSE_TTL_SECONDS:
+        return cached
+    market_context = fetch_market_context(market)
+    feature_frames: dict[str, pd.DataFrame] = {}
+    for ticker in get_universe(market):
+        features = build_feature_frame(fetch_price_history(ticker, days=320))
+        if not features.empty:
+            feature_frames[ticker] = features
+    loaded = {
+        "at": datetime.now(timezone.utc),
+        "market_context": market_context,
+        "regime": detect_market_regime(market_context["index_history"]),
+        "feature_frames": feature_frames,
+        "sector_strengths": _group_sector_strength(feature_frames, market_context["index_history"]),
+        "breadth": _market_breadth(feature_frames),
+    }
+    _UNIVERSE_CACHE.clear()
+    _UNIVERSE_CACHE[key] = loaded
+    return loaded
 
 
 def _group_sector_strength(feature_frames: dict[str, pd.DataFrame], index_frame: pd.DataFrame) -> dict[str, float]:
@@ -832,6 +963,38 @@ def _find_existing_run(run_date: str, market: str, risk_level: str, signal_type:
     return sorted(matches, key=lambda item: item["generated_at"], reverse=True)[0] if matches else None
 
 
+def latest_run(market: str, risk_level: str, signal_type: str, *, from_date: date | None = None) -> dict[str, Any] | None:
+    """The newest stored run whose session is today or later (nothing is computed)."""
+    since = (from_date or _current_session_date()).isoformat()
+    if supabase:
+        try:
+            response = (
+                supabase.table(MODEL_RUNS_TABLE)
+                .select("*")
+                .eq("market", market)
+                .eq("risk_level", risk_level)
+                .eq("signal_type", signal_type)
+                .gte("target_date", since)
+                .order("target_date")
+                .order("generated_at", desc=True)
+                .limit(1)
+                .execute()
+            )
+            rows = getattr(response, "data", None) or []
+            return rows[0] if rows else None
+        except Exception as exc:
+            if not _should_use_memory_fallback(exc, MODEL_RUNS_TABLE):
+                raise
+    matches = [
+        item for item in _MEMORY_RUNS
+        if item["market"] == market and item["risk_level"] == risk_level
+        and item["signal_type"] == signal_type and item["target_date"] >= since
+    ]
+    matches.sort(key=lambda item: item["generated_at"], reverse=True)
+    matches.sort(key=lambda item: item["target_date"])
+    return matches[0] if matches else None
+
+
 def _load_signals_for_run(run_id: str) -> list[dict[str, Any]]:
     if supabase:
         try:
@@ -860,13 +1023,26 @@ def run_daily_prediction(
     user_ids: list[str] | None = None,
     force: bool = False,
 ) -> dict[str, Any]:
+    """Build (or reuse) the picks for the next session at one horizon and risk level.
+
+    Runs only on completed daily bars: during a trading session the latest bar
+    is still moving, so features computed from it would not match anything the
+    model was trained or tested on. On weekends and holidays it uses the last
+    completed session and targets the next one.
+    """
     market = _normalize_market(market)
     risk_level = _normalize_risk(risk_level)
     signal_type = _normalize_signal_type(signal_type)
-    run_day = _today_ist()
-    target_date = (target_day or _next_trading_day(run_day)).isoformat()
-    if _is_market_holiday(run_day) and not force:
-        return {"skipped": True, "reason": "Non-trading day", "run_date": run_day.isoformat()}
+    horizon_days = horizon_from_signal_type(signal_type)
+    now = datetime.now(IST)
+    if not _session_complete(now) and not force:
+        return {
+            "skipped": True,
+            "reason": "Today's session is still open. Picks for the next session are built after the close.",
+            "run_date": now.date().isoformat(),
+        }
+    run_day = _last_completed_session(now)
+    target_date = (target_day or _next_trading_day(now.date() if _session_complete(now) else run_day)).isoformat()
 
     existing_run = _find_existing_run(run_day.isoformat(), market, risk_level, signal_type)
     if existing_run and existing_run.get("target_date") != target_date:
@@ -876,67 +1052,88 @@ def run_daily_prediction(
         notifications = _send_daily_signal_emails(existing_run, signals, user_ids=user_ids) if send_email else []
         return {"model_run": existing_run, "signals": signals, "notifications": notifications, "cached": True}
 
-    market_context = fetch_market_context(market)
-    index_frame = build_feature_frame(market_context["index_history"])
-    regime = detect_market_regime(market_context["index_history"])
-    feature_frames: dict[str, pd.DataFrame] = {}
-    for ticker in get_universe(market):
-        history = fetch_price_history(ticker, days=320)
-        features = build_feature_frame(history)
-        if not features.empty:
-            feature_frames[ticker] = features
-
-    sector_strengths = _group_sector_strength(feature_frames, market_context["index_history"])
-    stats = _setup_stats()
-    candidates: list[dict[str, Any]] = []
-    for ticker, feature_frame in feature_frames.items():
-        sector = SECTOR_BY_SYMBOL.get(ticker.replace(".NS", "").replace(".BO", ""), "General")
-        candidate = _build_candidate(
-            ticker=ticker,
-            feature_frame=feature_frame,
-            index_frame=market_context["index_history"],
-            regime=regime,
-            sector_strength=sector_strengths.get(sector, 0.0),
-            setup_stats=stats,
-            risk_level=risk_level,
-            signal_type=signal_type,
-        )
-        if candidate:
-            candidates.append(candidate)
-
-    selected = diversify_candidates(candidates)[:MAX_SELECTED_SIGNALS]
+    status = horizon_status(horizon_days)
+    model_version = os.getenv("DAILY_SIGNAL_MODEL_VERSION", "signal-engine-v2") + f"-h{horizon_days}"
     run_id = str(uuid4())
     generated_at = _utc_now_iso()
-    model_version = os.getenv("DAILY_SIGNAL_MODEL_VERSION", "signal-engine-v1")
-    signal_rows = []
-    for index, signal in enumerate(selected, 1):
-        signal_rows.append(
-            {
-                "id": str(uuid4()),
-                "model_run_id": run_id,
-                "symbol": signal["symbol"],
-                "company_name": signal["company_name"],
-                "sector": signal["sector"],
-                "direction": signal["direction"],
-                "entry_low": signal["entry_low"],
-                "entry_high": signal["entry_high"],
-                "target_price": signal["target_price"],
-                "stop_loss": signal["stop_loss"],
-                "confidence": signal["confidence"],
-                "expected_r": signal["expected_r"],
-                "risk_reward": signal["risk_reward"],
-                "final_score": signal["final_score"],
-                "setup_type": signal["setup_type"],
-                "explanation_json": signal["explanation_json"],
-                "model_version": model_version,
-                "run_date": run_day.isoformat(),
-                "target_date": target_date,
-                "market": market,
-                "data_quality_valid": signal["data_quality_valid"],
-                "signal_rank": index,
-            }
-        )
+    candidates: list[dict[str, Any]] = []
+    signal_rows: list[dict[str, Any]] = []
+    universe_size = len(get_universe(market))
+    regime: dict[str, Any] = {}
+    run_status = "completed"
+    withheld_reason = None
 
+    # DAILY_PICKS_MODE=experimental publishes picks from a model that did not
+    # pass testing, labelled as such with its test result. The default
+    # (tested_only) withholds them.
+    experimental = (
+        not status["publish"]
+        and status["has_model"]
+        and os.getenv("DAILY_PICKS_MODE", "tested_only").strip().lower() == "experimental"
+    )
+    if experimental:
+        run_status = "experimental"
+    if not status["publish"] and not experimental:
+        # Testing did not support this horizon (or its model is missing), so the
+        # run is recorded as withheld rather than emailing unsupported picks.
+        run_status = "withheld"
+        withheld_reason = (
+            f"The {horizon_days}-day model did not beat trading costs in out-of-sample testing, so it publishes no picks."
+            if status["has_model"]
+            else f"There is no trained {horizon_days}-day model yet."
+        )
+    else:
+        universe = _load_universe(market)
+        regime = universe["regime"]
+        stats = _setup_stats()
+        for ticker, feature_frame in universe["feature_frames"].items():
+            sector = SECTOR_BY_SYMBOL.get(ticker.replace(".NS", "").replace(".BO", ""), "General")
+            candidate = _build_candidate(
+                ticker=ticker,
+                feature_frame=feature_frame,
+                index_frame=universe["market_context"]["index_history"],
+                regime=regime,
+                sector_strength=universe["sector_strengths"].get(sector, 0.0),
+                setup_stats=stats,
+                risk_level=risk_level,
+                horizon_days=horizon_days,
+                market_breadth=_breadth_for(ticker, universe["breadth"]),
+            )
+            if candidate:
+                candidates.append(candidate)
+        # Never publish a pick the model itself expects to lose money on after
+        # costs; on a weak day that leaves fewer picks, or none.
+        candidates = [c for c in candidates if float(c.get("expected_r") or 0) > 0]
+        selected = diversify_candidates(candidates)[:MAX_SELECTED_SIGNALS]
+        for index, signal in enumerate(selected, 1):
+            signal_rows.append(
+                {
+                    "id": str(uuid4()),
+                    "model_run_id": run_id,
+                    "symbol": signal["symbol"],
+                    "company_name": signal["company_name"],
+                    "sector": signal["sector"],
+                    "direction": signal["direction"],
+                    "entry_low": signal["entry_low"],
+                    "entry_high": signal["entry_high"],
+                    "target_price": signal["target_price"],
+                    "stop_loss": signal["stop_loss"],
+                    "confidence": signal["confidence"],
+                    "expected_r": signal["expected_r"],
+                    "risk_reward": signal["risk_reward"],
+                    "final_score": signal["final_score"],
+                    "setup_type": signal["setup_type"],
+                    "explanation_json": signal["explanation_json"],
+                    "model_version": model_version,
+                    "run_date": run_day.isoformat(),
+                    "target_date": target_date,
+                    "market": market,
+                    "data_quality_valid": signal["data_quality_valid"],
+                    "signal_rank": index,
+                }
+            )
+
+    report = status.get("report") or {}
     run_payload = {
         "id": run_id,
         "run_date": run_day.isoformat(),
@@ -946,21 +1143,59 @@ def run_daily_prediction(
         "signal_type": signal_type,
         "model_version": model_version,
         "generated_at": generated_at,
-        "universe_size": len(get_universe(market)),
+        "universe_size": universe_size,
         "filtered_count": len(candidates),
         "selected_count": len(signal_rows),
         "data_timestamp": generated_at,
-        "status": "completed",
+        "status": run_status,
         "summary": {
             "market_regime": regime,
             "conviction": _conviction_for_signals(signal_rows),
-            "method": "data ingestion, validation, feature engineering, technical rules, scoring, diversification, and outcome tracking",
+            "horizon_days": horizon_days,
+            "withheld_reason": withheld_reason,
+            "model_test": {
+                key: report.get(key)
+                for key in ("roc_auc", "oos_days", "oos_first_day", "oos_last_day", "base_rate")
+            } | {"ml_top_n": report.get("ml_top_n")} if report else None,
+            "method": "completed daily bars, validation, features with live market breadth, per-horizon model, scoring, diversification",
         },
     }
     stored_run = _store_model_run(run_payload, signal_rows)
-    _log_audit("model_run_created", "model_runs", stored_run, entity_id=run_id)
-    notifications = _send_daily_signal_emails(stored_run, signal_rows, user_ids=user_ids) if send_email else []
+    _log_audit("model_run_created", "model_runs", {"id": run_id, "signal_type": signal_type, "status": run_status}, entity_id=run_id)
+    notifications = _send_daily_signal_emails(stored_run, signal_rows, user_ids=user_ids) if send_email and signal_rows else []
     return {"model_run": stored_run, "signals": signal_rows, "notifications": notifications, "cached": False}
+
+
+def prepare_daily_runs(market: str = DEFAULT_MARKET) -> dict[str, Any]:
+    """Build every horizon x risk level once the session has closed.
+
+    Called by the scheduled tick, never by a page: users only ever read stored
+    runs, so nobody waits on a model run. Cheap to repeat, as finished runs are
+    found and reused.
+    """
+    if not _session_complete():
+        return {"skipped": True, "reason": "Session still open"}
+    built: list[dict[str, Any]] = []
+    for horizon in HORIZONS:
+        for risk_level in RISK_PROFILES:
+            try:
+                result = run_daily_prediction(
+                    market=market,
+                    risk_level=risk_level,
+                    signal_type=signal_type_for_horizon(horizon),
+                )
+                run = result.get("model_run") or {}
+                built.append({
+                    "horizon_days": horizon,
+                    "risk_level": risk_level,
+                    "status": run.get("status"),
+                    "picks": run.get("selected_count"),
+                    "cached": result.get("cached"),
+                })
+            except Exception as exc:  # noqa: BLE001 - one failure must not block the rest
+                print(f"[DailySignals] prepare {horizon}-day/{risk_level} failed: {exc}")
+                built.append({"horizon_days": horizon, "risk_level": risk_level, "error": str(exc)})
+    return {"runs": built}
 
 
 def _iter_preferences() -> list[dict[str, Any]]:
@@ -1065,6 +1300,14 @@ def _log_email(record: dict[str, Any]):
     _MEMORY_EMAIL_LOGS.append(record)
 
 
+def _experimental_note(model_run: dict[str, Any]) -> str | None:
+    if model_run.get("status") != "experimental":
+        return None
+    tested = (((model_run.get("summary") or {}).get("model_test") or {}).get("ml_top_n") or {}).get("avg_net_r")
+    result = f" ({tested:+.2f}R per filled trade after costs)" if isinstance(tested, (int, float)) else ""
+    return f"in out-of-sample testing this holding period did not beat trading costs{result}. Treat these picks as research only."
+
+
 def _send_signal_email_to_preference(
     model_run: dict[str, Any],
     signals: list[dict[str, Any]],
@@ -1072,6 +1315,10 @@ def _send_signal_email_to_preference(
     *,
     email_kind: str,
 ) -> dict[str, Any]:
+    if not preference.get("unsubscribe_nonce"):
+        # Settings saved straight from the browser have no nonce yet. Without
+        # storing it, every email would carry a different, unusable link.
+        preference = _upsert_preference(dict(preference))
     subject, text, html = build_signal_email(
         signal_date=model_run["target_date"],
         market=model_run["market"],
@@ -1080,6 +1327,7 @@ def _send_signal_email_to_preference(
         risk_level=model_run["risk_level"],
         signal_type=model_run["signal_type"],
         conviction=(model_run.get("summary") or {}).get("conviction"),
+        experimental_note=_experimental_note(model_run),
     )
     result = _send_email(preference["email"], subject, text, html=html)
     log_record = {
@@ -1105,7 +1353,11 @@ def _send_daily_signal_emails(model_run: dict[str, Any], signals: list[dict[str,
     for preference in _iter_preferences():
         if allowed and preference["user_id"] not in allowed:
             continue
-        if preference.get("market") != model_run["market"] or preference.get("risk_level") != model_run["risk_level"] or preference.get("signal_type") != model_run["signal_type"]:
+        if (
+            _normalize_market(preference.get("market")) != model_run["market"]
+            or preference.get("risk_level") != model_run["risk_level"]
+            or _normalize_signal_type(preference.get("signal_type")) != model_run["signal_type"]
+        ):
             continue
         if _email_already_sent(preference["user_id"], model_run["id"]):
             continue
@@ -1123,63 +1375,31 @@ def _send_daily_signal_emails(model_run: dict[str, Any], signals: list[dict[str,
 
 
 def send_instant_signal_email(user: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
+    """Email the latest stored picks to the signed-in user right away.
+
+    This used to run the whole model inside the request, which on a small free
+    server took many minutes. Picks are built once after the close; this only
+    reads and sends them.
+    """
     current = get_notification_preference(user)
     market = _normalize_market(payload.get("market") or current.get("market"))
     risk_level = _normalize_risk(payload.get("risk_level") or current.get("risk_level"))
-    preference_signal_type = _normalize_signal_type(payload.get("signal_type") or current.get("signal_type"))
-    delivery_mode = _normalize_delivery_mode(payload.get("delivery_mode"))
-    run_signal_type = "Intraday" if delivery_mode == "today" else preference_signal_type
-    email_time = _coerce_email_time(payload.get("email_time") or current.get("email_time") or DEFAULT_EMAIL_TIME)
-    clean_email = (payload.get("email") or user.get("email") or current.get("email") or "").strip()
+    signal_type = _normalize_signal_type(payload.get("signal_type") or current.get("signal_type"))
+    clean_email = (user.get("email") or current.get("email") or "").strip()
     if "@" not in clean_email:
         raise ValueError("Instant stock emails need a valid account email.")
-    if delivery_mode == "today":
-        now = datetime.now(IST)
-        if _is_market_holiday(now.date()):
-            raise ValueError("Today is not a trading day. Use the next-trading-day email instead.")
-        if now.time() >= MARKET_CLOSES[market]:
-            raise ValueError("The market is already closed. Use the next-trading-day email instead.")
-
-    current.update(
-        {
-            "email": clean_email,
-            "market": market,
-            "risk_level": risk_level,
-            "email_time": email_time,
-            "signal_type": preference_signal_type,
-            "daily_stock_email_enabled": current.get("daily_stock_email_enabled", False),
-        }
-    )
-    preference = _upsert_preference(current)
-    _log_audit("instant_signal_email_requested", "notification_preferences", preference, user_id=user["id"], entity_id=user["id"])
-
-    target_day = _today_ist() if delivery_mode == "today" else None
-    result = run_daily_prediction(
-        market=market,
-        risk_level=risk_level,
-        signal_type=run_signal_type,
-        target_day=target_day,
-        send_email=False,
-        user_ids=[user["id"]],
-        force=bool(payload.get("force_generation")),
-    )
-    if result.get("skipped") or not result.get("model_run"):
-        raise ValueError(result.get("reason") or "Signal generation was skipped.")
-
-    notification = _send_signal_email_to_preference(
-        result["model_run"],
-        result["signals"],
-        preference,
-        email_kind="instant_today_signal" if delivery_mode == "today" else "instant_signal",
-    )
-    return {
-        "preference": preference,
-        "model_run": result["model_run"],
-        "signals": result["signals"],
-        "notification": notification,
-        "delivery_mode": delivery_mode,
-        "cached": result.get("cached", False),
-    }
+    run = latest_run(market, risk_level, signal_type)
+    if not run:
+        raise ValueError("There are no picks for the next session yet. They are built after the market closes.")
+    if run.get("status") == "withheld":
+        raise ValueError((run.get("summary") or {}).get("withheld_reason") or "This horizon publishes no picks.")
+    signals = _load_signals_for_run(run["id"])
+    if not signals:
+        raise ValueError("The model found no setups worth taking for this session, so there is nothing to send.")
+    preference = {**current, "email": clean_email, "user_id": user["id"]}
+    notification = _send_signal_email_to_preference(run, signals, preference, email_kind="instant_signal")
+    _log_audit("instant_signal_email_sent", "model_runs", {"run_id": run["id"]}, user_id=user["id"], entity_id=run["id"])
+    return {"model_run": run, "signals": signals, "notification": notification}
 
 
 def process_scheduled_daily_alerts(force: bool = False) -> dict[str, Any]:
@@ -1231,7 +1451,12 @@ def process_scheduled_daily_alerts(force: bool = False) -> dict[str, Any]:
 
     grouped: dict[tuple[str, str, str], list[str]] = defaultdict(list)
     for preference in due_preferences:
-        grouped[(preference["market"], preference["risk_level"], preference["signal_type"])].append(preference["user_id"])
+        key = (
+            _normalize_market(preference.get("market")),
+            _normalize_risk(preference.get("risk_level")),
+            _normalize_signal_type(preference.get("signal_type")),
+        )
+        grouped[key].append(preference["user_id"])
 
     all_notifications: list[dict[str, Any]] = []
     for (market, risk_level, signal_type), user_ids in grouped.items():
@@ -1266,6 +1491,18 @@ def process_scheduled_daily_alerts(force: bool = False) -> dict[str, Any]:
 
 # Per-day guard so repeated cron hits don't re-run outcome tracking all day.
 _OUTCOME_TRACKED_FOR: str | None = None
+# One tick at a time: the in-process loop, the database cron and the GitHub
+# backup can all fire close together, and overlapping ticks could both decide
+# the same email is due.
+_TICK_LOCK = threading.Lock()
+
+
+def run_scheduled_tick_in_background() -> dict[str, Any]:
+    """Start a tick on a worker thread and return at once (for short-timeout callers)."""
+    if _TICK_LOCK.locked():
+        return {"started": False, "busy": True}
+    threading.Thread(target=run_scheduled_tick, name="daily-tick", daemon=True).start()
+    return {"started": True}
 
 
 def run_scheduled_tick(force: bool = False) -> dict[str, Any]:
@@ -1282,8 +1519,22 @@ def run_scheduled_tick(force: bool = False) -> dict[str, Any]:
     cron then keeps the host awake AND drives both steps, with no dependency on
     a long-lived in-process loop surviving a sleeping free-tier dyno.
     """
+    if not _TICK_LOCK.acquire(blocking=False):
+        return {"busy": True, "emails": {}, "prepared": None, "outcomes": None}
+    try:
+        return _run_scheduled_tick(force)
+    finally:
+        _TICK_LOCK.release()
+
+
+def _run_scheduled_tick(force: bool) -> dict[str, Any]:
     global _OUTCOME_TRACKED_FOR
     now = datetime.now(IST)
+    prepared: dict[str, Any] | None = None
+    try:
+        prepared = prepare_daily_runs()
+    except Exception as exc:  # noqa: BLE001 - emails can still go out from stored runs
+        print(f"[DailySignals] preparing runs failed: {exc}")
     emails = process_scheduled_daily_alerts(force=force)
 
     outcomes: dict[str, Any] | None = None
@@ -1297,7 +1548,7 @@ def run_scheduled_tick(force: bool = False) -> dict[str, Any]:
         except Exception as exc:  # noqa: BLE001 - never let tracking break email delivery
             print(f"[DailySignals] outcome tracking failed: {exc}")
 
-    return {"emails": emails, "outcomes": outcomes}
+    return {"prepared": prepared, "emails": emails, "outcomes": outcomes}
 
 
 def _load_pending_signals(target_day: str, *, include_evaluated: bool = False) -> list[dict[str, Any]]:
@@ -1381,7 +1632,8 @@ def run_outcome_tracking(review_day: date | None = None, *, recompute: bool = Fa
         if window_rows.empty:
             continue
         bars = window_rows.to_dict("records")
-        outcome = evaluate_signal_outcome_window(signal, bars)
+        horizon = int(((signal.get("explanation_json") or {}).get("horizon_days")) or HOLD_SESSIONS)
+        outcome = evaluate_signal_outcome_window(signal, bars, max_sessions=horizon)
         if outcome is None:
             continue  # still open — leave it pending rather than recording a verdict
         record = {
@@ -1394,7 +1646,7 @@ def run_outcome_tracking(review_day: date | None = None, *, recompute: bool = Fa
             "notes": {
                 "target_date": signal_day.isoformat(),
                 "sessions_held": outcome.get("sessions_held"),
-                "window_sessions": HOLD_SESSIONS,
+                "window_sessions": horizon,
             },
         }
         if supabase:
@@ -1412,14 +1664,12 @@ def run_outcome_tracking(review_day: date | None = None, *, recompute: bool = Fa
 
 
 def get_signals_today(market: str | None = None, risk_level: str | None = None, signal_type: str | None = None) -> dict[str, Any]:
+    """The latest stored picks for the next session. Reading never runs the model."""
     selected_market = _normalize_market(market or DEFAULT_MARKET)
     selected_risk = _normalize_risk(risk_level or DEFAULT_RISK_LEVEL)
     selected_type = _normalize_signal_type(signal_type or DEFAULT_SIGNAL_TYPE)
-    existing = _find_existing_run(_today_ist().isoformat(), selected_market, selected_risk, selected_type)
-    if not existing:
-        result = run_daily_prediction(market=selected_market, risk_level=selected_risk, signal_type=selected_type, send_email=False, force=True)
-        return {"model_run": result["model_run"], "signals": result["signals"]}
-    return {"model_run": existing, "signals": _load_signals_for_run(existing["id"])}
+    run = latest_run(selected_market, selected_risk, selected_type)
+    return {"model_run": run, "signals": _load_signals_for_run(run["id"]) if run else []}
 
 
 def get_stock_track_record(symbol: str, limit: int = 12) -> dict[str, Any]:
@@ -1469,7 +1719,7 @@ def get_stock_track_record(symbol: str, limit: int = 12) -> dict[str, Any]:
         outcomes_by_signal = {o["stock_signal_id"]: o for o in _MEMORY_OUTCOMES}
 
     entries: list[dict[str, Any]] = []
-    wins = losses = neutral = pending = 0
+    wins = losses = neutral = pending = no_fill = 0
     realized: list[float] = []
     for signal in signals:
         outcome = outcomes_by_signal.get(signal.get("id"))
@@ -1480,10 +1730,12 @@ def get_stock_track_record(symbol: str, limit: int = 12) -> dict[str, Any]:
             losses += 1
         elif status == "NEUTRAL":
             neutral += 1
+        elif status == "NO_FILL":
+            no_fill += 1  # the entry price was never reached: not a trade
         else:
             pending += 1
         realized_r = (outcome or {}).get("realized_r")
-        if isinstance(realized_r, (int, float)):
+        if isinstance(realized_r, (int, float)) and status != "NO_FILL":
             realized.append(float(realized_r))
         entries.append(
             {
@@ -1514,6 +1766,7 @@ def get_stock_track_record(symbol: str, limit: int = 12) -> dict[str, Any]:
             "wins": wins,
             "losses": losses,
             "neutral": neutral,
+            "no_fill": no_fill,
             # Only over resolved trades. None (not 0) when nothing has closed yet,
             # so the UI can say "no closed calls" instead of showing a 0% hit rate
             # that would read as "we always lose".

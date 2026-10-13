@@ -96,6 +96,7 @@ from app.services.daily_trade_service import (
     get_stock_track_record,
     process_scheduled_daily_alerts,
     run_scheduled_tick,
+    run_scheduled_tick_in_background,
     run_daily_prediction,
     run_daily_forecast,
     run_outcome_tracking,
@@ -155,7 +156,8 @@ async def start_daily_trade_updates():
         while True:
             try:
                 # Same idempotent tick the external cron calls; safe to run both.
-                run_scheduled_tick()
+                # On a worker thread, so a long evening run never blocks requests.
+                await asyncio.to_thread(run_scheduled_tick)
             except Exception as exc:
                 print(f"[DailyTrade] scheduled update failed: {exc}")
             await asyncio.sleep(60)
@@ -878,13 +880,18 @@ async def run_daily_updates_forecast(request: Request):
 
 @app.post("/api/v1/daily-updates/run-scheduled")
 @limiter.limit("6/minute")
-async def run_scheduled_daily_updates(request: Request):
+async def run_scheduled_daily_updates(request: Request, wait: bool = False):
     admin_key = os.getenv("ALERT_ADMIN_KEY")
     if admin_key and request.headers.get("x-alert-admin-key") != admin_key:
         raise HTTPException(status_code=403, detail="Invalid alert admin key")
     try:
-        # Drives both due-email delivery AND post-close outcome tracking.
-        return run_scheduled_tick(force=False)
+        # Builds the evening picks, sends due emails and records outcomes.
+        # By default it returns at once and works in the background, because
+        # the database scheduler gives up on a request after a few seconds.
+        # ?wait=1 runs it to completion and returns the summary (GitHub backup).
+        if wait:
+            return await asyncio.to_thread(run_scheduled_tick, False)
+        return run_scheduled_tick_in_background()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

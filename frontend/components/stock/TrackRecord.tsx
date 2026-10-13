@@ -28,7 +28,7 @@ type TrackRecordSignal = {
   target_price?: number | null;
   stop_loss?: number | null;
   confidence?: number | null;
-  outcome: 'WIN' | 'LOSS' | 'NEUTRAL' | 'PENDING';
+  outcome: 'WIN' | 'LOSS' | 'NEUTRAL' | 'NO_FILL' | 'PENDING';
   realized_r?: number | null;
 };
 
@@ -51,6 +51,7 @@ const OUTCOME_STYLE: Record<string, string> = {
   WIN: 'border-[color:var(--up)]/30 bg-[color:var(--up)]/10 text-[color:var(--up)]',
   LOSS: 'border-[color:var(--down)]/30 bg-[color:var(--down)]/10 text-[color:var(--down)]',
   NEUTRAL: 'border-white/10 bg-white/[0.04] text-[color:var(--ink-2)]',
+  NO_FILL: 'border-white/10 bg-transparent text-[color:var(--ink-3)]',
   PENDING: 'border-[color:var(--accent)]/30 bg-[color:var(--accent)]/10 text-[color:var(--accent-text)]',
 };
 
@@ -58,6 +59,7 @@ const OUTCOME_LABEL: Record<string, string> = {
   WIN: 'Hit target',
   LOSS: 'Stopped out',
   NEUTRAL: 'Neither hit',
+  NO_FILL: 'Didn’t fill',
   PENDING: 'Open',
 };
 

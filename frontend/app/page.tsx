@@ -12,6 +12,7 @@ import { NovaExperience } from '@/components/home/nova/NovaExperience';
 import { NovaSearch } from '@/components/home/NovaSearch';
 import { usePresence } from '@/components/motion/usePresence';
 import { DeleteAccountDialog } from '@/components/DeleteAccountDialog';
+import { loadSettings as loadAlertSettings } from '@/lib/daily-picks';
 import { SiteMenu } from '@/components/SiteMenu';
 import { Turnstile, TURNSTILE_SITE_KEY } from '@/components/Turnstile';
 import { BullseyeLogo, BullseyeMark } from '@/components/brand/BullseyeLogo';
@@ -72,74 +73,10 @@ type ChartRange = '1d' | '1w' | '1mo' | '1y' | 'max';
 
 
 
-type NotificationPreference = {
-  email?: string | null;
-  daily_stock_email_enabled: boolean;
-  market: 'NSE' | 'BSE' | 'US';
-  risk_level: 'Conservative' | 'Balanced' | 'Aggressive';
-  email_time: string;
-  signal_type: 'Next-day swing' | 'Intraday' | 'Both';
-  consent_version?: string | null;
-  consent_accepted_at?: string | null;
-  unsubscribed_at?: string | null;
-};
 
-type DailySignalRecord = {
-  id?: string;
-  symbol: string;
-  direction: 'BUY' | 'SELL';
-  entry_low: number;
-  entry_high: number;
-  target_price: number;
-  stop_loss: number;
-  confidence: number;
-  risk_reward: number;
-  explanation_json?: { reasons?: string[] };
-};
 
-type InstantSignalDeliveryMode = 'today' | 'next_day';
 
-const DEFAULT_NOTIFICATION_PREFERENCE: NotificationPreference = {
-  email: null,
-  daily_stock_email_enabled: false,
-  market: 'NSE',
-  risk_level: 'Balanced',
-  email_time: '18:00',
-  signal_type: 'Next-day swing',
-  consent_version: null,
-  consent_accepted_at: null,
-  unsubscribed_at: null,
-};
 
-function normalizeNotificationTimeValue(value?: string | null) {
-  if (!value) return DEFAULT_NOTIFICATION_PREFERENCE.email_time;
-  const match = value.match(/^(\d{2}):(\d{2})/);
-  if (match) return `${match[1]}:${match[2]}`;
-  return DEFAULT_NOTIFICATION_PREFERENCE.email_time;
-}
-
-function getFriendlyErrorMessage(error: unknown, fallback: string) {
-  const message = error instanceof Error ? error.message : typeof error === 'string' ? error : fallback;
-  try {
-    const parsed = JSON.parse(message);
-    if (parsed?.message) return String(parsed.message);
-  } catch {}
-  return message || fallback;
-}
-
-function getMinimumNotificationTime(market: NotificationPreference['market']) {
-  return market === 'US' ? '16:30' : '16:00';
-}
-
-function isNotificationTimeValid(market: NotificationPreference['market'], value?: string | null) {
-  const normalized = normalizeNotificationTimeValue(value);
-  return normalized >= getMinimumNotificationTime(market);
-}
-
-function getSafeNotificationTime(market: NotificationPreference['market'], value?: string | null) {
-  const normalized = normalizeNotificationTimeValue(value);
-  return isNotificationTimeValid(market, normalized) ? normalized : DEFAULT_NOTIFICATION_PREFERENCE.email_time;
-}
 
 const INDICATOR_NAMES = [
   '52 Week High/Low',
@@ -966,13 +903,7 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
   const [authSuccess, setAuthSuccess] = useState('');
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [showNotificationSettings, setShowNotificationSettings] = useState(false);
-  const [showNotificationConsent, setShowNotificationConsent] = useState(false);
-  const [notificationPreference, setNotificationPreference] = useState<NotificationPreference>(DEFAULT_NOTIFICATION_PREFERENCE);
-  const [notificationError, setNotificationError] = useState('');
-  const [notificationMessage, setNotificationMessage] = useState('');
-  const [notificationSaving, setNotificationSaving] = useState(false);
-  const [notificationLoading, setNotificationLoading] = useState(false);
-  const [dailySignalPreview, setDailySignalPreview] = useState<DailySignalRecord[]>([]);
+  const [alertsEnabled, setAlertsEnabled] = useState(false);
   const [authPromptDismissed, setAuthPromptDismissed] = useState(false);
   const [cachedQuote, setCachedQuote] = useState<QuoteSnapshot | undefined>(undefined);
   const [cachedChart, setCachedChart] = useState<any>(undefined);
@@ -985,7 +916,6 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
   const authPresence = usePresence(showAuthModal, 220);
   const indicatorPresence = usePresence(showIndicatorMenu, 160);
   const [welcomeName, setWelcomeName] = useState('');
-  const notificationConsentVersion = process.env.NEXT_PUBLIC_NOTIFICATION_CONSENT_VERSION || '2026-05-29';
   const accountMenuRef = useRef<HTMLDivElement>(null);
   const supabaseRef = useRef<any>(null);
   const selectedStock = ticker ? STOCKS.find(s => s.ticker === ticker) ?? null : null;
@@ -1227,9 +1157,7 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
     setUser(null);
     setShowProfileMenu(false);
     setShowNotificationSettings(false);
-    setShowNotificationConsent(false);
-    setNotificationPreference(DEFAULT_NOTIFICATION_PREFERENCE);
-    setDailySignalPreview([]);
+    setAlertsEnabled(false);
   };
 
   const getAccessToken = async () => {
@@ -1239,308 +1167,18 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
     return result?.data?.session?.access_token ?? null;
   };
 
-  const getNotificationHeaders = async () => {
-    const token = await getAccessToken();
-    if (!token) {
-      throw new Error('Please sign in before changing notification settings.');
-    }
-    return {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-    };
-  };
-
-  const loadDailySignalPreview = async (nextPreference?: NotificationPreference) => {
-    const activePreference = nextPreference || notificationPreference;
-    try {
-      const params = new URLSearchParams({
-        market: activePreference.market,
-        risk_level: activePreference.risk_level,
-        signal_type: activePreference.signal_type,
-      });
-      const response = await fetch(`${BACKEND}/api/v1/signals/today?${params.toString()}`, { cache: 'no-store' });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data?.detail || 'Could not load signal preview.');
-      setDailySignalPreview(Array.isArray(data.signals) ? data.signals : []);
-    } catch {
-      setDailySignalPreview([]);
-    }
-  };
-
-  const loadNotificationPreference = async () => {
-    if (!user) {
-      setNotificationPreference(DEFAULT_NOTIFICATION_PREFERENCE);
-      setDailySignalPreview([]);
+  // Header dot: whether evening emails are on, read straight from the database.
+  useEffect(() => {
+    if (!user?.id) {
+      setAlertsEnabled(false);
       return;
     }
-    setNotificationLoading(true);
-    setNotificationError('');
-    try {
-      const headers = await getNotificationHeaders();
-      const response = await fetch(`${BACKEND}/api/v1/notification-preferences`, { headers, cache: 'no-store' });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data?.detail || 'Could not load notification settings.');
-      const nextPreference = {
-        ...DEFAULT_NOTIFICATION_PREFERENCE,
-        ...data.preference,
-        email_time: getSafeNotificationTime(
-          (data.preference?.market as NotificationPreference['market']) || DEFAULT_NOTIFICATION_PREFERENCE.market,
-          data.preference?.email_time,
-        ),
-      } as NotificationPreference;
-      setNotificationPreference(nextPreference);
-      await loadDailySignalPreview(nextPreference);
-    } catch (err: any) {
-      setNotificationError(getFriendlyErrorMessage(err, 'Could not load notification settings.'));
-    } finally {
-      setNotificationLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    loadNotificationPreference();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    let cancelled = false;
+    loadAlertSettings(user.id)
+      .then(settings => { if (!cancelled) setAlertsEnabled(Boolean(settings.daily_stock_email_enabled)); })
+      .catch(() => {});
+    return () => { cancelled = true; };
   }, [user?.id]);
-
-  useEffect(() => {
-    if (!notificationMessage) return;
-    const timer = window.setTimeout(() => {
-      setNotificationMessage('');
-    }, 3000);
-    return () => window.clearTimeout(timer);
-  }, [notificationMessage]);
-
-  const patchNotificationPreference = (patch: Partial<NotificationPreference>) => {
-    setNotificationPreference(current => {
-      const next = { ...current, ...patch };
-      if (patch.market && !isNotificationTimeValid(patch.market, next.email_time)) {
-        next.email_time = getSafeNotificationTime(patch.market, next.email_time);
-      }
-      if (patch.email_time) {
-        next.email_time = normalizeNotificationTimeValue(patch.email_time);
-      }
-      return next;
-    });
-  };
-
-  const saveNotificationPreference = async (payload?: Partial<NotificationPreference>) => {
-    if (!user) {
-      setNotificationError('Sign in first to save daily stock email settings.');
-      setShowAuthModal(true);
-      return;
-    }
-    setNotificationSaving(true);
-    setNotificationError('');
-    setNotificationMessage('');
-    try {
-      const market = (payload?.market || notificationPreference.market) as NotificationPreference['market'];
-      const rawEmailTime = normalizeNotificationTimeValue(payload?.email_time || notificationPreference.email_time);
-      const emailTime = isNotificationTimeValid(market, rawEmailTime)
-        ? rawEmailTime
-        : getSafeNotificationTime(market, rawEmailTime);
-      const timeWasAdjusted = emailTime !== rawEmailTime;
-      if (timeWasAdjusted) {
-        setNotificationPreference(current => ({ ...current, market, email_time: emailTime }));
-      }
-      const headers = await getNotificationHeaders();
-      const requestBody = {
-        ...notificationPreference,
-        ...payload,
-        email: user.email,
-        market,
-        email_time: emailTime,
-      };
-      const response = await fetch(`${BACKEND}/api/v1/notification-preferences`, {
-        method: 'PUT',
-        headers,
-        body: JSON.stringify(requestBody),
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data?.detail || 'Could not save notification settings.');
-      const nextPreference = {
-        ...DEFAULT_NOTIFICATION_PREFERENCE,
-        ...data.preference,
-        email_time: getSafeNotificationTime(
-          (data.preference?.market as NotificationPreference['market']) || market,
-          data.preference?.email_time,
-        ),
-      } as NotificationPreference;
-      setNotificationPreference(nextPreference);
-      setShowNotificationSettings(false);
-      setShowNotificationConsent(false);
-      setNotificationMessage(
-        timeWasAdjusted
-          ? `Notification settings saved. Time adjusted to ${emailTime} IST.`
-          : 'Notification settings saved for next-trading-day stock emails.'
-      );
-      await loadDailySignalPreview(nextPreference);
-    } catch (err: any) {
-      setNotificationError(getFriendlyErrorMessage(err, 'Could not save notification settings.'));
-    } finally {
-      setNotificationSaving(false);
-    }
-  };
-
-  const sendNotificationEmailNow = async (deliveryMode: InstantSignalDeliveryMode = 'next_day') => {
-    if (!user) {
-      setNotificationError('Sign in first to send a stock signal email.');
-      setShowAuthModal(true);
-      return;
-    }
-    setNotificationSaving(true);
-    setNotificationError('');
-    setNotificationMessage('');
-    try {
-      const market = notificationPreference.market;
-      const rawEmailTime = normalizeNotificationTimeValue(notificationPreference.email_time);
-      const emailTime = isNotificationTimeValid(market, rawEmailTime)
-        ? rawEmailTime
-        : getSafeNotificationTime(market, rawEmailTime);
-      if (emailTime !== rawEmailTime) {
-        setNotificationPreference(current => ({ ...current, email_time: emailTime }));
-      }
-      const headers = await getNotificationHeaders();
-      const response = await fetch(`${BACKEND}/api/v1/notification-preferences/send-now`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          ...notificationPreference,
-          email: user.email,
-          email_time: emailTime,
-          delivery_mode: deliveryMode,
-          signal_type: deliveryMode === 'today' ? 'Intraday' : notificationPreference.signal_type,
-        }),
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data?.detail || 'Could not send the stock signal email right now.');
-      const nextPreference = {
-        ...DEFAULT_NOTIFICATION_PREFERENCE,
-        ...data.preference,
-        email_time: getSafeNotificationTime(
-          (data.preference?.market as NotificationPreference['market']) || market,
-          data.preference?.email_time,
-        ),
-      } as NotificationPreference;
-      setNotificationPreference(nextPreference);
-      setShowNotificationConsent(false);
-      setShowNotificationSettings(false);
-      setNotificationMessage(
-        data.notification?.status === 'sent'
-          ? (
-            deliveryMode === 'today'
-              ? `Today's intraday stock signal email sent for ${data.model_run?.target_date || 'today'}.`
-              : `Next-trading-day stock signal email sent for ${data.model_run?.target_date || 'the next session'}.`
-          )
-          : `Instant email status: ${data.notification?.status || 'processed'}.`
-      );
-      await loadDailySignalPreview(nextPreference);
-    } catch (err: any) {
-      setNotificationError(getFriendlyErrorMessage(err, 'Could not send the stock signal email right now.'));
-    } finally {
-      setNotificationSaving(false);
-    }
-  };
-
-  const confirmEnableDailySignals = async () => {
-    if (!user) {
-      setNotificationError('Sign in first to enable daily stock emails.');
-      setShowAuthModal(true);
-      return;
-    }
-    setNotificationSaving(true);
-    setNotificationError('');
-    setNotificationMessage('');
-    try {
-      const market = notificationPreference.market;
-      const rawEmailTime = normalizeNotificationTimeValue(notificationPreference.email_time);
-      const emailTime = isNotificationTimeValid(market, rawEmailTime)
-        ? rawEmailTime
-        : getSafeNotificationTime(market, rawEmailTime);
-      const timeWasAdjusted = emailTime !== rawEmailTime;
-      if (timeWasAdjusted) {
-        setNotificationPreference(current => ({ ...current, email_time: emailTime }));
-      }
-      const headers = await getNotificationHeaders();
-      const response = await fetch(`${BACKEND}/api/v1/notification-preferences/enable-daily-alerts`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          ...notificationPreference,
-          email: user.email,
-          email_time: emailTime,
-          consent_version: notificationConsentVersion,
-          consent_accepted_at: new Date().toISOString(),
-        }),
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data?.detail || 'Could not enable daily stock emails.');
-      const nextPreference = {
-        ...DEFAULT_NOTIFICATION_PREFERENCE,
-        ...data.preference,
-        email_time: getSafeNotificationTime(
-          (data.preference?.market as NotificationPreference['market']) || market,
-          data.preference?.email_time,
-        ),
-      } as NotificationPreference;
-      setNotificationPreference(nextPreference);
-      setShowNotificationConsent(false);
-      setShowNotificationSettings(false);
-      setNotificationMessage(
-        timeWasAdjusted
-          ? `Next-trading-day stock signal emails are on. Time adjusted to ${emailTime} IST.`
-          : 'Next-trading-day stock signal emails are now on.'
-      );
-      await loadDailySignalPreview(nextPreference);
-    } catch (err: any) {
-      setNotificationError(getFriendlyErrorMessage(err, 'Could not enable daily stock emails.'));
-    } finally {
-      setNotificationSaving(false);
-    }
-  };
-
-  const disableDailySignals = async () => {
-    if (!user) {
-      setNotificationError('Sign in first to update daily stock emails.');
-      setShowAuthModal(true);
-      return;
-    }
-    setNotificationSaving(true);
-    setNotificationError('');
-    setNotificationMessage('');
-    try {
-      const headers = await getNotificationHeaders();
-      const response = await fetch(`${BACKEND}/api/v1/notification-preferences/disable-daily-alerts`, {
-        method: 'POST',
-        headers,
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data?.detail || 'Could not disable daily stock emails.');
-      setNotificationPreference(current => ({
-        ...current,
-        ...data.preference,
-        daily_stock_email_enabled: false,
-      }));
-      setNotificationMessage('Next-trading-day stock signal emails are now off.');
-    } catch (err: any) {
-      setNotificationError(getFriendlyErrorMessage(err, 'Could not disable daily stock emails.'));
-    } finally {
-      setNotificationSaving(false);
-    }
-  };
-
-  const toggleDailySignals = async (enabled: boolean) => {
-    if (!enabled) {
-      await disableDailySignals();
-      return;
-    }
-    const needsConsent = !notificationPreference.consent_accepted_at || notificationPreference.consent_version !== notificationConsentVersion;
-    if (needsConsent) {
-      setShowNotificationSettings(true);
-      setShowNotificationConsent(true);
-      return;
-    }
-    await confirmEnableDailySignals();
-  };
 
   const openDailySignalSettings = () => {
     setShowProfileMenu(false);
@@ -2422,7 +2060,7 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
             <button type="button" onClick={openDailySignalSettings} className="hdr-icon" aria-label="Daily alerts" title="Daily stock alerts">
               <svg viewBox="0 0 24 24" className="h-[18px] w-[18px]" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M12 3a6 6 0 0 0-6 6v3.5L4.5 16h15L18 12.5V9a6 6 0 0 0-6-6ZM9.5 19a2.5 2.5 0 0 0 5 0" /></svg>
               <span className="hdr-label">Daily alerts</span>
-              {user && notificationPreference.daily_stock_email_enabled ? <span className="hdr-dot" aria-hidden /> : null}
+              {user && alertsEnabled ? <span className="hdr-dot" aria-hidden /> : null}
             </button>
 
             {/* Phones reach Ask AI from the menu, which keeps the bar to one row. */}
@@ -2614,13 +2252,8 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
 
               <DailySignalPreviewCard
                 signedIn={Boolean(user)}
-                userEmail={user?.email}
-                signals={dailySignalPreview}
-                isSaving={notificationSaving || notificationLoading}
-                error={notificationError}
-                message={notificationMessage}
+                alertsEnabled={alertsEnabled}
                 onOpenSettings={openDailySignalSettings}
-                onSendNow={deliveryMode => { void sendNotificationEmailNow(deliveryMode); }}
               />
 
               <AboutSection />
@@ -2885,37 +2518,14 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
       )}
 
       {/* ── AUTH MODAL ── */}
-      {!showNotificationSettings && notificationMessage && (
-        <div className="fixed left-1/2 top-5 z-[85] w-[min(92vw,520px)] -translate-x-1/2 rounded-2xl border border-emerald-300/30 bg-slate-950/96 px-5 py-4 text-center shadow-[0_24px_80px_rgb(var(--bg-rgb)/0.45)] backdrop-blur-xl">
-          <div className="text-[10px] font-black uppercase tracking-[0.18em] text-emerald-300 font-body">
-            Logged-in Alerts
-          </div>
-          <div className="mt-2 text-sm text-emerald-50 font-numeric">
-            {notificationMessage}
-          </div>
-        </div>
-      )}
 
       {user && (
         <DailyAlertsDialog
           open={showNotificationSettings}
+          userId={user.id}
           userEmail={user.email}
-          preference={notificationPreference}
-          previewSignals={dailySignalPreview}
-          isSaving={notificationSaving}
-          error={notificationError}
-          message={notificationMessage}
-          showConsent={showNotificationConsent}
-          onClose={() => {
-            setShowNotificationSettings(false);
-            setShowNotificationConsent(false);
-          }}
-          onChange={patch => patchNotificationPreference(patch)}
-          onSave={() => { void saveNotificationPreference(); }}
-          onSendNow={deliveryMode => { void sendNotificationEmailNow(deliveryMode); }}
-          onToggle={enabled => { void toggleDailySignals(enabled); }}
-          onConfirmConsent={() => { void confirmEnableDailySignals(); }}
-          onCancelConsent={() => setShowNotificationConsent(false)}
+          onClose={() => setShowNotificationSettings(false)}
+          onEnabledChange={setAlertsEnabled}
         />
       )}
 

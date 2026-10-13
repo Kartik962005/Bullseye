@@ -138,6 +138,88 @@ def _grade_multiday(
             "exit": "time", "days_held": len(forward_bars)}
 
 
+def _grade_limit_entry(
+    signal: dict[str, Any],
+    forward_bars: list[dict[str, float]],
+    *,
+    ambiguous_as: str = "loss",
+) -> dict[str, Any]:
+    """Grade the order a reader can actually place after the evening email.
+
+    A limit order at the edge of the entry zone, good for the next session only:
+      * BUY fills at the open if the open is at or below the top of the zone,
+        otherwise at the zone top if the day trades down into it. SELL mirrors.
+      * No fill, or an open already through the stop, means no trade
+        ("NO_FILL", 0R). The old grader assumed every trade filled at the
+        better edge of the zone without checking, which flattered short
+        horizons where the risk unit is small.
+    Once filled, R is measured from the actual fill: WIN pays (target - fill) /
+    (fill - stop), LOSS pays -1, and an open position is marked to the last
+    close of the horizon. A fill bar that touches both levels counts per
+    `ambiguous_as` ('loss' is the conservative default).
+    """
+    no_fill = {"outcome": "NO_FILL", "realized_r": 0.0, "exit": "no_fill", "days_held": 0}
+    if not forward_bars:
+        return no_fill
+    direction = signal["direction"]
+    target = float(signal["target_price"])
+    stop = float(signal["stop_loss"])
+    first = forward_bars[0]
+    open_, high, low = float(first["open"]), float(first["high"]), float(first["low"])
+
+    if direction == "BUY":
+        limit = float(signal["entry_high"])
+        # Opening below the entry zone (or through either level) breaks the
+        # setup; it also keeps a fill from landing just above the stop, where a
+        # tiny risk unit would turn ordinary moves into huge R values.
+        if open_ < float(signal["entry_low"]) or open_ <= stop or open_ >= target:
+            return no_fill
+        fill = open_ if open_ <= limit else (limit if low <= limit else None)
+        if fill is None or fill <= stop:
+            return no_fill
+        risk = fill - stop
+        reward_r = (target - fill) / risk
+    else:
+        limit = float(signal["entry_low"])
+        if open_ > float(signal["entry_high"]) or open_ >= stop or open_ <= target:
+            return no_fill
+        fill = open_ if open_ >= limit else (limit if high >= limit else None)
+        if fill is None or fill >= stop:
+            return no_fill
+        risk = stop - fill
+        reward_r = (fill - target) / risk
+
+    def _close_r(close: float) -> float:
+        return ((close - fill) if direction == "BUY" else (fill - close)) / risk
+
+    # Filled at the limit during the day: that bar's extreme in the target's
+    # direction may have come before the fill, so it cannot count as a win.
+    filled_intraday = fill != open_
+    for i, bar in enumerate(forward_bars):
+        high = float(bar["high"])
+        low = float(bar["low"])
+        close = float(bar["close"])
+        if direction == "BUY":
+            target_hit, stop_hit = high >= target, low <= stop
+        else:
+            target_hit, stop_hit = low <= target, high >= stop
+        if i == 0 and filled_intraday:
+            target_hit = False
+        if target_hit and stop_hit:
+            if ambiguous_as == "win":
+                return {"outcome": "WIN", "realized_r": round(reward_r, 4), "exit": "ambiguous_day", "days_held": i + 1, "fill": fill}
+            if ambiguous_as == "neutral":
+                return {"outcome": "TIME_EXIT", "realized_r": round(_close_r(close), 4), "exit": "ambiguous_day", "days_held": i + 1, "fill": fill}
+            return {"outcome": "LOSS", "realized_r": -1.0, "exit": "ambiguous_day", "days_held": i + 1, "fill": fill}
+        if target_hit:
+            return {"outcome": "WIN", "realized_r": round(reward_r, 4), "exit": "target", "days_held": i + 1, "fill": fill}
+        if stop_hit:
+            return {"outcome": "LOSS", "realized_r": -1.0, "exit": "stop", "days_held": i + 1, "fill": fill}
+
+    return {"outcome": "TIME_EXIT", "realized_r": round(_close_r(float(forward_bars[-1]["close"])), 4),
+            "exit": "time", "days_held": len(forward_bars), "fill": fill}
+
+
 @dataclass
 class BacktestResult:
     trades: list[Trade] = field(default_factory=list)

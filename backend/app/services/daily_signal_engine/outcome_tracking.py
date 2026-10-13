@@ -64,52 +64,31 @@ def evaluate_signal_outcome_window(
     """
     if not bars:
         return None
+    from .backtest import _grade_limit_entry
+
     limit = max_sessions or HOLD_SESSIONS
-    window = bars[:limit]
-
-    target = float(signal["target_price"])
-    stop = float(signal["stop_loss"])
-    is_buy = signal["direction"] != "SELL"
-    entry = float(signal["entry_low"] if is_buy else signal["entry_high"])
-    risk = abs(entry - stop) or 1e-6
-
-    for index, bar in enumerate(window, start=1):
-        high = float(bar["high"])
-        low = float(bar["low"])
-        target_hit = high >= target if is_buy else low <= target
-        stop_hit = low <= stop if is_buy else high >= stop
-        if target_hit and stop_hit:
-            close_r = (float(bar["close"]) - entry) / risk * (1 if is_buy else -1)
-            return {
-                "outcome": "NEUTRAL",
-                "realized_r": round(close_r, 4),
-                "hit_sequence": "ambiguous_same_session",
-                "sessions_held": index,
-            }
-        if target_hit:
-            return {
-                "outcome": "WIN",
-                "realized_r": round(float(signal["risk_reward"]), 4),
-                "hit_sequence": "target_first",
-                "sessions_held": index,
-            }
-        if stop_hit:
-            return {
-                "outcome": "LOSS",
-                "realized_r": -1.0,
-                "hit_sequence": "stop_first",
-                "sessions_held": index,
-            }
-
-    if len(window) < limit:
+    window = [
+        {"open": float(b["open"]), "high": float(b["high"]), "low": float(b["low"]), "close": float(b["close"])}
+        for b in bars[:limit]
+    ]
+    # Same rule the models are trained and tested on: a limit order at the
+    # entry zone for the first session, R measured from the actual fill, and a
+    # session touching both levels counted as a loss. Tracking live picks any
+    # other way would make the published record incomparable with the test.
+    graded = _grade_limit_entry(signal, window, ambiguous_as="loss")
+    outcome = graded["outcome"]
+    if outcome == "TIME_EXIT" and len(window) < limit:
         return None  # still open: the window has not run out yet
-
-    # Window elapsed with neither level touched — closed at the last close.
-    last_close = float(window[-1]["close"])
-    close_r = (last_close - entry) / risk * (1 if is_buy else -1)
+    sequence = {
+        "NO_FILL": "no_fill",
+        "WIN": "target_first",
+        "LOSS": "ambiguous_same_session" if graded.get("exit") == "ambiguous_day" else "stop_first",
+        "TIME_EXIT": "window_elapsed",
+    }[outcome]
     return {
-        "outcome": "NEUTRAL",
-        "realized_r": round(close_r, 4),
-        "hit_sequence": "window_elapsed",
-        "sessions_held": len(window),
+        "outcome": "NEUTRAL" if outcome == "TIME_EXIT" else outcome,
+        "realized_r": round(float(graded["realized_r"]), 4),
+        "hit_sequence": sequence,
+        "sessions_held": int(graded.get("days_held") or 0),
+        "fill_price": graded.get("fill"),
     }

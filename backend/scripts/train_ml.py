@@ -50,6 +50,10 @@ from app.services.daily_signal_engine.ml_dataset import (  # noqa: E402
     FEATURE_COLUMNS,
     build_labeled_dataset,
 )
+from app.services.daily_signal_engine.ml_interface import (  # noqa: E402
+    artifact_path_for_horizon,
+    report_path_for_horizon,
+)
 from app.services.daily_signal_engine.scoring import wilson_lower_bound_placeholder  # noqa: E402
 from fetch_earnings import EARNINGS_CACHE, fetch_earnings_dates  # noqa: E402
 from ingest_history import fetch_nifty500_symbols  # noqa: E402
@@ -65,6 +69,13 @@ except Exception:
 FRAMES_CACHE = os.path.join(_HERE, "frames_5y.pkl")
 DATASET_CACHE = os.path.join(_HERE, "ml_dataset.pkl")
 OOS_CACHE = os.path.join(_HERE, "ml_oos.pkl")
+
+
+def _horizon_cache(path: str, hold_days: int) -> str:
+    """Caches for the realistic (limit-entry) grading, one per horizon. The
+    original ml_dataset.pkl / ml_oos.pkl stay untouched for the paper."""
+    root, ext = os.path.splitext(path)
+    return f"{root}_v2_h{hold_days}{ext}"
 MODEL_ARTIFACT = os.path.join(
     _BACKEND,
     "app",
@@ -190,9 +201,10 @@ def get_earnings(price_frames: dict) -> dict[str, list[str]]:
 
 
 def get_dataset(rebuild_dataset: bool, rebuild_frames: bool, hold_days: int) -> pd.DataFrame:
-    if not rebuild_dataset and os.path.exists(DATASET_CACHE):
-        print(f"Loading cached dataset from {os.path.basename(DATASET_CACHE)} ...")
-        return pd.read_pickle(DATASET_CACHE)
+    dataset_cache = _horizon_cache(DATASET_CACHE, hold_days)
+    if not rebuild_dataset and os.path.exists(dataset_cache):
+        print(f"Loading cached dataset from {os.path.basename(dataset_cache)} ...")
+        return pd.read_pickle(dataset_cache)
     # Reuse cached frames unless a full --rebuild was requested.
     price_frames, index_frame = get_frames(rebuild_frames)
     earnings = get_earnings(price_frames)
@@ -204,7 +216,7 @@ def get_dataset(rebuild_dataset: bool, rebuild_frames: bool, hold_days: int) -> 
     df = df.sort_values("date").reset_index(drop=True)
     print(f"Dataset: {len(df):,} rows, {df['ticker'].nunique()} symbols, "
           f"{df['date'].nunique()} days, win-rate(all)={df['label_win'].mean():.3f}")
-    pd.to_pickle(df, DATASET_CACHE)
+    pd.to_pickle(df, dataset_cache)
     return df
 
 
@@ -222,8 +234,13 @@ def _calibrate(base, X_cal, y_cal):
     return CalibratedClassifierCV(base, method="isotonic", cv="prefit").fit(X_cal, y_cal)
 
 
+def _filled(df: pd.DataFrame) -> pd.DataFrame:
+    """Rows that became real trades (all rows for legacy datasets without the flag)."""
+    return df[df["filled"] == 1] if "filled" in df.columns else df
+
+
 def _train_final_model(df: pd.DataFrame):
-    ordered = df.sort_values("date").reset_index(drop=True)
+    ordered = _filled(df).sort_values("date").reset_index(drop=True)
     dates = sorted(ordered["date"].unique())
     if len(dates) < 20:
         raise RuntimeError("Not enough dates to train the final runtime model.")
@@ -241,7 +258,7 @@ def _train_final_model(df: pd.DataFrame):
 
 
 def _return_calibration(oos: pd.DataFrame, bins: int = 8) -> list[dict[str, float]]:
-    rows = oos[["p_win", "realized_r"]].dropna().copy()
+    rows = _filled(oos)[["p_win", "realized_r"]].dropna().copy()
     if rows.empty:
         return []
     q = min(bins, int(rows["p_win"].nunique()))
@@ -266,11 +283,14 @@ def _return_calibration(oos: pd.DataFrame, bins: int = 8) -> list[dict[str, floa
     return calibration
 
 
-def save_runtime_artifact(df: pd.DataFrame, oos: pd.DataFrame, output_path: str) -> None:
+def save_runtime_artifact(df: pd.DataFrame, oos: pd.DataFrame, output_path: str, hold_days: int = 5) -> None:
+    import sklearn
+
     artifact = {
         "model": _train_final_model(df),
         "feature_columns": list(FEATURE_COLUMNS),
-        "hold_days": 5,
+        "hold_days": hold_days,
+        "sklearn_version": sklearn.__version__,
         "return_calibration": _return_calibration(oos),
         "created_by": "backend/scripts/train_ml.py",
         "model_family": "HistGradientBoostingClassifier",
@@ -300,9 +320,9 @@ def walk_forward(df: pd.DataFrame, hold_days: int, initial_days: int, step_days:
         embargo_cut = dates[max(0, start - hold_days)]
         train_mask = df["date"] <= embargo_cut
         test_mask = df["date"].isin(test_dates)
-        train = df[train_mask]
+        train = _filled(df[train_mask])
         test = df[test_mask]
-        if len(train) < 5000 or test.empty:
+        if len(train) < 3000 or test.empty:
             start += step_days
             continue
 
@@ -338,9 +358,11 @@ def _wilson(wins: int, decisive: int) -> float:
 
 
 def _econ_summary(rows: pd.DataFrame, cost: float, label: str) -> dict:
+    sent = len(rows)
+    rows = _filled(rows)
     n = len(rows)
     if n == 0:
-        return {"label": label, "trades": 0}
+        return {"label": label, "trades": 0, "signals": sent}
     net = rows["realized_r"] - cost
     wins = int((rows["outcome"] == "WIN").sum())
     losses = int((rows["outcome"] == "LOSS").sum())
@@ -350,7 +372,8 @@ def _econ_summary(rows: pd.DataFrame, cost: float, label: str) -> dict:
     pos = net[net > 0].sum()
     neg = -net[net < 0].sum()
     return {
-        "label": label, "trades": n, "wins": wins, "losses": losses, "timeouts": timeouts,
+        "label": label, "signals": sent, "trades": n, "fill_rate": round(n / sent, 4) if sent else None,
+        "wins": wins, "losses": losses, "timeouts": timeouts,
         "raw_win_decisive": round(wins / decisive, 4) if decisive else None,
         "wilson_lb": round(_wilson(wins, decisive), 4) if decisive else None,
         "avg_net_r": round(float(net.mean()), 4),
@@ -382,28 +405,37 @@ def main() -> None:
     ap.add_argument("--cost", type=float, default=0.05)
     ap.add_argument("--initial-days", type=int, default=500, help="warm-up days before first OOS")
     ap.add_argument("--step-days", type=int, default=60, help="OOS window / retrain cadence")
-    ap.add_argument("--model-out", default=MODEL_ARTIFACT, help="runtime joblib artifact path")
+    ap.add_argument("--model-out", default=None, help="runtime joblib artifact path (default: per horizon)")
     args = ap.parse_args()
+    model_out = args.model_out or artifact_path_for_horizon(args.hold)
 
     df = get_dataset(args.rebuild or args.rebuild_dataset, args.rebuild, args.hold)
+    if "eligible" in df.columns:
+        # Train and test on the setups the live engine may publish, nothing else.
+        before = len(df)
+        df = df[df["eligible"] == 1].reset_index(drop=True)
+        print(f"Eligible setups (live gates): {len(df):,} of {before:,} rows, "
+              f"fill rate {df['filled'].mean():.2f}")
 
     print(f"\nWalk-forward (initial={args.initial_days}d, step={args.step_days}d, "
           f"embargo={args.hold}d)...")
     oos = walk_forward(df, args.hold, args.initial_days, args.step_days)
     print(f"\nOOS predictions: {len(oos):,} rows over {oos['date'].nunique()} test days.")
-    pd.to_pickle(oos, OOS_CACHE)
-    print(f"(saved OOS predictions to {os.path.basename(OOS_CACHE)} for analysis)")
+    oos_cache = _horizon_cache(OOS_CACHE, args.hold)
+    pd.to_pickle(oos, oos_cache)
+    print(f"(saved OOS predictions to {os.path.basename(oos_cache)} for analysis)")
 
-    # ---- classification quality ----
-    auc = roc_auc_score(oos["label_win"], oos["p_win"])
-    brier = brier_score_loss(oos["label_win"], oos["p_win"])
+    # ---- classification quality (on trades that filled) ----
+    graded = _filled(oos)
+    auc = roc_auc_score(graded["label_win"], graded["p_win"])
+    brier = brier_score_loss(graded["label_win"], graded["p_win"])
     print("\n" + "=" * 70)
     print("CLASSIFICATION QUALITY (out-of-sample)")
     print("=" * 70)
     print(f"ROC-AUC = {auc:.4f}   (0.5 = no skill; >0.55 starts to be useful)")
     print(f"Brier   = {brier:.4f}  (lower is better; <0.25 beats always-0.5)")
     print("Calibration reliability (pred vs actual win rate):")
-    print(_reliability(oos))
+    print(_reliability(graded))
 
     # ---- economic test ----
     cost = args.cost
@@ -441,7 +473,56 @@ def main() -> None:
               f"not ship as a 'winning' model. Next: better features / labels / horizon, "
               f"not a confident rollout.")
 
-    save_runtime_artifact(df, oos, args.model_out)
+    save_runtime_artifact(df, oos, model_out, hold_days=args.hold)
+    write_model_report(
+        report_path_for_horizon(args.hold),
+        hold_days=args.hold,
+        top_n=args.top_n,
+        cost=cost,
+        auc=auc,
+        brier=brier,
+        base_rate=float(graded["label_win"].mean()),
+        ml=ml,
+        rule=rule,
+        everything=allrows,
+        oos=oos,
+    )
+
+
+def write_model_report(path: str, *, hold_days: int, top_n: int, cost: float, auc: float, brier: float,
+                       base_rate: float, ml: dict, rule: dict, everything: dict, oos: pd.DataFrame) -> None:
+    """Out-of-sample results the app reads to decide whether a horizon is shown.
+
+    `publish` is the honest gate: the ML top-N must keep a positive average R
+    after costs AND beat taking every signal. If it does not, the app says so
+    instead of emailing picks that testing could not support.
+    """
+    import json
+    from datetime import datetime, timezone
+
+    ml_avg = ml.get("avg_net_r")
+    all_avg = everything.get("avg_net_r")
+    publish = ml_avg is not None and ml_avg > 0 and (all_avg is None or ml_avg > all_avg)
+    report = {
+        "hold_days": hold_days,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "oos_rows": int(len(oos)),
+        "oos_days": int(oos["date"].nunique()),
+        "oos_first_day": str(oos["date"].min()),
+        "oos_last_day": str(oos["date"].max()),
+        "roc_auc": round(float(auc), 4),
+        "brier": round(float(brier), 4),
+        "base_rate": round(base_rate, 4),
+        "cost_r": cost,
+        "top_n": top_n,
+        "ml_top_n": ml,
+        "rule_top_n": rule,
+        "all_signals": everything,
+        "publish": bool(publish),
+    }
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(report, fh, indent=2)
+    print(f"Saved model report: {path} (publish={publish})")
 
 
 def _n(v) -> str:

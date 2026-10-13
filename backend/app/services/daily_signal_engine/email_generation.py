@@ -95,9 +95,24 @@ def build_signal_email(
     risk_level: str,
     signal_type: str,
     conviction: dict[str, Any] | None = None,
+    experimental_note: str | None = None,
 ) -> tuple[str, str, str]:
-    signal_label = str(signal_type or "next-trading-day").replace("_", " ").strip()
-    subject = f"Bullseye {market} {signal_label} stock signals | generated {signal_date}"
+    from datetime import date as _date
+
+    from .config import horizon_from_signal_type
+
+    horizon = horizon_from_signal_type(signal_type)
+    held = "the same session" if horizon == 1 else f"up to {horizon} sessions"
+    try:
+        pretty_date = _date.fromisoformat(str(signal_date)[:10]).strftime("%a %d %b")
+    except ValueError:
+        pretty_date = str(signal_date)
+    count_preview = len(signals)
+    subject = (
+        f"Bullseye: {count_preview} pick{'' if count_preview == 1 else 's'} for {pretty_date}, held {held}"
+        if count_preview
+        else f"Bullseye: no picks for {pretty_date}"
+    )
     conviction_html, conviction_text = _conviction_banner(conviction)
     card_rows: list[str] = []
     text_rows: list[str] = []
@@ -107,7 +122,11 @@ def build_signal_email(
         symbol = str(signal["symbol"])
         direction = str(signal["direction"])
         company_name = str(signal.get("company_name") or symbol)
-        entry_range = f"{signal['entry_low']:.2f}–{signal['entry_high']:.2f}"
+        # The order the picks are tested on: a limit at the edge of the entry
+        # zone, valid for the first session only.
+        entry_range = (
+            f"up to {signal['entry_high']:.2f}" if direction == "BUY" else f"down to {signal['entry_low']:.2f}"
+        )
         target_price = f"{signal['target_price']:.2f}"
         stop_loss = f"{signal['stop_loss']:.2f}"
         risk_reward = f"{signal['risk_reward']:.2f}"
@@ -128,7 +147,7 @@ def build_signal_email(
             f"<div style='margin-top:6px'>{theme.pill(_format_percent(signal.get('confidence'), 0) + ' confidence')}</div>"
             "</td></tr></table>"
             "<div style='height:14px'></div>"
-            + theme.metric_grid([("Entry", entry_range), ("Target", target_price), ("Stop loss", stop_loss), ("Risk / reward", risk_reward)])
+            + theme.metric_grid([("Entry (limit)", entry_range), ("Target", target_price), ("Stop loss", stop_loss), ("Risk / reward", risk_reward)])
             + f"<p style='margin:0 0 10px;font-family:{theme.FONT};font-size:13px;line-height:1.55;color:{theme.MUTED}'>"
             f"<strong style='color:{theme.INK}'>Why:</strong> {escape(why)}</p>"
             "</td></tr></table>"
@@ -136,7 +155,7 @@ def build_signal_email(
 
         text_rows.append(
             f"{index}. {symbol} {direction}\n"
-            f"Entry: {entry_range}\n"
+            f"Entry (limit): {entry_range}\n"
             f"Target: {target_price}\n"
             f"Stop Loss: {stop_loss}\n"
             f"Confidence: {_format_percent(signal.get('confidence'), 0)}\n"
@@ -145,14 +164,26 @@ def build_signal_email(
             f"Why: {text_reason}\n"
         )
 
-    intraday = "intraday" in signal_label.lower()
     count = len(signals)
-    title = (
-        f"{'Today' if intraday else 'Tomorrow'}'s {count} pick{'' if count == 1 else 's'}"
-        if count
-        else "No picks cleared the bar"
+    title = f"{count} pick{'' if count == 1 else 's'} for {pretty_date}" if count else "No picks cleared the bar"
+    how_to = (
+        f"Place each order as a limit for the session on {pretty_date} only, and skip a pick that opens past its stop "
+        f"or target. Exit at the target, at the stop, or at the close {'of that session' if horizon == 1 else f'of session {horizon}'}, "
+        "whichever comes first. A SELL means exit or avoid; most retail accounts cannot hold a short overnight."
     )
-    body = conviction_html + (
+    how_to_html = (
+        f"<p style='margin:0 0 14px;font-family:{theme.FONT};font-size:13px;line-height:1.6;color:{theme.MUTED}'>"
+        f"{escape(how_to)}</p>"
+        if count
+        else ""
+    )
+    note_html = (
+        f"<p style='margin:0 0 14px;font-family:{theme.FONT};font-size:13px;line-height:1.6;color:{theme.MUTED}'>"
+        f"<strong style='color:{theme.INK}'>Experimental:</strong> {escape(experimental_note)}</p>"
+        if experimental_note and count
+        else ""
+    )
+    body = conviction_html + note_html + how_to_html + (
         "".join(card_rows)
         if card_rows
         else f"<p style='margin:0 0 12px;font-family:{theme.FONT};font-size:14px;line-height:1.6;color:{theme.MUTED}'>"
@@ -162,7 +193,7 @@ def build_signal_email(
         preheader=f"{count} {market} picks with entry, target and stop for {signal_date}." if count else f"No {market} picks for {signal_date}.",
         eyebrow=f"Daily picks · {signal_date}",
         title=title,
-        subtitle=f"{market} · {risk_level} risk · {signal_label}. Entry, target and stop for each, ranked by the model.",
+        subtitle=f"{risk_level} risk · held {held}. Entry, target and stop for each, ranked by the model.",
         body=body,
         footer=theme.footer_html(
             "Model-generated research, not investment advice. Returns are not guaranteed, and past results don't predict future ones.",
@@ -171,8 +202,10 @@ def build_signal_email(
     )
 
     text = (
-        f"Bullseye {market} {signal_label} stock signals\n"
-        f"Generated on: {signal_date} | Risk level: {risk_level} | Signal type: {signal_type}\n\n"
+        f"Bullseye picks for {pretty_date}\n"
+        f"Risk level: {risk_level} | Held {held}\n\n"
+        + (f"Experimental: {experimental_note}\n\n" if experimental_note and count else "")
+        + (how_to + "\n\n" if count else "")
         + conviction_text
         + ("\n".join(text_rows) if text_rows else "No signals passed the quality filters for the next trading day.")
         + "\nSignals are model-generated analysis. Returns are not guaranteed. Past performance does not guarantee future results.\n"

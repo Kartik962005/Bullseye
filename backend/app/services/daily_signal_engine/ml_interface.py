@@ -20,24 +20,58 @@ FEATURE_COLUMNS = [
     "sector_above_ema50", "sector_vs_market",
     "days_since_earnings", "days_to_earnings", "pre_earnings", "post_earnings",
 ]
-_ARTIFACT: dict[str, Any] | None = None
-_MODEL_SOURCE = "fallback"
-_LOAD_ERROR: str | None = None
+_ARTIFACTS: dict[int, dict[str, Any] | None] = {}
+_LOAD_ERRORS: dict[int, str] = {}
+_REPORTS: dict[int, dict[str, Any] | None] = {}
 _HIT_RATE_CACHE: dict[str, Any] = {"ts": 0.0, "rates": {}}
+ARTIFACT_DIR = DEFAULT_MODEL_PATH.parent
+
+
+def artifact_path_for_horizon(horizon_days: int) -> str:
+    """One artifact per horizon, trained on the realistic limit-entry grading.
+
+    The original win_probability_model.joblib was graded as if every trade
+    filled at the better edge of the entry zone, so it is no longer loaded.
+    """
+    override = os.getenv(f"ML_MODEL_PATH_H{int(horizon_days)}")
+    return str(override or ARTIFACT_DIR / f"win_probability_model_h{int(horizon_days)}.joblib")
+
+
+def report_path_for_horizon(horizon_days: int) -> str:
+    return str(ARTIFACT_DIR / f"model_report_h{int(horizon_days)}.json")
+
+
+def load_model_report(horizon_days: int) -> dict[str, Any] | None:
+    """Out-of-sample results written by scripts/train_ml.py, or None if untrained."""
+    horizon_days = int(horizon_days)
+    if horizon_days not in _REPORTS:
+        report = None
+        try:
+            import json
+
+            with open(report_path_for_horizon(horizon_days), encoding="utf-8") as fh:
+                report = json.load(fh)
+        except FileNotFoundError:
+            report = None
+        except Exception as exc:  # noqa: BLE001
+            print(f"[ML] model report for {horizon_days}-day unreadable: {exc}")
+        _REPORTS[horizon_days] = report
+    return _REPORTS[horizon_days]
 
 
 def _clamp(value: float, low: float, high: float) -> float:
     return max(low, min(high, value))
 
 
-def _load_artifact() -> dict[str, Any] | None:
-    global _ARTIFACT, _MODEL_SOURCE, _LOAD_ERROR
-    if _ARTIFACT is not None or _LOAD_ERROR is not None:
-        return _ARTIFACT
-    path = Path(os.getenv("ML_MODEL_PATH") or DEFAULT_MODEL_PATH)
+def _load_artifact(horizon_days: int = 5) -> dict[str, Any] | None:
+    horizon_days = int(horizon_days)
+    if horizon_days in _ARTIFACTS:
+        return _ARTIFACTS[horizon_days]
+    path = Path(artifact_path_for_horizon(horizon_days))
     if not path.exists():
-        _LOAD_ERROR = f"model artifact not found at {path}"
-        print(f"[ML] Runtime model unavailable; using logistic fallback ({_LOAD_ERROR}).")
+        _LOAD_ERRORS[horizon_days] = f"model artifact not found at {path}"
+        print(f"[ML] {horizon_days}-day model unavailable; using logistic fallback ({_LOAD_ERRORS[horizon_days]}).")
+        _ARTIFACTS[horizon_days] = None
         return None
     try:
         import joblib
@@ -46,17 +80,20 @@ def _load_artifact() -> dict[str, Any] | None:
         columns = list(artifact.get("feature_columns") or [])
         if columns != list(FEATURE_COLUMNS):
             raise ValueError("artifact feature_columns do not match ml_dataset.FEATURE_COLUMNS")
-        _ARTIFACT = artifact
-        _MODEL_SOURCE = "model"
-        print(f"[ML] Loaded runtime model artifact from {path}.")
-        return _ARTIFACT
+        trained_for = int(artifact.get("hold_days") or 5)
+        if trained_for != horizon_days:
+            raise ValueError(f"artifact was trained for {trained_for} days, not {horizon_days}")
+        _ARTIFACTS[horizon_days] = artifact
+        print(f"[ML] Loaded {horizon_days}-day model artifact from {path}.")
+        return artifact
     except Exception as exc:
-        _LOAD_ERROR = str(exc)
+        _LOAD_ERRORS[horizon_days] = str(exc)
+        _ARTIFACTS[horizon_days] = None
         # Loud, and specific about the usual cause. This failure is silent by
-        # design — callers fall back to a logistic approximation and keep
-        # returning predictions — so a rebuilt machine ran for weeks on the
-        # fallback while the trained model never loaded once. The banner exists
-        # so that cannot happen again without somebody seeing it.
+        # design (callers fall back to a logistic approximation and keep
+        # returning predictions), so a rebuilt machine once ran for weeks on the
+        # fallback while the trained model never loaded. The banner exists so
+        # that cannot happen again without somebody seeing it.
         hint = ""
         if "No module named" in str(exc) or "version" in str(exc).lower():
             try:
@@ -70,20 +107,34 @@ def _load_artifact() -> dict[str, Any] | None:
             except Exception:  # noqa: BLE001
                 hint = " This usually means a scikit-learn version mismatch; retrain with scripts/train_ml.py."
         print("=" * 78)
-        print(f"[ML] TRAINED MODEL NOT LOADED — running on the logistic fallback.{hint}")
+        print(f"[ML] {horizon_days}-DAY MODEL NOT LOADED, running on the logistic fallback.{hint}")
         print(f"[ML] Reason: {exc}")
         print("[ML] Predictions will be materially worse than the backtested model.")
         print("=" * 78)
         return None
 
 
+def horizon_status(horizon_days: int) -> dict[str, Any]:
+    """Whether a horizon has a trained model and whether testing supports publishing it."""
+    artifact = _load_artifact(horizon_days)
+    report = load_model_report(horizon_days)
+    publish = bool(report and report.get("publish"))
+    return {
+        "horizon_days": int(horizon_days),
+        "has_model": artifact is not None,
+        "publish": bool(artifact is not None and publish),
+        "report": report,
+        "load_error": _LOAD_ERRORS.get(int(horizon_days)),
+    }
+
+
 def model_status() -> dict[str, Any]:
-    """Whether predictions are coming from the trained model or the fallback.
+    """Whether predictions are coming from the trained models or the fallback.
 
     Exposed so the running app can be asked, rather than the answer living only
     in a startup log nobody reads.
     """
-    _load_artifact()
+    artifact = _load_artifact(5)
     try:
         import sklearn
 
@@ -91,14 +142,18 @@ def model_status() -> dict[str, Any]:
     except Exception:  # noqa: BLE001
         sklearn_version = "unknown"
     return {
-        "using_trained_model": _ARTIFACT is not None,
-        "source": _MODEL_SOURCE,
-        "load_error": _LOAD_ERROR,
-        "artifact_path": str(os.getenv("ML_MODEL_PATH") or DEFAULT_MODEL_PATH),
-        "artifact_exists": Path(os.getenv("ML_MODEL_PATH") or DEFAULT_MODEL_PATH).exists(),
+        "using_trained_model": artifact is not None,
+        "source": "model" if artifact is not None else "fallback",
+        "load_error": _LOAD_ERRORS.get(5),
+        "artifact_path": artifact_path_for_horizon(5),
+        "artifact_exists": Path(artifact_path_for_horizon(5)).exists(),
         "sklearn_version": sklearn_version,
-        "trained_with_sklearn": (_ARTIFACT or {}).get("sklearn_version"),
+        "trained_with_sklearn": (artifact or {}).get("sklearn_version"),
         "feature_count": len(FEATURE_COLUMNS),
+        "horizons": {
+            h: {k: v for k, v in horizon_status(h).items() if k != "report"}
+            for h in (1, 3, 5)
+        },
     }
 
 
@@ -242,8 +297,8 @@ def _realized_hit_rates() -> dict[str, dict[str, float]]:
         counts: dict[str, dict[str, int]] = {}
         for row in getattr(outcome_rows, "data", None) or []:
             setup = setup_by_id.get(row.get("stock_signal_id"))
-            if not setup:
-                continue
+            if not setup or row.get("outcome") == "NO_FILL":
+                continue  # an order that never filled is not a trade
             counts.setdefault(setup, {"wins": 0, "trades": 0})
             counts[setup]["trades"] += 1
             if row.get("outcome") == "WIN":
@@ -281,8 +336,9 @@ def predict_signal_probabilities(
     *,
     feature_values: dict[str, float] | None = None,
     setup_type: str | None = None,
+    horizon_days: int = 5,
 ) -> dict[str, float | str | int]:
-    artifact = _load_artifact()
+    artifact = _load_artifact(horizon_days)
     path_used = "fallback"
     expected_return = 0.0
     if artifact and feature_values:
@@ -325,7 +381,8 @@ def predict_signal_probabilities(
         "model_stability": round(model_stability, 6),
         "confidence": round(confidence, 6),
         "expected_return": round(expected_return, 6),
-        "model_path": path_used if path_used == "model" else _MODEL_SOURCE,
+        "model_path": path_used,
+        "horizon_days": int(horizon_days),
         "historical_hit_rate": round(hit_rate, 6),
         "historical_hit_rate_trades": hit_rate_trades,
     }

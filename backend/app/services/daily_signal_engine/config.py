@@ -203,3 +203,55 @@ COMPANY_NAME_BY_SYMBOL = {
     symbol: symbol.replace("-", " ")
     for symbol in SECTOR_BY_SYMBOL
 }
+
+
+# ── Prediction horizons ────────────────────────────────────────────────────────
+# A pick is entered at the next session and held for up to `horizon` sessions.
+# The ATR barriers were tuned for 5 sessions; a shorter hold gets proportionally
+# closer barriers (price spreads roughly with the square root of time), so a
+# 1-day pick is not asked to make a 5-day move.
+HORIZONS = (1, 3, 5)
+DEFAULT_HORIZON = 5
+BASE_HORIZON = 5
+
+
+def horizon_barrier_scale(horizon_days: int) -> float:
+    return (max(1, int(horizon_days)) / BASE_HORIZON) ** 0.5
+
+
+def signal_type_for_horizon(horizon_days: int) -> str:
+    return f"{int(horizon_days)}-day"
+
+
+def horizon_from_signal_type(value: str | None) -> int:
+    """'1-day' / '3-day' / '5-day'. Older rows ('Next-day swing', 'Intraday',
+    'Both') were all graded as 5-session trades, so they map to 5."""
+    text = (value or "").strip().lower()
+    for horizon in HORIZONS:
+        if text in {f"{horizon}-day", f"{horizon}d", f"{horizon} day", f"{horizon} days"}:
+            return horizon
+    return DEFAULT_HORIZON
+
+
+# ── Live eligibility and the entry zone (shared by live runs and training) ────
+# Training must see exactly the setups the live engine is allowed to publish,
+# with the same entry zone, or the tested model is not the one in use.
+MIN_DIRECTIONAL_EDGE = int(os.getenv("DAILY_MIN_DIRECTIONAL_EDGE", "2"))
+MIN_CHART_SETUP_QUALITY = float(os.getenv("DAILY_MIN_CHART_SETUP_QUALITY", "0.60"))
+
+
+def entry_zone(direction: str, close: float, atr: float, horizon_days: int) -> tuple[float, float]:
+    """(low, high) of the acceptable entry, narrowed with the horizon like the barriers."""
+    scale = horizon_barrier_scale(horizon_days)
+    if direction == "BUY":
+        return close - atr * 0.15 * scale, close + atr * 0.20 * scale
+    return close - atr * 0.20 * scale, close + atr * 0.15 * scale
+
+
+def is_publishable_setup(technical_setup: dict) -> bool:
+    """The gates a setup must clear before the live engine will consider it."""
+    return (
+        technical_setup.get("direction") in {"BUY", "SELL"}
+        and abs(int(technical_setup.get("directional_edge") or 0)) >= MIN_DIRECTIONAL_EDGE
+        and float(technical_setup.get("chart_setup_quality") or 0) >= MIN_CHART_SETUP_QUALITY
+    )

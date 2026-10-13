@@ -2,8 +2,4 @@
 // components that no route imported; because the barrel itself is reachable,
 // those stayed "live" to tooling and hid the fact they were unused.
 export { DailySignalPreviewCard } from "./DailySignalPreviewCard";
-export type {
-  DailySignalPreview,
-  DailySignalPreviewCardProps,
-  SignalDeliveryMode,
-} from "./DailySignalPreviewCard";
+export type { DailySignalPreviewCardProps } from "./DailySignalPreviewCard";
