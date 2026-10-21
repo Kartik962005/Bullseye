@@ -44,6 +44,7 @@ type TrackRecordResponse = {
     neutral: number;
     hit_rate: number | null;
     avg_realized_r: number | null;
+    avg_forecast_move_pct?: number | null;
   };
 };
 
@@ -141,17 +142,28 @@ export function TrackRecord({ symbol, currency = '₹' }: { symbol?: string | nu
             {resolved > 0 ? `over ${resolved} closed call${resolved === 1 ? '' : 's'}` : 'nothing closed yet'}
           </div>
         </div>
-        <div>
-          <div className="sx-label">
-            Average R
+        {typeof summary?.avg_forecast_move_pct === 'number' && (summary?.avg_realized_r === null || summary?.avg_realized_r === undefined) ? (
+          <div>
+            <div className="sx-label">Average move</div>
+            <div className="mt-1.5 font-numeric text-[26px] leading-none text-paper">
+              {summary.avg_forecast_move_pct > 0 ? '+' : ''}
+              {summary.avg_forecast_move_pct.toFixed(2)}%
+            </div>
+            <div className="mt-1 text-[12px] text-[color:var(--ink-3)]">against the market, as called</div>
           </div>
-          <div className="mt-1.5 font-numeric text-[26px] leading-none text-paper">
-            {summary?.avg_realized_r === null || summary?.avg_realized_r === undefined
-              ? '–'
-              : summary.avg_realized_r.toFixed(2)}
+        ) : (
+          <div>
+            <div className="sx-label">
+              Average R
+            </div>
+            <div className="mt-1.5 font-numeric text-[26px] leading-none text-paper">
+              {summary?.avg_realized_r === null || summary?.avg_realized_r === undefined
+                ? '–'
+                : summary.avg_realized_r.toFixed(2)}
+            </div>
+            <div className="mt-1 text-[12px] text-[color:var(--ink-3)]">per closed call</div>
           </div>
-          <div className="mt-1 text-[12px] text-[color:var(--ink-3)]">per closed call</div>
-        </div>
+        )}
         <div>
           <div className="sx-label">
             Calls
@@ -173,6 +185,10 @@ export function TrackRecord({ symbol, currency = '₹' }: { symbol?: string | nu
       <ul className="flex flex-col gap-2">
         {signals.map(signal => {
           const style = OUTCOME_STYLE[signal.outcome] ?? OUTCOME_STYLE.NEUTRAL;
+          const isForecast = signal.setup_type === 'forecast';
+          const label = isForecast
+            ? signal.outcome === 'WIN' ? 'Called it' : signal.outcome === 'LOSS' ? 'Missed' : OUTCOME_LABEL[signal.outcome] ?? signal.outcome
+            : OUTCOME_LABEL[signal.outcome] ?? signal.outcome;
           return (
             <li
               key={signal.id}
@@ -180,13 +196,19 @@ export function TrackRecord({ symbol, currency = '₹' }: { symbol?: string | nu
             >
               <div className="min-w-0">
                 <div className="font-numeric text-[13px] text-paper">
-                  {signal.direction} · target {currency}
-                  {Number(signal.target_price ?? 0).toLocaleString()} · stop {currency}
-                  {Number(signal.stop_loss ?? 0).toLocaleString()}
+                  {isForecast ? (
+                    <>Forecast: likely to {signal.direction === 'BUY' ? 'beat' : 'lag'} the market · middle {currency}{Number(signal.target_price ?? 0).toLocaleString()}</>
+                  ) : (
+                    <>
+                      {signal.direction} · target {currency}
+                      {Number(signal.target_price ?? 0).toLocaleString()} · stop {currency}
+                      {Number(signal.stop_loss ?? 0).toLocaleString()}
+                    </>
+                  )}
                 </div>
                 <div className="mt-1 font-body text-[10px] uppercase tracking-wider text-paper-muted">
                   for {signal.target_date ?? '–'}
-                  {signal.setup_type ? ` · ${String(signal.setup_type).replace(/_/g, ' ')}` : ''}
+                  {signal.setup_type && !isForecast ? ` · ${String(signal.setup_type).replace(/_/g, ' ')}` : ''}
                   {typeof signal.confidence === 'number'
                     ? ` · ${Math.round(signal.confidence * 100)}% confidence`
                     : ''}
@@ -196,13 +218,14 @@ export function TrackRecord({ symbol, currency = '₹' }: { symbol?: string | nu
                 {typeof signal.realized_r === 'number' && (
                   <span className="font-numeric text-[12px] text-paper-muted">
                     {signal.realized_r > 0 ? '+' : ''}
-                    {signal.realized_r.toFixed(2)}R
+                    {signal.realized_r.toFixed(2)}
+                    {isForecast ? '%' : 'R'}
                   </span>
                 )}
                 <span
                   className={`rounded-full border px-3 py-1 font-body text-[9px] font-semibold uppercase tracking-widest ${style}`}
                 >
-                  {OUTCOME_LABEL[signal.outcome] ?? signal.outcome}
+                  {label}
                 </span>
               </div>
             </li>

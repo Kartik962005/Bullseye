@@ -67,18 +67,34 @@ class LimitEntryGradingTests(unittest.TestCase):
 
 
 class RunTests(unittest.TestCase):
-    def test_untested_horizon_is_withheld_without_running_the_model(self):
+    def test_missing_forecast_models_record_a_withheld_run(self):
         stored = {}
-        with mock.patch.object(dts, "_session_complete", return_value=True), \
-             mock.patch.object(dts, "_find_existing_run", return_value=None), \
-             mock.patch.object(dts, "horizon_status", return_value={"publish": False, "has_model": True, "report": None}), \
-             mock.patch.object(dts, "_load_universe", side_effect=AssertionError("model must not run")), \
-             mock.patch.object(dts, "_store_model_run", side_effect=lambda run, rows: stored.update(run=run, rows=rows) or run), \
-             mock.patch.object(dts, "_log_audit"):
+        with mock.patch.object(dts, "_session_complete", return_value=True),              mock.patch.object(dts, "_find_existing_run", return_value=None),              mock.patch.object(dts.forecast_engine, "load_artifact", return_value=None),              mock.patch.object(dts, "_forecast_universe", side_effect=AssertionError("must not run")),              mock.patch.object(dts, "_store_model_run", side_effect=lambda run, rows: stored.update(run=run, rows=rows) or run),              mock.patch.object(dts, "_log_audit"):
             result = dts.run_daily_prediction(signal_type="1-day")
         self.assertEqual(result["model_run"]["status"], "withheld")
         self.assertEqual(stored["rows"], [])
-        self.assertIn("did not beat trading costs", result["model_run"]["summary"]["withheld_reason"])
+
+    def test_forecasts_publish_every_day_with_their_ranges(self):
+        import pandas as pd
+
+        predictions = pd.DataFrame({
+            "ticker": ["TCS.NS", "INFY.NS"], "sector": ["Technology", "Technology"], "date": ["2026-10-20"] * 2,
+            "close": [3000.0, 1500.0], "p_beat": [0.58, 0.41], "q10": [-0.02, -0.03], "q50": [0.002, -0.004],
+            "q90": [0.025, 0.02], "rel_strength": [3.0, -2.5], "ret20": [0.05, -0.03], "rsi": [0.6, 0.4],
+            "close_to_ema20": [0.01, -0.02], "vol_ratio": [1.1, 0.9], "sector_above_ema50": [0.6, 0.6],
+        })
+        artifact = {"calibration": [{"p_min": 0.56, "p_max": 1.0, "actual_beat_rate": 0.55, "samples": 900}]}
+        stored = {}
+        with mock.patch.object(dts, "_session_complete", return_value=True),              mock.patch.object(dts, "_find_existing_run", return_value=None),              mock.patch.object(dts.forecast_engine, "load_artifact", return_value=artifact),              mock.patch.object(dts, "_forecast_universe", return_value=predictions),              mock.patch.object(dts, "_store_model_run", side_effect=lambda run, rows: stored.update(run=run, rows=rows) or run),              mock.patch.object(dts, "_log_audit"):
+            result = dts.run_daily_prediction(signal_type="1-day", risk_level="Aggressive")
+        self.assertEqual(result["model_run"]["status"], "completed")
+        rows = {r["symbol"]: r for r in stored["rows"]}
+        self.assertEqual(rows["TCS"]["signal_rank"], 1)  # higher chance to beat ranks first
+        self.assertEqual(rows["INFY"]["signal_rank"], 2)
+        self.assertEqual(rows["TCS"]["explanation_json"]["forecast"]["typical_p_beat"], 0.495)
+        forecast = rows["TCS"]["explanation_json"]["forecast"]
+        self.assertEqual((forecast["low_price"], forecast["high_price"]), (2940.0, 3075.0))
+        self.assertEqual(forecast["tested"]["actual_beat_rate"], 0.55)
 
     def test_no_run_while_the_session_is_open(self):
         with mock.patch.object(dts, "_session_complete", return_value=False):

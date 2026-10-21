@@ -13,6 +13,7 @@ import {
   HORIZONS,
   RISK_LEVELS,
   CONSENT_VERSION,
+  beatLabel,
   disableAlerts,
   emailPicksNow,
   enableAlerts,
@@ -63,10 +64,70 @@ function Segmented<T extends string | number>({
   );
 }
 
+const pct = (n: number) => `${Math.round(n * 100)}%`;
+const signedPct = (n: number) => `${n >= 0 ? '+' : '−'}${Math.abs(n * 100).toFixed(1)}%`;
+
+function ForecastRow({ pick, rank, forecast }: { pick: Pick; rank: number; forecast: NonNullable<Pick['explanation_json']>['forecast'] & object }) {
+  const [open, setOpen] = useState(false);
+  const chance = forecast.p_beat;
+  const typical = forecast.typical_p_beat;
+  const tested = forecast.tested;
+  return (
+    <li className="rounded-2xl border border-white/[0.07] bg-white/[0.025]">
+      <button type="button" onClick={() => setOpen(value => !value)} aria-expanded={open} className="flex w-full items-center gap-3 px-3.5 py-3 text-left sm:px-4">
+        <span className="w-5 shrink-0 font-numeric text-[11.5px] text-[color:var(--ink-4)] tabular-nums">{String(rank).padStart(2, '0')}</span>
+        <span className="min-w-0 flex-1">
+          <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <span className="min-w-0 truncate font-numeric text-[14.5px] text-white">{pick.symbol}</span>
+            <span className="shrink-0 rounded-full bg-[color:var(--up)]/12 px-2 py-0.5 text-[10.5px] font-medium text-[color:var(--up)]">
+              {beatLabel(chance, typical)}
+            </span>
+          </span>
+          <span className="mt-0.5 block font-numeric text-[12px] leading-[1.35] text-[color:var(--ink-2)]">
+            Likely {money(forecast.low_price)} – {money(forecast.high_price)}
+          </span>
+        </span>
+        <span className="shrink-0 text-right">
+          <span className="block font-numeric text-[13px] text-white">{pct(chance)}</span>
+          <span className="block text-[10.5px] leading-tight text-[color:var(--ink-4)]">to beat</span>
+          {typeof typical === 'number' && (
+            <span className="block text-[10.5px] leading-tight text-[color:var(--ink-4)]">typical {pct(typical)}</span>
+          )}
+        </span>
+        <svg viewBox="0 0 20 20" className={`h-4 w-4 shrink-0 text-[color:var(--ink-3)] transition-transform ${open ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <path d="m5 8 5 5 5-5" />
+        </svg>
+      </button>
+      {open && (
+        <div className="anim-pop border-t border-white/[0.06] px-4 pb-3.5 pt-3 text-[12.5px] leading-5 text-[color:var(--ink-2)]" data-state="open">
+          <div className="grid grid-cols-3 gap-2 font-numeric">
+            <div className="min-w-0"><div className="text-[10.5px] text-[color:var(--ink-4)]">Low case (1 in 10)</div>{money(forecast.low_price)}<span className="block text-[11px] text-[color:var(--ink-4)]">{signedPct(forecast.q10)}</span></div>
+            <div className="min-w-0"><div className="text-[10.5px] text-[color:var(--ink-4)]">Middle</div>{money(forecast.mid_price)}<span className="block text-[11px] text-[color:var(--ink-4)]">{signedPct(forecast.q50)}</span></div>
+            <div className="min-w-0"><div className="text-[10.5px] text-[color:var(--ink-4)]">High case (1 in 10)</div>{money(forecast.high_price)}<span className="block text-[11px] text-[color:var(--ink-4)]">{signedPct(forecast.q90)}</span></div>
+          </div>
+          <p className="mt-2.5 text-[12px] text-[color:var(--ink-3)]">
+            {pick.company_name || pick.symbol}. Last close {money(forecast.reference_close)}.
+            {tested
+              ? ` In testing, stocks given ${pct(tested.p_min)}–${pct(Math.min(tested.p_max, 1))} beat the market ${pct(tested.actual_beat_rate)} of the time (${tested.samples.toLocaleString('en-IN')} cases).`
+              : ''}
+          </p>
+          {(forecast.context ?? []).length > 0 && (
+            <ul className="mt-2 list-disc space-y-1 pl-4">
+              {(forecast.context ?? []).slice(0, 4).map(note => <li key={note}>{note}</li>)}
+            </ul>
+          )}
+        </div>
+      )}
+    </li>
+  );
+}
+
 function PickRow({ pick, rank }: { pick: Pick; rank: number }) {
   const [open, setOpen] = useState(false);
   const buy = pick.direction === 'BUY';
   const reasons = pick.explanation_json?.reasons ?? [];
+  const forecast = pick.explanation_json?.forecast;
+  if (forecast) return <ForecastRow pick={pick} rank={rank} forecast={forecast} />;
   return (
     <li className="rounded-2xl border border-white/[0.07] bg-white/[0.025]">
       <button
@@ -280,6 +341,7 @@ export function DailyAlertsDialog({
         : null;
   const withheld = run?.status === 'withheld';
   const tested = run?.summary?.model_test?.ml_top_n;
+  const forecastTest = run?.summary?.kind === 'forecast' ? run.summary.model_test : null;
 
   return (
     <>
@@ -358,12 +420,26 @@ export function DailyAlertsDialog({
 
               {run && picks.length > 0 && (
                 <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                  <p className="text-[12px] leading-5 text-[color:var(--ink-3)] sm:max-w-[46ch]">
-                    Use a limit order valid for {prettyDate(targetDate)} only. Skip a pick that opens past its stop or target.
-                    {tested && typeof tested.avg_net_r === 'number'
-                      ? ` In testing, the top 10 a day averaged ${tested.avg_net_r >= 0 ? '+' : ''}${tested.avg_net_r.toFixed(2)}R per filled trade after costs.`
-                      : ''}
-                  </p>
+                  {forecastTest ? (
+                    <p className="text-[12px] leading-5 text-[color:var(--ink-3)] sm:max-w-[48ch]">
+                      Forecasts, not advice. “Beat the market” means doing better than the average of the stocks we track, from the next open.
+                      {typeof forecastTest.top_beat_rate === 'number'
+                        ? forecastTest.edge_confirmed
+                          ? ` In testing on ${forecastTest.days ?? 'hundreds of'} sessions the model had never seen, its top 10 beat the market ${Math.round(forecastTest.top_beat_rate * 100)}% of the time. A small edge, but a real one.`
+                          : ` At this horizon the ranking did not beat chance in testing (top 10 beat the market ${Math.round(forecastTest.top_beat_rate * 100)}% of the time), so treat the order as a toss-up and use the ranges.`
+                        : ''}
+                      {typeof forecastTest.range_coverage === 'number'
+                        ? ` ${Math.round(forecastTest.range_coverage * 100)}% of prices landed inside the likely range.`
+                        : ''}
+                    </p>
+                  ) : (
+                    <p className="text-[12px] leading-5 text-[color:var(--ink-3)] sm:max-w-[46ch]">
+                      Use a limit order valid for {prettyDate(targetDate)} only. Skip a pick that opens past its stop or target.
+                      {tested && typeof tested.avg_net_r === 'number'
+                        ? ` In testing, the top 10 a day averaged ${tested.avg_net_r >= 0 ? '+' : ''}${tested.avg_net_r.toFixed(2)}R per filled trade after costs.`
+                        : ''}
+                    </p>
+                  )}
                   <button type="button" onClick={emailNow} disabled={busy} className="sx-btn-ghost shrink-0 justify-center disabled:opacity-50">
                     Email me these
                   </button>

@@ -8,9 +8,9 @@ export type Horizon = 1 | 3 | 5;
 export type RiskLevel = 'Conservative' | 'Balanced' | 'Aggressive';
 
 export const HORIZONS: Array<{ value: Horizon; label: string; detail: string }> = [
-  { value: 1, label: 'Next day', detail: 'Out by the close of the same session' },
-  { value: 3, label: '3 days', detail: 'Held up to 3 sessions' },
-  { value: 5, label: '5 days', detail: 'Held up to 5 sessions' },
+  { value: 1, label: 'Next day', detail: 'From the next open to that day’s close' },
+  { value: 3, label: '3 days', detail: 'From the next open to the close of the third session' },
+  { value: 5, label: '5 days', detail: 'From the next open to the close of the fifth session' },
 ];
 export const RISK_LEVELS: RiskLevel[] = ['Conservative', 'Balanced', 'Aggressive'];
 export const DEFAULT_HORIZON: Horizon = 5;
@@ -37,7 +37,49 @@ export type Pick = {
   expected_r?: number;
   setup_type?: string | null;
   signal_rank?: number | null;
-  explanation_json?: { reasons?: string[] } | null;
+  explanation_json?: { reasons?: string[]; forecast?: Forecast } | null;
+};
+
+/** A forecast for one stock, from the next open: chance to beat the market, and the likely range. */
+export type Forecast = {
+  kind: 'forecast';
+  horizon_days: number;
+  /** Chance this stock beats the average stock we track over the window. */
+  p_beat: number;
+  /** The same chance for the middle stock that day, for comparison. */
+  typical_p_beat?: number | null;
+  q10: number;
+  q50: number;
+  q90: number;
+  reference_close: number;
+  low_price: number;
+  mid_price: number;
+  high_price: number;
+  context?: string[];
+  tested?: { p_min: number; p_max: number; actual_beat_rate: number; samples: number } | null;
+};
+
+/** Results on the untouched half of the out-of-sample test. */
+/** Plain label for a chance to beat the market, against the typical stock that day. */
+export function beatLabel(pBeat: number, typical?: number | null) {
+  if (pBeat >= 0.5) return 'Likely to beat';
+  if (typeof typical === 'number' && pBeat >= typical + 0.01) return 'Better than most';
+  return 'Toss-up';
+}
+
+export type ForecastTest = {
+  edge_confirmed?: boolean;
+  stocks?: number;
+  first_day?: string;
+  last_day?: string;
+  days?: number;
+  roc_auc?: number;
+  top_beat_rate?: number;
+  bottom_beat_rate?: number;
+  top_bottom_spread?: number;
+  spread_t_stat?: number;
+  range_coverage?: number;
+  ml_top_n?: { avg_net_r?: number; fill_rate?: number; trades?: number } | null;
 };
 
 export type PickRun = {
@@ -51,7 +93,8 @@ export type PickRun = {
   selected_count: number;
   summary?: {
     withheld_reason?: string | null;
-    model_test?: { roc_auc?: number; oos_first_day?: string; oos_last_day?: string; ml_top_n?: { avg_net_r?: number; fill_rate?: number; trades?: number } | null } | null;
+    kind?: string;
+    model_test?: ForecastTest | null;
   } | null;
 };
 

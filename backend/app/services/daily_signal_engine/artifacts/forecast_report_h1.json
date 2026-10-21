@@ -1,0 +1,100 @@
+{
+  "horizon_days": 1,
+  "generated_at": "2026-10-21T04:58:39.312652+00:00",
+  "stocks": 137,
+  "range_scale": 1.15,
+  "selection": {
+    "first_day": "2023-09-25",
+    "last_day": "2025-02-28",
+    "days": 354,
+    "roc_auc": 0.5271,
+    "brier_skill": 0.0005,
+    "top_beat_rate": 0.5161,
+    "bottom_beat_rate": 0.435,
+    "top_excess": 0.00131,
+    "bottom_excess": -0.00114,
+    "top_bottom_spread": 0.00244,
+    "spread_t_stat": 4.39,
+    "top_up_rate": 0.4921,
+    "all_up_rate": 0.4515,
+    "range": {
+      "coverage_10_90": 0.8017,
+      "below_q10": 0.1089,
+      "above_q90": 0.0894,
+      "median_width": 0.03955
+    }
+  },
+  "confirmation": {
+    "first_day": "2025-03-03",
+    "last_day": "2026-08-11",
+    "days": 355,
+    "roc_auc": 0.5233,
+    "brier_skill": 0.0014,
+    "top_beat_rate": 0.5179,
+    "bottom_beat_rate": 0.4524,
+    "top_excess": 0.00082,
+    "bottom_excess": -0.00042,
+    "top_bottom_spread": 0.00123,
+    "spread_t_stat": 2.71,
+    "top_up_rate": 0.5109,
+    "all_up_rate": 0.4743,
+    "range": {
+      "coverage_10_90": 0.8256,
+      "below_q10": 0.0848,
+      "above_q90": 0.0897,
+      "median_width": 0.03966
+    }
+  },
+  "edge_confirmed": true,
+  "calibration": [
+    {
+      "p_min": 0.0,
+      "p_max": 0.44,
+      "mean_p": 0.4034,
+      "actual_beat_rate": 0.4354,
+      "samples": 1371
+    },
+    {
+      "p_min": 0.44,
+      "p_max": 0.47,
+      "mean_p": 0.4587,
+      "actual_beat_rate": 0.4582,
+      "samples": 20961
+    },
+    {
+      "p_min": 0.47,
+      "p_max": 0.49,
+      "mean_p": 0.4795,
+      "actual_beat_rate": 0.4855,
+      "samples": 11957
+    },
+    {
+      "p_min": 0.49,
+      "p_max": 0.51,
+      "mean_p": 0.4996,
+      "actual_beat_rate": 0.4879,
+      "samples": 7325
+    },
+    {
+      "p_min": 0.51,
+      "p_max": 0.53,
+      "mean_p": 0.5172,
+      "actual_beat_rate": 0.5164,
+      "samples": 4034
+    },
+    {
+      "p_min": 0.53,
+      "p_max": 0.56,
+      "mean_p": 0.5418,
+      "actual_beat_rate": 0.503,
+      "samples": 658
+    },
+    {
+      "p_min": 0.56,
+      "p_max": 1.0,
+      "mean_p": 0.6056,
+      "actual_beat_rate": 0.564,
+      "samples": 250
+    }
+  ]
+}

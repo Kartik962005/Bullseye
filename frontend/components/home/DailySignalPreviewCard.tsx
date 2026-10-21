@@ -10,6 +10,7 @@ import {
   type Pick,
   type PickRun,
   DEFAULT_HORIZON,
+  beatLabel,
   HORIZONS,
   loadPicks,
   notReadyMessage,
@@ -65,8 +66,8 @@ export function DailySignalPreviewCard({ signedIn, alertsEnabled, onOpenSettings
             Get the short list <em className="nova-gradient-text italic">in your inbox.</em>
           </h2>
           <p className="mt-4 max-w-[44ch] font-body text-[15px] leading-7 text-[color:var(--ink-2)]">
-            Ranked after each close for the holding period you choose: the next day, 3 days or 5 days. Nothing is sent
-            on days when no setup is worth taking.
+            Every evening the model forecasts which stocks are most likely to beat the market, and each one&apos;s likely
+            price range, over the next day, 3 days or 5 days. Every forecast shows how accurate it was in testing.
           </p>
           <button type="button" onClick={onOpenSettings} className="nova-btn nova-btn-primary mt-7">
             {!signedIn ? "Sign in to get picks" : alertsEnabled ? "Manage daily picks" : "Set up daily picks"}
@@ -118,26 +119,31 @@ export function DailySignalPreviewCard({ signedIn, alertsEnabled, onOpenSettings
             ) : preview.length === 0 ? (
               <li className="py-4 text-[13px] leading-6 text-[color:var(--ink-2)]">No setup cleared the bar for this session.</li>
             ) : (
-              preview.map((pick) => (
-                <li key={pick.id ?? pick.symbol} className="flex items-center gap-3 py-2.5">
-                  <span className="min-w-0 truncate font-numeric text-[14px] text-paper">{pick.symbol}</span>
-                  <span
-                    className={`shrink-0 rounded-md px-1.5 py-0.5 font-numeric text-[11px] ${
-                      pick.direction === "BUY" ? "bg-[color:var(--up)]/12 text-[color:var(--up)]" : "bg-[color:var(--down)]/12 text-[color:var(--down)]"
-                    }`}
-                  >
-                    {pick.direction}
-                  </span>
-                  <span className="ml-auto shrink-0 font-numeric text-[12.5px] text-[color:var(--ink-2)]">
-                    Target {money(pick.target_price)}
-                  </span>
-                </li>
-              ))
+              preview.map((pick) => {
+                const forecast = pick.explanation_json?.forecast;
+                const up = forecast ? true : pick.direction === "BUY";
+                const chance = forecast ? forecast.p_beat : null;
+                return (
+                  <li key={pick.id ?? pick.symbol} className="flex items-center gap-3 py-2.5">
+                    <span className="min-w-0 truncate font-numeric text-[14px] text-paper">{pick.symbol}</span>
+                    <span
+                      className={`shrink-0 rounded-md px-1.5 py-0.5 text-[11px] font-medium ${
+                        up ? "bg-[color:var(--up)]/12 text-[color:var(--up)]" : "bg-[color:var(--down)]/12 text-[color:var(--down)]"
+                      }`}
+                    >
+                      {forecast ? beatLabel(forecast.p_beat, forecast.typical_p_beat) : pick.direction}
+                    </span>
+                    <span className="ml-auto shrink-0 font-numeric text-[12.5px] text-[color:var(--ink-2)]">
+                      {chance !== null ? `${Math.round(chance * 100)}% to beat` : `Target ${money(pick.target_price)}`}
+                    </span>
+                  </li>
+                );
+              })
             )}
           </ul>
 
           <button type="button" onClick={onOpenSettings} className="sx-btn-ghost mt-4 w-full justify-center">
-            {signedIn ? "See every pick with entry and stop" : "Sign in to see entry and stop"}
+            {signedIn ? "See every forecast with its likely range" : "Sign in to see the likely ranges"}
           </button>
         </div>
       </div>
