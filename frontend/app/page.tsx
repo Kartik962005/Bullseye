@@ -2222,7 +2222,7 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
                       <span className="flex min-w-0 items-center gap-2.5 sm:gap-3">
                         <span className="nova-dot" aria-hidden />
                         <span className="truncate font-numeric text-[10.5px] font-medium uppercase tracking-[0.2em] text-[color:var(--ink-2)] sm:text-[11px] sm:tracking-[0.3em]">
-                          Live scan<span className="hidden min-[420px]:inline"> · today&apos;s short list</span>
+                          Live scan<span className="hidden min-[420px]:inline"> · latest prices</span>
                         </span>
                       </span>
                       <Link

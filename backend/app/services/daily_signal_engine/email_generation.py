@@ -108,8 +108,11 @@ def build_signal_email(
     except ValueError:
         pretty_date = str(signal_date)
     count_preview = len(signals)
+    buys = sum(1 for s_ in signals if s_.get("direction") == "BUY")
+    sells = count_preview - buys
+    calls = ", ".join(part for part in (f"{buys} buy" if buys else "", f"{sells} sell" if sells else "") if part)
     subject = (
-        f"Bullseye: {count_preview} forecast{'' if count_preview == 1 else 's'} for {pretty_date}, {held}"
+        f"Bullseye {'intraday' if horizon == 1 else f'{horizon}-session'} calls for {pretty_date}: {calls}"
         if any((s_.get("explanation_json") or {}).get("forecast") for s_ in signals) and count_preview
         else f"Bullseye: {count_preview} pick{'' if count_preview == 1 else 's'} for {pretty_date}, held {held}"
         if count_preview
@@ -119,6 +122,10 @@ def build_signal_email(
     card_rows: list[str] = []
     text_rows: list[str] = []
 
+    section_direction = None
+    # Forecasts are grouped: buy calls first, then sell calls.
+    if any((s_.get("explanation_json") or {}).get("forecast") for s_ in signals):
+        signals = sorted(signals, key=lambda s_: (s_.get("direction") != "BUY", s_.get("signal_rank") or 0))
     for index, signal in enumerate(signals, 1):
         _, text_reason = _detail_reason(signal)
         symbol = str(signal["symbol"])
@@ -137,46 +144,56 @@ def build_signal_email(
         why = "; ".join(str(r) for r in reasons[:2]) or setup_type
         forecast = (signal.get("explanation_json") or {}).get("forecast")
         if forecast:
-            up = True
-            chance = float(forecast["p_beat"])
-            typical = forecast.get("typical_p_beat")
-            label = (
-                "Likely to beat the market" if chance >= 0.5
-                else "Better odds than most" if isinstance(typical, (int, float)) and chance >= typical + 0.01
-                else "Toss-up"
-            )
-            low, mid, high = (f"{float(forecast[k]):,.2f}" for k in ("low_price", "mid_price", "high_price"))
+            buy = direction == "BUY"
+            chance = float(forecast.get("p_call", forecast["p_beat"] if buy else 1 - forecast["p_beat"]))
+            label = "BUY" if buy else "SELL"
+            odds = f"{round(chance * 100)}% to {'beat' if buy else 'lag'} the market"
+            low, mid, high, stop = (
+                f"{float(forecast[k]):,.2f}" for k in ("low_price", "mid_price", "high_price", "stop_price")
+            ) if "stop_price" in forecast else (*(f"{float(forecast[k]):,.2f}" for k in ("low_price", "mid_price", "high_price")), "")
             last = f"{float(forecast['reference_close']):,.2f}"
             tested = forecast.get("tested") or {}
+            rate = tested.get("call_rate", tested.get("actual_beat_rate"))
             evidence = (
-                f"In testing, stocks given {round(tested['p_min'] * 100)}-{round(min(tested['p_max'], 1) * 100)}% beat the market "
-                f"{round(tested['actual_beat_rate'] * 100)}% of the time ({tested['samples']:,} cases)."
-                if tested
+                f"In testing, calls like this were right {round(rate * 100)}% of the time ({tested['samples']:,} cases)."
+                if tested and rate is not None
                 else ""
             )
+            plan = (
+                [("Last close", last), ("Expected", mid), ("Likely range", f"{low}-{high}"), ("Exit if below" if buy else "Exit if above", stop)]
+                if stop
+                else [("Low case", low), ("Middle", mid), ("High case", high), ("Last close", last)]
+            )
+            if section_direction != direction:
+                section_direction = direction
+                card_rows.append(
+                    f"<p style='margin:18px 0 8px;font-family:{theme.FONT};font-size:12px;font-weight:700;letter-spacing:1px;"
+                    f"text-transform:uppercase;color:{theme.MUTED}'>{'Buy calls' if buy else 'Sell calls'}</p>"
+                )
+                text_rows.append("BUY CALLS" if buy else "SELL CALLS")
             card_rows.append(
                 f"<table role='presentation' width='100%' style='border-collapse:separate;border:1px solid {theme.LINE};"
                 "border-radius:16px;margin:0 0 12px'><tr><td style='padding:16px 16px 6px'>"
                 "<table role='presentation' width='100%' style='border-collapse:collapse'><tr>"
                 "<td style='vertical-align:top'>"
-                f"<div style='font-family:{theme.FONT};font-size:12px;color:{theme.FAINT}'>{index:02d}</div>"
                 f"<div style='font-family:{theme.FONT};font-size:19px;font-weight:700;letter-spacing:-0.3px;color:{theme.INK}'>{escape(symbol)}</div>"
                 f"<div style='font-family:{theme.FONT};font-size:13px;color:{theme.MUTED}'>{escape(company_name)}</div>"
                 "</td>"
                 "<td style='vertical-align:top;text-align:right'>"
-                f"{theme.pill(label, 'up' if up else 'down')}"
-                f"<div style='margin-top:6px'>{theme.pill(f'{round(chance * 100)}% to beat')}</div>"
+                f"{theme.pill(label, 'up' if buy else 'down')}"
+                f"<div style='margin-top:6px'>{theme.pill(odds)}</div>"
                 "</td></tr></table>"
                 "<div style='height:14px'></div>"
-                + theme.metric_grid([("Low case", low), ("Middle", mid), ("High case", high), ("Last close", last)])
+                + theme.metric_grid(plan)
                 + f"<p style='margin:0 0 10px;font-family:{theme.FONT};font-size:13px;line-height:1.55;color:{theme.MUTED}'>"
                 f"{escape(why)}. {escape(evidence)}</p>"
                 "</td></tr></table>"
             )
             text_rows.append(
-                f"{index}. {symbol}: {label}, {round(chance * 100)}% chance to beat the market\n"
-                f"Likely range: {low} to {high} (middle {mid}), last close {last}\n"
-                f"{why}. {evidence}\n"
+                f"{symbol} {label}: {odds}\n"
+                f"Last close {last}, expected {mid}, likely range {low} to {high}"
+                + (f", exit if {'below' if buy else 'above'} {stop}" if stop else "")
+                + f"\n{why}. {evidence}\n"
             )
             continue
         card_rows.append(
@@ -217,11 +234,23 @@ def build_signal_email(
         else f"{count} pick{'' if count == 1 else 's'} for {pretty_date}" if count
         else "No picks cleared the bar"
     )
+    last_session = next(
+        ((s_.get("explanation_json") or {}).get("forecast", {}).get("last_session") for s_ in signals
+         if (s_.get("explanation_json") or {}).get("forecast", {}).get("last_session")),
+        None,
+    )
+    try:
+        last_pretty = _date.fromisoformat(str(last_session)[:10]).strftime("%a %d %b") if last_session else None
+    except ValueError:
+        last_pretty = None
+    window = (
+        f"from the open to the close on {pretty_date} (intraday)" if horizon == 1
+        else f"from the open on {pretty_date} to the close on {last_pretty or f'session {horizon}'} ({horizon} trading sessions)"
+    )
     how_to = (
-        f"Each forecast runs from the open on {pretty_date} to the close "
-        f"{'of that session' if horizon == 1 else f'of session {horizon}'}. The chance is the model's probability that the "
-        "stock does better (or worse) than the average stock we track, and the likely range held 8 in 10 outcomes in testing. "
-        "These are forecasts, not advice."
+        f"Each call runs {window}. A BUY is a stock the model rates most likely to beat the average Nifty 200 stock; "
+        "a SELL (intraday only) is one most likely to lag it. The likely range held 8 in 10 outcomes in testing, and the "
+        "exit line is its 1-in-10 bad case. These are forecasts, not advice."
     ) if is_forecast else (
         f"Place each order as a limit for the session on {pretty_date} only, and skip a pick that opens past its stop "
         f"or target. Exit at the target, at the stop, or at the close {'of that session' if horizon == 1 else f'of session {horizon}'}, "

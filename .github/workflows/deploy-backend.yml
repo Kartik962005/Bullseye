@@ -1,0 +1,41 @@
+name: Deploy backend to Render
+
+# Triggers a Render deploy whenever backend code changes on main, so the live
+# API never lags the repository (the forecast engine once sat undeployed for
+# days because nothing redeployed it).
+#
+# Setup (once): Render dashboard -> the backend service -> Settings ->
+# Deploy Hook -> copy the URL, then add it to this repository as the Actions
+# secret RENDER_DEPLOY_HOOK_URL. Without the secret this workflow does nothing.
+# Turning on Render's own "Auto-Deploy: On Commit" works too; use one or the other.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+  workflow_dispatch: {}
+
+concurrency:
+  group: deploy-backend
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Trigger Render deploy
+        env:
+          HOOK: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+        run: |
+          if [ -z "${HOOK:-}" ]; then
+            echo "RENDER_DEPLOY_HOOK_URL is not set; skipping. Deploy from the Render dashboard instead."
+            exit 0
+          fi
+          code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$HOOK")
+          echo "Render deploy hook -> HTTP $code"
+          if [ "$code" -lt 200 ] || [ "$code" -ge 300 ]; then
+            echo "::error::Render deploy hook returned HTTP $code"
+            exit 1
+          fi

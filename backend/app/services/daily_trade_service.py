@@ -44,6 +44,7 @@ from app.services.daily_signal_engine.config import (
     DEFAULT_SIGNAL_TYPE,
     DEFAULT_K_SMOOTHING,
     MARKET_CLOSES,
+    MARKET_INDEX,
     MAX_SELECTED_SIGNALS,
     MIN_EMAIL_AFTER_CLOSE_MINUTES,
     RISK_PROFILES,
@@ -56,6 +57,7 @@ from app.services.daily_signal_engine.config import (
 )
 from app.services.daily_signal_engine.data_ingestion import fetch_price_history, get_symbol_metadata
 from app.services.daily_signal_engine import forecast as forecast_engine
+from app.services.daily_signal_engine import market_calendar
 from app.services.daily_signal_engine.ml_interface import horizon_status
 
 
@@ -167,12 +169,11 @@ def _today_ist() -> date:
 
 
 def _holiday_set() -> set[str]:
-    raw = os.getenv("INDIA_MARKET_HOLIDAYS", "").strip()
-    return {item.strip() for item in raw.split(",") if item.strip()}
+    return market_calendar.holidays()
 
 
 def _is_market_holiday(day: date) -> bool:
-    return day.weekday() >= 5 or day.isoformat() in _holiday_set()
+    return not market_calendar.is_trading_day(day)
 
 
 def _next_trading_day(from_day: date | None = None) -> date:
@@ -1048,40 +1049,43 @@ def run_daily_prediction(
     existing_run = _find_existing_run(run_day.isoformat(), market, risk_level, signal_type)
     if existing_run and existing_run.get("target_date") != target_date:
         existing_run = None
-    # A run made by the old trade-setup engine is replaced by a forecast run.
-    if existing_run and not str(existing_run.get("model_version") or "").startswith("forecast-"):
+    # A run made by an older engine is replaced by a current forecast run.
+    if existing_run and not str(existing_run.get("model_version") or "").startswith("forecast-v3"):
         existing_run = None
     if existing_run and not force:
         signals = _load_signals_for_run(existing_run["id"])
         notifications = _send_daily_signal_emails(existing_run, signals, user_ids=user_ids) if send_email else []
         return {"model_run": existing_run, "signals": signals, "notifications": notifications, "cached": True}
 
-    model_version = os.getenv("DAILY_SIGNAL_MODEL_VERSION", "forecast-v1") + f"-h{horizon_days}"
+    model_version = os.getenv("DAILY_SIGNAL_MODEL_VERSION", "forecast-v3") + f"-h{horizon_days}"
     run_id = str(uuid4())
     generated_at = _utc_now_iso()
     signal_rows: list[dict[str, Any]] = []
-    universe_size = len(get_universe(market))
+    universe_size = len(forecast_engine.universe_tickers())
     run_status = "completed"
     withheld_reason = None
     forecast_count = 0
+    typical = None
     report = forecast_engine.load_report(horizon_days) or {}
 
     artifact = forecast_engine.load_artifact(horizon_days)
     if artifact is None:
         run_status = "withheld"
-        withheld_reason = f"The {horizon_days}-day forecast models are not available on the server yet."
+        withheld_reason = f"The {horizon_days}-session forecast models are not available on the server yet."
     else:
-        predictions = _forecast_universe(market, artifact, run_day)
+        predictions = _forecast_universe(artifact, run_day)
         forecast_count = len(predictions)
         if predictions.empty:
             run_status = "withheld"
             withheld_reason = "Price data for the last session was not available, so no forecasts were made."
         else:
-            typical = round(float(predictions["p_beat"].median()), 4)
-            for index, (_, row) in enumerate(_select_forecasts(predictions, risk_level).iterrows(), 1):
+            typical = round(forecast_engine.display_probability(float(predictions["p_beat"].median()), artifact.get("calibration")), 4)
+            calls = _select_forecasts(predictions, risk_level, horizon_days)
+            for index, (_, row) in enumerate(calls.iterrows(), 1):
                 signal_rows.append(_forecast_signal_row(row, horizon_days, artifact, run_id, index,
                                                         model_version, run_day, target_date, market, typical))
 
+    confirmation = report.get("confirmation") or {}
     run_payload = {
         "id": run_id,
         "run_date": run_day.isoformat(),
@@ -1099,22 +1103,31 @@ def run_daily_prediction(
         "summary": {
             "kind": "forecast",
             "horizon_days": horizon_days,
+            "data_date": run_day.isoformat(),
+            "last_session": market_calendar.session_after(date.fromisoformat(target_date), horizon_days).isoformat(),
+            "typical_p_beat": typical,
             "withheld_reason": withheld_reason,
             # The untouched half of the out-of-sample test: what the app quotes.
             "model_test": (
                 {
-                    "edge_confirmed": report.get("edge_confirmed"),
+                    "universe": report.get("universe"),
                     "stocks": report.get("stocks"),
-                    **{k: (report.get("confirmation") or {}).get(k) for k in (
-                        "first_day", "last_day", "days", "roc_auc", "top_beat_rate", "bottom_beat_rate",
-                        "top_bottom_spread", "spread_t_stat",
-                    )},
-                    "range_coverage": ((report.get("confirmation") or {}).get("range") or {}).get("coverage_10_90"),
+                    "model": report.get("model"),
+                    "first_day": confirmation.get("first_day"),
+                    "last_day": confirmation.get("last_day"),
+                    "days": confirmation.get("days"),
+                    "base_beat_rate": confirmation.get("base_beat_rate"),
+                    "buy": confirmation.get("buy"),
+                    "sell": confirmation.get("sell"),
+                    "buy_edge_confirmed": report.get("buy_edge_confirmed"),
+                    "sell_edge_confirmed": report.get("sell_edge_confirmed"),
+                    "range_coverage": (confirmation.get("range") or {}).get("coverage_10_90"),
                 }
                 if report
                 else None
             ),
-            "method": "from the next open to the close of the horizon: calibrated chance to beat the average stock, and a 10/50/90% price range",
+            "live_record": _live_forecast_record(horizon_days),
+            "method": "Nifty 200, from the next open to the close of the horizon: calibrated chance to beat the average stock, and a 10/50/90% price range",
         },
     }
     stored_run = _store_model_run(run_payload, signal_rows)
@@ -1126,31 +1139,32 @@ def run_daily_prediction(
 # ── Forecast engine ──────────────────────────────────────────────────────────
 
 _FORECAST_INPUT_CACHE: dict[str, Any] = {}
+# Enough daily bars for the 200-day average and the 52-week high.
+_FORECAST_HISTORY_DAYS = 560
 
 
-def _forecast_inputs(market: str) -> dict[str, Any]:
-    """Raw prices for the universe and the index, cached across one evening's runs."""
-    key = f"{market}:{_last_completed_session().isoformat()}"
+def _forecast_inputs() -> dict[str, Any]:
+    """Raw prices for the Nifty 200 and the index, cached across one evening's runs."""
+    key = _last_completed_session().isoformat()
     cached = _FORECAST_INPUT_CACHE.get(key)
     if cached and (datetime.now(timezone.utc) - cached["at"]).total_seconds() < _UNIVERSE_TTL_SECONDS:
         return cached
-    universe = list(get_universe(market))
-    frames = {ticker: fetch_price_history(ticker, days=320) for ticker in universe}
+    universe = forecast_engine.universe_tickers()
+    frames = {ticker: fetch_price_history(ticker, days=_FORECAST_HISTORY_DAYS) for ticker in universe}
     loaded = {
         "at": datetime.now(timezone.utc),
-        "universe": universe,
         "frames": {t: f for t, f in frames.items() if f is not None and not f.empty},
-        "index": fetch_market_context(market)["index_history"],
+        "index": fetch_price_history(MARKET_INDEX.get(DEFAULT_MARKET, "^NSEI"), days=_FORECAST_HISTORY_DAYS),
     }
     _FORECAST_INPUT_CACHE.clear()
     _FORECAST_INPUT_CACHE[key] = loaded
     return loaded
 
 
-def _forecast_universe(market: str, artifact: dict[str, Any], run_day: date) -> pd.DataFrame:
-    """Forecasts for every stock whose last bar is the last completed session."""
-    inputs = _forecast_inputs(market)
-    rows = forecast_engine.forecast_frame(inputs["frames"], inputs["index"], breadth_universe=set(inputs["universe"]))
+def _forecast_universe(artifact: dict[str, Any], run_day: date) -> pd.DataFrame:
+    """Forecasts for every stock with a clean, current bar for the last completed session."""
+    inputs = _forecast_inputs()
+    rows = forecast_engine.forecast_frame(inputs["frames"], inputs["index"])
     if rows.empty:
         return rows
     # Never a bar newer than the last completed session: during market hours
@@ -1158,8 +1172,9 @@ def _forecast_universe(market: str, artifact: dict[str, Any], run_day: date) -> 
     settled = rows[rows["date"] <= run_day.isoformat()]
     if settled.empty:
         return settled
-    # Holiday calendars can differ by a day; use the newest settled session we have.
     latest = settled[settled["date"] == settled["date"].max()]
+    # Skip stocks with a recent corporate action or data jump.
+    latest = latest[latest["anomaly"] <= 0]
     predictions = forecast_engine.predict(artifact, latest)
     return predictions.merge(latest.drop(columns=["sector", "date", "close"]), on="ticker", how="left")
 
@@ -1170,57 +1185,75 @@ _RISK_RANGE_QUANTILE = {"Conservative": 0.4, "Balanced": 0.8, "Aggressive": 1.0}
 _MAX_PER_SECTOR = 3
 
 
-def _select_forecasts(predictions: pd.DataFrame, risk_level: str) -> pd.DataFrame:
-    work = predictions.copy()
-    work["width"] = work["q90"] - work["q10"]
-    limit = work["width"].quantile(_RISK_RANGE_QUANTILE.get(risk_level, 0.8))
-    work = work[work["width"] <= limit + 1e-12]
-    # The ten most likely to beat the market: the list testing measured. (The
-    # typical stock beats the average less than half the time, so a "likely to
-    # lag" call adds little; those are not published.)
-    work["confidence"] = work["p_beat"]
-    sort_cols = ["p_beat", "rank_score"] if "rank_score" in work.columns else ["p_beat"]
-    work = work.sort_values(sort_cols, ascending=False)
+def _pick(work: pd.DataFrame, limit: int) -> list[pd.Series]:
     picked, per_sector = [], defaultdict(int)
     for _, row in work.iterrows():
         if per_sector[row["sector"]] >= _MAX_PER_SECTOR:
             continue
         per_sector[row["sector"]] += 1
         picked.append(row)
-        if len(picked) >= MAX_SELECTED_SIGNALS:
+        if len(picked) >= limit:
             break
-    return pd.DataFrame(picked)
+    return picked
+
+
+def _select_forecasts(predictions: pd.DataFrame, risk_level: str, horizon: int = 1) -> pd.DataFrame:
+    """BUY calls: most likely to beat the market. SELL calls (intraday only):
+    most likely to lag it; overnight shorts are not available in Indian cash
+    equities, so 3- and 5-session forecasts publish buys only."""
+    work = predictions.copy()
+    work["width"] = work["q90"] - work["q10"]
+    limit = work["width"].quantile(_RISK_RANGE_QUANTILE.get(risk_level, 0.8))
+    work = work[work["width"] <= limit + 1e-12]
+    if "rank_score" not in work.columns:
+        work["rank_score"] = work["p_beat"]
+    buys = _pick(work.sort_values(["p_beat", "rank_score"], ascending=False), MAX_SELECTED_SIGNALS)
+    rows = [row.copy() for row in buys]
+    for row in rows:
+        row["direction"] = "BUY"
+        row["confidence"] = row["p_beat"]
+    if horizon == 1:
+        bought = {row["ticker"] for row in rows}
+        candidates = work[~work["ticker"].isin(bought)].sort_values(["p_beat", "rank_score"], ascending=True)
+        for row in _pick(candidates, MAX_SELECTED_SIGNALS):
+            row = row.copy()
+            row["direction"] = "SELL"
+            row["confidence"] = 1 - row["p_beat"]
+            rows.append(row)
+    return pd.DataFrame(rows)
 
 
 def _forecast_signal_row(row: pd.Series, horizon: int, artifact: dict[str, Any], run_id: str, rank: int,
                          model_version: str, run_day: date, target_date: str, market: str,
                          typical_p_beat: float | None = None) -> dict[str, Any]:
-    forecast = forecast_engine.describe(row, horizon, artifact.get("calibration"))
+    direction = str(row.get("direction") or "BUY")
+    forecast = forecast_engine.describe(row, horizon, artifact.get("calibration"), direction)
     forecast["context"] = forecast_engine.context_notes(row)
     # The same model's chance for the middle stock today, for comparison.
     forecast["typical_p_beat"] = typical_p_beat
-    buy = True  # every published forecast is a "most likely to beat" pick
+    forecast["first_session"] = target_date
+    forecast["last_session"] = market_calendar.session_after(date.fromisoformat(target_date), horizon).isoformat()
+    buy = direction == "BUY"
     close = forecast["reference_close"]
     upside, downside = forecast["q90"], -forecast["q10"]
-    meta = get_symbol_metadata(row["ticker"])
+    symbol = str(row["ticker"]).replace(".NS", "")
     return {
         "id": str(uuid4()),
         "model_run_id": run_id,
-        "symbol": meta["symbol"],
-        "company_name": meta["company_name"],
-        "sector": meta["sector"],
-        # BUY = likely to beat the market, SELL = likely to lag it.
-        "direction": "BUY" if buy else "SELL",
+        "symbol": symbol,
+        "company_name": forecast_engine.company_of(row["ticker"]),
+        "sector": row["sector"],
+        "direction": direction,
         # A forecast has no entry rule: the reference is the last close, and
         # the forecast runs from the next open.
         "entry_low": close,
         "entry_high": close,
         "target_price": forecast["mid_price"],
-        "stop_loss": forecast["low_price"] if buy else forecast["high_price"],
-        "confidence": round(float(row["confidence"]), 6),
+        "stop_loss": forecast["stop_price"],
+        "confidence": round(float(forecast["p_call"]), 6),
         "expected_r": round(forecast["q50"], 6),
         "risk_reward": round((upside / downside) if buy and downside > 0 else (downside / upside) if upside > 0 else 0.0, 6),
-        "final_score": round(float(row["confidence"]), 6),
+        "final_score": round(float(forecast["p_call"]), 6),
         "setup_type": "forecast",
         "explanation_json": {"reasons": forecast["context"], "forecast": forecast, "horizon_days": horizon},
         "model_version": model_version,
@@ -1230,6 +1263,46 @@ def _forecast_signal_row(row: pd.Series, horizon: int, artifact: dict[str, Any],
         "data_quality_valid": True,
         "signal_rank": rank,
     }
+
+
+def _live_forecast_record(horizon: int, limit: int = 400) -> dict[str, Any] | None:
+    """How the published forecast calls for this horizon have actually done."""
+    if not supabase:
+        return None
+    try:
+        signals = (
+            supabase.table(SIGNALS_TABLE)
+            .select("id,direction,model_version")
+            .eq("setup_type", "forecast")
+            .like("model_version", f"forecast-v3%-h{horizon}")
+            .order("run_date", desc=True)
+            .limit(limit)
+            .execute()
+        )
+        rows = getattr(signals, "data", None) or []
+        if not rows:
+            return {"calls": 0}
+        by_id = {r["id"]: r for r in rows}
+        outcomes = (
+            supabase.table(OUTCOMES_TABLE)
+            .select("stock_signal_id,outcome,realized_r")
+            .in_("stock_signal_id", list(by_id)[:400])
+            .execute()
+        )
+        graded = [o for o in (getattr(outcomes, "data", None) or []) if o.get("outcome") in {"WIN", "LOSS"}]
+        record: dict[str, Any] = {"calls": len(graded)}
+        for direction in ("BUY", "SELL"):
+            mine = [o for o in graded if by_id[o["stock_signal_id"]]["direction"] == direction]
+            if mine:
+                record[direction.lower()] = {
+                    "calls": len(mine),
+                    "right": sum(1 for o in mine if o["outcome"] == "WIN"),
+                    "avg_edge_pct": round(sum(float(o.get("realized_r") or 0) for o in mine) / len(mine), 3),
+                }
+        return record
+    except Exception as exc:  # noqa: BLE001 - the record is informational
+        print(f"[DailySignals] live forecast record unavailable: {exc}")
+        return None
 
 
 def prepare_daily_runs(market: str = DEFAULT_MARKET) -> dict[str, Any]:
@@ -1670,7 +1743,7 @@ def _benchmark_move(start: date, horizon: int, market: str, history_by_ticker: d
     if key in _BENCHMARK_CACHE:
         return _BENCHMARK_CACHE[key]
     moves: list[float] = []
-    for ticker in get_universe(market):
+    for ticker in forecast_engine.universe_tickers():
         if ticker not in history_by_ticker:
             frame = fetch_price_history(ticker, days=400)
             if not frame.empty:
@@ -1683,7 +1756,7 @@ def _benchmark_move(start: date, horizon: int, market: str, history_by_ticker: d
         move = _window_move(rows, horizon)
         if move is not None and abs(move) < 0.45:
             moves.append(move)
-    result = sum(moves) / len(moves) if len(moves) >= 20 else None
+    result = sum(moves) / len(moves) if len(moves) >= 40 else None
     _BENCHMARK_CACHE[key] = result
     return result
 

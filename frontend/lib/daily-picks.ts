@@ -2,18 +2,19 @@
 
 import { BACKEND } from '@/lib/client-cache';
 import { getSharedSupabaseClient } from '@/lib/supabase-browser';
+import { holidaysBetween, isTradingDay, nextTradingDay, sessionAfter } from '@/lib/market-calendar';
 
 /** How long a pick is held: entered at the next session, out by the close of session N. */
 export type Horizon = 1 | 3 | 5;
 export type RiskLevel = 'Conservative' | 'Balanced' | 'Aggressive';
 
 export const HORIZONS: Array<{ value: Horizon; label: string; detail: string }> = [
-  { value: 1, label: 'Next day', detail: 'From the next open to that day’s close' },
-  { value: 3, label: '3 days', detail: 'From the next open to the close of the third session' },
-  { value: 5, label: '5 days', detail: 'From the next open to the close of the fifth session' },
+  { value: 1, label: 'Intraday', detail: 'Buy or sell at the open, close out by the same day’s close' },
+  { value: 3, label: '3 days', detail: 'Buy at the open, hold to the close of the third trading session' },
+  { value: 5, label: '5 days', detail: 'Buy at the open, hold to the close of the fifth trading session' },
 ];
 export const RISK_LEVELS: RiskLevel[] = ['Conservative', 'Balanced', 'Aggressive'];
-export const DEFAULT_HORIZON: Horizon = 5;
+export const DEFAULT_HORIZON: Horizon = 1;
 export const CONSENT_VERSION = process.env.NEXT_PUBLIC_NOTIFICATION_CONSENT_VERSION || '2026-05-29';
 
 export const signalTypeFor = (horizon: Horizon) => `${horizon}-day`;
@@ -40,12 +41,15 @@ export type Pick = {
   explanation_json?: { reasons?: string[]; forecast?: Forecast } | null;
 };
 
-/** A forecast for one stock, from the next open: chance to beat the market, and the likely range. */
+/** One call: a stock the model rates most likely to beat (BUY) or lag (SELL) the market, from the next open. */
 export type Forecast = {
   kind: 'forecast';
   horizon_days: number;
-  /** Chance this stock beats the average stock we track over the window. */
+  direction?: 'BUY' | 'SELL';
+  /** Chance this stock beats the average Nifty 200 stock over the window. */
   p_beat: number;
+  /** Chance of the call itself: beating for a BUY, lagging for a SELL. */
+  p_call?: number;
   /** The same chance for the middle stock that day, for comparison. */
   typical_p_beat?: number | null;
   q10: number;
@@ -55,31 +59,43 @@ export type Forecast = {
   low_price: number;
   mid_price: number;
   high_price: number;
+  /** The range's 1-in-10 bad case for this call: below it for a BUY, above it for a SELL. */
+  stop_price?: number;
+  first_session?: string;
+  last_session?: string;
   context?: string[];
-  tested?: { p_min: number; p_max: number; actual_beat_rate: number; samples: number } | null;
+  tested?: { p_min: number; p_max: number; call_rate?: number; actual_beat_rate?: number; samples: number } | null;
 };
 
-/** Results on the untouched half of the out-of-sample test. */
-/** Plain label for a chance to beat the market, against the typical stock that day. */
-export function beatLabel(pBeat: number, typical?: number | null) {
-  if (pBeat >= 0.5) return 'Likely to beat';
-  if (typeof typical === 'number' && pBeat >= typical + 0.01) return 'Better than most';
-  return 'Toss-up';
+/** The chance of the call itself, for v3 forecasts and older ones alike. */
+export function callChance(forecast: Forecast, direction: 'BUY' | 'SELL') {
+  if (typeof forecast.p_call === 'number') return forecast.p_call;
+  return direction === 'BUY' ? forecast.p_beat : 1 - forecast.p_beat;
 }
 
+type ListStats = { beat_rate?: number; lag_rate?: number; avg_excess?: number; avg_shortfall?: number; t_stat?: number; rose_rate?: number; fell_rate?: number };
+
+/** Results on the untouched half of the out-of-sample test. */
 export type ForecastTest = {
-  edge_confirmed?: boolean;
+  universe?: string;
   stocks?: number;
+  model?: string;
   first_day?: string;
   last_day?: string;
   days?: number;
-  roc_auc?: number;
-  top_beat_rate?: number;
-  bottom_beat_rate?: number;
-  top_bottom_spread?: number;
-  spread_t_stat?: number;
+  base_beat_rate?: number;
+  buy?: ListStats | null;
+  sell?: ListStats | null;
+  buy_edge_confirmed?: boolean;
+  sell_edge_confirmed?: boolean;
   range_coverage?: number;
   ml_top_n?: { avg_net_r?: number; fill_rate?: number; trades?: number } | null;
+};
+
+export type LiveRecord = {
+  calls: number;
+  buy?: { calls: number; right: number; avg_edge_pct: number };
+  sell?: { calls: number; right: number; avg_edge_pct: number };
 };
 
 export type PickRun = {
@@ -94,7 +110,11 @@ export type PickRun = {
   summary?: {
     withheld_reason?: string | null;
     kind?: string;
+    data_date?: string;
+    last_session?: string;
+    typical_p_beat?: number | null;
     model_test?: ForecastTest | null;
+    live_record?: LiveRecord | null;
   } | null;
 };
 
@@ -145,15 +165,6 @@ const addDays = (iso: string, days: number) => {
   d.setUTCDate(d.getUTCDate() + days);
   return d.toISOString().slice(0, 10);
 };
-const isWeekend = (iso: string) => {
-  const day = new Date(`${iso}T00:00:00Z`).getUTCDay();
-  return day === 0 || day === 6;
-};
-const nextWeekday = (iso: string) => {
-  let next = addDays(iso, 1);
-  while (isWeekend(next)) next = addDays(next, 1);
-  return next;
-};
 
 export const prettyDate = (iso: string) =>
   new Date(`${iso}T00:00:00Z`).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
@@ -161,19 +172,17 @@ export const prettyDate = (iso: string) =>
 export type SessionPhase = 'before_open' | 'open' | 'after_close' | 'closed_day';
 
 /**
- * Which session the picks on screen are for. Until today's close they are
- * today's picks (built last evening); after the close they are the next
- * session's, built once the day's bars settle. Exchange holidays are not
- * known here, so the query takes the nearest session on or after this date.
+ * Which session the calls on screen are for. Until today's close they are
+ * today's (built last evening); after the close, or on a weekend or exchange
+ * holiday, they are the next trading session's.
  */
 export function sessionContext(now = new Date()) {
   const { date: today, minutes } = istParts(now);
-  const tradingToday = !isWeekend(today);
   let phase: SessionPhase;
   let sessionDate: string;
-  if (!tradingToday) {
+  if (!isTradingDay(today)) {
     phase = 'closed_day';
-    sessionDate = nextWeekday(today);
+    sessionDate = nextTradingDay(today);
   } else if (minutes < OPEN_MINUTES) {
     phase = 'before_open';
     sessionDate = today;
@@ -182,9 +191,21 @@ export function sessionContext(now = new Date()) {
     sessionDate = today;
   } else {
     phase = 'after_close';
-    sessionDate = nextWeekday(today);
+    sessionDate = nextTradingDay(today);
   }
   return { today, phase, sessionDate, minutes };
+}
+
+/** The trading sessions a horizon covers, from its first session, skipping weekends and NSE holidays. */
+export function horizonWindow(firstSession: string, horizon: Horizon) {
+  const last = sessionAfter(firstSession, horizon);
+  return { first: firstSession, last, skipped: holidaysBetween(firstSession, last) };
+}
+
+/** "Mon 26 Oct" or "Mon 26 Oct → Wed 28 Oct", for headers. */
+export function windowLabel(firstSession: string, horizon: Horizon) {
+  const { first, last } = horizonWindow(firstSession, horizon);
+  return horizon === 1 ? prettyDate(first) : `${prettyDate(first)} → ${prettyDate(last)}`;
 }
 
 /** What to say when the session's picks are not in the database yet. */
@@ -192,17 +213,17 @@ export function notReadyMessage(session: ReturnType<typeof sessionContext>) {
   const day = prettyDate(session.sessionDate);
   if (session.phase === 'after_close') {
     return session.minutes < 16 * 60 + 30
-      ? `Picks for ${day} are built after today's close and are usually ready by 4:30 PM IST.`
-      : `Picks for ${day} aren't ready yet. They are normally built by 4:30 PM IST, so check back shortly.`;
+      ? `Calls for ${day} are built after today's close and are usually ready by 4:30 PM IST.`
+      : `Calls for ${day} aren't ready yet. They are normally built by 4:30 PM IST, so check back shortly.`;
   }
-  if (session.phase === 'closed_day') return `Picks for ${day} aren't ready yet. They are built from the last session's close.`;
-  return `No picks were built for ${day}.`;
+  if (session.phase === 'closed_day') return `Calls for ${day} aren't ready yet. They are built from the last session's close.`;
+  return `No calls were built for ${day}.`;
 }
 
 export function sessionTitle(targetDate: string, today: string) {
-  if (targetDate === today) return "Today's picks";
-  if (targetDate === addDays(today, 1)) return "Tomorrow's picks";
-  return `Picks for ${prettyDate(targetDate)}`;
+  if (targetDate === today) return 'Today';
+  if (targetDate === addDays(today, 1)) return 'Tomorrow';
+  return prettyDate(targetDate);
 }
 
 // ── Data ────────────────────────────────────────────────────────────────────

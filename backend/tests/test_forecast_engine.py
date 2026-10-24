@@ -1,4 +1,5 @@
 import unittest
+import unittest.mock
 
 import numpy as np
 import pandas as pd
@@ -7,7 +8,7 @@ from app.services import daily_trade_service as dts
 from app.services.daily_signal_engine import forecast as fc
 
 
-def synthetic_prices(n_days=260, seed=1, drift=0.0005):
+def synthetic_prices(n_days=360, seed=1, drift=0.0005):
     rng = np.random.default_rng(seed)
     dates = pd.bdate_range("2025-01-01", periods=n_days)
     close = 100 * np.cumprod(1 + rng.normal(drift, 0.015, n_days))
@@ -24,7 +25,7 @@ class ForecastFrameTests(unittest.TestCase):
         self.index = synthetic_prices(seed=99)
 
     def test_builds_every_feature_and_forward_returns_from_the_next_open(self):
-        df = fc.forecast_frame(self.frames, self.index, breadth_universe=set(self.frames), horizons=(1, 3))
+        df = fc.forecast_frame(self.frames, self.index, horizons=(1, 3))
         self.assertFalse(df.empty)
         self.assertTrue(set(fc.FORECAST_FEATURES).issubset(df.columns))
         self.assertFalse(df[fc.FORECAST_FEATURES].isna().any().any())
@@ -32,14 +33,37 @@ class ForecastFrameTests(unittest.TestCase):
         i = 10
         expected = one.loc[i + 3, "close"] / one.loc[i + 1, "open"] - 1
         self.assertAlmostEqual(one.loc[i, "fwd_3"], expected, places=10)
+        # Excess return is relative to the same-day average across the universe.
+        day = one.loc[i, "date"]
+        self.assertAlmostEqual(df.loc[df["date"] == day, "excess_3"].mean(), 0.0, places=12)
+        self.assertTrue(df["rank_ret5"].between(0, 1).all())
+
+    def test_weekend_bars_are_ignored(self):
+        frames = {t: f.copy() for t, f in self.frames.items()}
+        extra = frames["S0.NS"].iloc[[-1]].copy()
+        extra["date"] = pd.Timestamp("2026-06-13")  # a Saturday
+        frames["S0.NS"] = pd.concat([frames["S0.NS"], extra], ignore_index=True)
+        df = fc.forecast_frame(frames, self.index)
+        self.assertNotIn("2026-06-13", set(df["date"]))
+
+    def test_price_jumps_mark_the_stock_as_an_anomaly(self):
+        frames = {t: f.copy() for t, f in self.frames.items()}
+        jump = frames["S1.NS"]
+        jump.loc[jump.index[-10]:, ["open", "high", "low", "close"]] *= 0.5  # a 1:2 split nobody adjusted
+        df = fc.forecast_frame(frames, self.index)
+        last = df[df["date"] == df["date"].max()].set_index("ticker")
+        self.assertEqual(last.loc["S1.NS", "anomaly"], 1.0)
+        self.assertEqual(last.loc["S0.NS", "anomaly"], 0.0)
 
     def test_live_rows_match_training_rows_for_the_same_day(self):
-        train = fc.forecast_frame(self.frames, self.index, breadth_universe=set(self.frames), horizons=(1,))
-        cut = train["date"].unique()[-5]
+        train = fc.forecast_frame(self.frames, self.index, horizons=(1,))
+        cut = pd.Timestamp(train["date"].unique()[-5])
         live_frames = {t: f[f["date"] <= cut] for t, f in self.frames.items()}
-        live = fc.forecast_frame(live_frames, self.index[self.index["date"] <= cut], breadth_universe=set(self.frames))
-        a = train[train["date"] == cut].set_index("ticker")[fc.FORECAST_FEATURES].sort_index()
-        b = live[live["date"] == cut].set_index("ticker")[fc.FORECAST_FEATURES].sort_index()
+        live = fc.forecast_frame(live_frames, self.index[self.index["date"] <= cut])
+        day = cut.strftime("%Y-%m-%d")
+        a = train[train["date"] == day].set_index("ticker")[fc.FORECAST_FEATURES].sort_index()
+        b = live[live["date"] == day].set_index("ticker")[fc.FORECAST_FEATURES].sort_index()
+        self.assertEqual(len(a), 6)
         pd.testing.assert_frame_equal(a, b, check_exact=False, rtol=1e-9)
 
 
@@ -48,25 +72,34 @@ class SelectionTests(unittest.TestCase):
         return pd.DataFrame({
             "ticker": [f"T{i}.NS" for i in range(8)],
             "sector": ["A", "A", "A", "A", "B", "B", "C", "C"],
-            "p_beat": [0.70, 0.68, 0.66, 0.64, 0.30, 0.52, 0.55, 0.50],
+            "p_beat": [0.70, 0.68, 0.66, 0.64, 0.30, 0.52, 0.55, 0.40],
             "q10": [-0.02, -0.02, -0.02, -0.02, -0.05, -0.01, -0.08, -0.01],
             "q90": [0.03, 0.03, 0.03, 0.03, 0.04, 0.01, 0.09, 0.01],
         })
 
-    def test_most_likely_to_beat_first_at_most_three_per_sector(self):
-        picked = dts._select_forecasts(self.predictions(), "Aggressive")
+    def test_buys_ranked_first_at_most_three_per_sector(self):
+        picked = dts._select_forecasts(self.predictions(), "Aggressive", horizon=3)
+        self.assertEqual(set(picked["direction"]), {"BUY"})  # no sells beyond intraday
         self.assertLessEqual((picked["sector"] == "A").sum(), 3)
         self.assertEqual(list(picked["ticker"])[:3], ["T0.NS", "T1.NS", "T2.NS"])
         self.assertLessEqual(len(picked), dts.MAX_SELECTED_SIGNALS)
-        self.assertTrue(picked["p_beat"].is_monotonic_decreasing)  # highest chance first
+        self.assertTrue(picked["p_beat"].is_monotonic_decreasing)
+
+    def test_intraday_adds_sell_calls_for_the_weakest(self):
+        with unittest.mock.patch.object(dts, "MAX_SELECTED_SIGNALS", 3):
+            picked = dts._select_forecasts(self.predictions(), "Aggressive", horizon=1)
+        sells = picked[picked["direction"] == "SELL"]
+        self.assertEqual(list(sells["ticker"])[:2], ["T4.NS", "T7.NS"])  # lowest chance to beat first
+        self.assertTrue(set(sells["ticker"]).isdisjoint(set(picked[picked["direction"] == "BUY"]["ticker"])))
+        self.assertAlmostEqual(float(sells.iloc[0]["confidence"]), 0.70)
 
     def test_ties_are_broken_by_the_underlying_score(self):
         preds = self.predictions().assign(p_beat=0.55, rank_score=[0.1, 0.9, 0.5, 0.2, 0.3, 0.4, 0.6, 0.7])
-        picked = dts._select_forecasts(preds, "Aggressive")
+        picked = dts._select_forecasts(preds, "Aggressive", horizon=3)
         self.assertEqual(picked.iloc[0]["ticker"], "T1.NS")
 
     def test_conservative_drops_the_widest_ranges(self):
-        picked = dts._select_forecasts(self.predictions(), "Conservative")
+        picked = dts._select_forecasts(self.predictions(), "Conservative", horizon=1)
         self.assertNotIn("T6.NS", set(picked["ticker"]))
 
 
@@ -104,3 +137,25 @@ class ForecastGradingTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CalendarTests(unittest.TestCase):
+    def test_backend_and_frontend_holiday_lists_match(self):
+        import pathlib
+        import re
+
+        from app.services.daily_signal_engine import market_calendar as mc
+
+        ts = pathlib.Path(__file__).resolve().parents[2] / "frontend" / "lib" / "market-calendar.ts"
+        frontend = set(re.findall(r"'(\d{4}-\d{2}-\d{2})'", ts.read_text(encoding="utf-8")))
+        self.assertEqual(frontend, set(mc.NSE_HOLIDAYS))
+
+    def test_sessions_skip_weekends_and_holidays(self):
+        from datetime import date
+
+        from app.services.daily_signal_engine import market_calendar as mc
+
+        self.assertEqual(mc.session_after(date(2026, 11, 9), 3), date(2026, 11, 12))  # skips Tue 10 Nov
+        self.assertEqual(mc.session_after(date(2026, 10, 23), 3), date(2026, 10, 27))  # skips the weekend
+        self.assertEqual(mc.next_trading_day(date(2026, 12, 24)), date(2026, 12, 28))  # Christmas, then the weekend
+        self.assertFalse(mc.is_trading_day(date(2026, 10, 20)))

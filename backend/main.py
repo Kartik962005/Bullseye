@@ -1039,9 +1039,24 @@ async def get_model_status(request: Request):
     coming from the validated model. This makes that answerable in production
     without reading startup logs.
     """
+    from app.services.daily_signal_engine import forecast as forecast_engine
     from app.services.daily_signal_engine.ml_interface import model_status
 
     status = model_status()
+    # The daily calls engine: which forecast models are loaded, and how fresh.
+    status["forecast_engine"] = {
+        "version": "forecast-v3",
+        "universe_size": len(forecast_engine.universe_tickers()),
+        "horizons": {
+            h: (
+                {"loaded": True, "trained_through": art.get("trained_through"),
+                 "buy_edge_confirmed": art.get("buy_edge_confirmed"), "sell_edge_confirmed": art.get("sell_edge_confirmed")}
+                if (art := forecast_engine.load_artifact(h)) is not None
+                else {"loaded": False}
+            )
+            for h in forecast_engine.HORIZONS
+        },
+    }
     if not status["using_trained_model"]:
         status["warning"] = (
             "Predictions are using the logistic fallback, not the trained model. "

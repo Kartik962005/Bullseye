@@ -1,27 +1,28 @@
-"""Train and test the daily forecast models.
+"""Train and test the daily forecast engine (Nifty 200, horizons 1 / 3 / 5 sessions).
 
-For each horizon (1, 3, 5 sessions), from the next open to the close of session h:
-  * a classifier for P(stock beats the average stock over the window), on
-    stock-level features (the target and features chosen in
-    scripts/research_forecast_targets.py, on its selection half only);
-  * quantile models for the 10th / 50th / 90th percentile of the stock's return.
+For each horizon, from the next open to the close of session h:
+  * P(stock beats the average Nifty 200 stock): an ensemble of two boosted-tree
+    models and a logistic regression on rank features, averaged and isotonic-
+    calibrated. A single boosted model is scored alongside as the baseline.
+  * The 10th / 50th / 90th percentile of the stock's return (the likely range).
 
-Walk-forward: train on everything before a cutoff (with an embargo of h
-sessions), predict the next 60 sessions, repeat. Every number in the report is
-out of sample. The out-of-sample period is split in two:
-  * the first half fits the range widening factor (so 8 in 10 outcomes land
-    inside the range) and is where design choices were made;
-  * the second half is the untouched confirmation, and its numbers are the ones
-    the app shows.
+Walk-forward: train on everything before a cutoff (embargo of h sessions so no
+label overlaps the test window), predict the next 120 sessions, repeat. Every
+reported number is out of sample. The out-of-sample period is split in two:
+  * selection half: picks single vs ensemble and fits the range widening;
+  * confirmation half: untouched, and the numbers the app quotes.
 
     cd backend
+    python scripts/build_forecast_universe.py     # once, or to refresh prices
     python scripts/train_forecast.py
+    python scripts/calibrate_ranges.py            # then correct the middle and range
 """
 from __future__ import annotations
 
 import json
 import os
 import sys
+import time
 from datetime import datetime, timezone
 
 import joblib
@@ -34,93 +35,155 @@ if _BACKEND not in sys.path:
     sys.path.insert(0, _BACKEND)
 
 import sklearn  # noqa: E402
-from sklearn.calibration import CalibratedClassifierCV  # noqa: E402
 from sklearn.ensemble import HistGradientBoostingClassifier, HistGradientBoostingRegressor  # noqa: E402
-from sklearn.metrics import brier_score_loss, roc_auc_score  # noqa: E402
+from sklearn.isotonic import IsotonicRegression  # noqa: E402
+from sklearn.linear_model import LogisticRegression  # noqa: E402
+from sklearn.metrics import roc_auc_score  # noqa: E402
+from sklearn.pipeline import make_pipeline  # noqa: E402
+from sklearn.preprocessing import StandardScaler  # noqa: E402
 
-from app.services.daily_signal_engine.config import NSE_UNIVERSE  # noqa: E402
 from app.services.daily_signal_engine.forecast import (  # noqa: E402
+    CLASSIFIER_FEATURES,
     FORECAST_FEATURES,
     HORIZONS,
     QUANTILES,
-    STOCK_FEATURES,
+    RANK_FEATURES,
+    EnsembleClassifier,
     forecast_frame,
     widen,
 )
 
-try:
-    from sklearn.frozen import FrozenEstimator
-
-    _HAS_FROZEN = True
-except Exception:  # noqa: BLE001
-    _HAS_FROZEN = False
-
-FRAMES_CACHE = os.path.join(_HERE, "frames_5y.pkl")
+FRAMES_CACHE = os.path.join(_HERE, "frames_forecast.pkl")
 ARTIFACT_DIR = os.path.join(_BACKEND, "app", "services", "daily_signal_engine", "artifacts")
-INITIAL_DAYS = 500
-STEP_DAYS = 60
+INITIAL_DAYS = 750
+STEP_DAYS = 120
 TOP_N = 10
 TARGET_COVERAGE = 0.80
-BUCKET_EDGES = [0.0, 0.44, 0.47, 0.49, 0.51, 0.53, 0.56, 1.0001]
+QUANTILE_SAMPLE = 200_000
+BUCKET_EDGES = [0.0, 0.42, 0.45, 0.48, 0.50, 0.52, 0.55, 0.58, 1.0001]
+LINEAR_FEATURES = RANK_FEATURES + ["ret5_vs_sector", "ret20_vs_sector", "rel_strength", "vol_regime", "dist_52w_high", "close_to_sma200"]
+# Approximate round-trip costs, for the reported after-cost figures only.
+COST = {1: 0.0006, 3: 0.0025, 5: 0.0025}
 
 
-def _classifier() -> HistGradientBoostingClassifier:
-    return HistGradientBoostingClassifier(
-        learning_rate=0.04, max_iter=200, max_leaf_nodes=15, min_samples_leaf=600,
-        l2_regularization=3.0, early_stopping=True, validation_fraction=0.1, random_state=7,
-    )
+def _members():
+    return [
+        (lambda: HistGradientBoostingClassifier(
+            learning_rate=0.04, max_iter=250, max_leaf_nodes=15, min_samples_leaf=800, l2_regularization=3.0,
+            early_stopping=True, validation_fraction=0.1, random_state=7), CLASSIFIER_FEATURES),
+        (lambda: HistGradientBoostingClassifier(
+            learning_rate=0.03, max_iter=300, max_leaf_nodes=31, min_samples_leaf=1500, l2_regularization=5.0,
+            max_features=0.6, early_stopping=True, validation_fraction=0.1, random_state=11), CLASSIFIER_FEATURES),
+        (lambda: make_pipeline(StandardScaler(), LogisticRegression(C=0.05, max_iter=1000)), LINEAR_FEATURES),
+    ]
 
 
-def _quantile(level: float) -> HistGradientBoostingRegressor:
-    return HistGradientBoostingRegressor(
-        loss="quantile", quantile=level, learning_rate=0.05, max_iter=250, max_leaf_nodes=15,
-        min_samples_leaf=400, l2_regularization=2.0, random_state=7,
-    )
-
-
-def _fit_calibrated(train: pd.DataFrame, label: pd.Series):
-    """Boosted classifier, isotonic-calibrated on the most recent 15% of its own training days."""
+def fit_classifiers(train: pd.DataFrame, h: int) -> tuple[EnsembleClassifier, EnsembleClassifier]:
+    """Ensemble and single-model baseline, both calibrated on the last 15% of training days."""
+    label = (train[f"excess_{h}"] > 0).astype(int)
     dates = sorted(train["date"].unique())
     cut = dates[int(len(dates) * 0.85)]
-    base_mask = train["date"] < cut
-    base = _classifier().fit(train.loc[base_mask, STOCK_FEATURES], label[base_mask])
-    cal_X, cal_y = train.loc[~base_mask, STOCK_FEATURES], label[~base_mask]
-    if _HAS_FROZEN:
-        return CalibratedClassifierCV(FrozenEstimator(base), method="isotonic").fit(cal_X, cal_y)
-    return CalibratedClassifierCV(base, method="isotonic", cv="prefit").fit(cal_X, cal_y)
+    base = train["date"] < cut
+    fitted = [(make().fit(train.loc[base, cols], label[base]), cols) for make, cols in _members()]
+    cal = train.loc[~base]
+    cal_y = label[~base]
+
+    def calibrated(members):
+        raw = np.mean([m.predict_proba(cal[cols])[:, 1] for m, cols in members], axis=0)
+        return EnsembleClassifier(members, IsotonicRegression(out_of_bounds="clip").fit(raw, cal_y))
+
+    return calibrated(fitted), calibrated(fitted[:1])
 
 
-def _fit_quantiles(train: pd.DataFrame, target: pd.Series) -> dict[str, HistGradientBoostingRegressor]:
-    return {str(level): _quantile(level).fit(train[FORECAST_FEATURES], target) for level in QUANTILES}
-
-
-def _beat_label(data: pd.DataFrame, h: int) -> pd.Series:
-    return (data[f"excess_{h}"] > 0).astype(int)
+def fit_quantiles(train: pd.DataFrame, h: int) -> dict[str, HistGradientBoostingRegressor]:
+    sample = train.sample(min(len(train), QUANTILE_SAMPLE), random_state=3)
+    return {
+        str(level): HistGradientBoostingRegressor(
+            loss="quantile", quantile=level, learning_rate=0.05, max_iter=250, max_leaf_nodes=15,
+            min_samples_leaf=600, l2_regularization=2.0, random_state=7,
+        ).fit(sample[FORECAST_FEATURES], sample[f"fwd_{h}"])
+        for level in QUANTILES
+    }
 
 
 def walk_forward(data: pd.DataFrame, h: int) -> pd.DataFrame:
-    target = f"fwd_{h}"
     dates = sorted(data["date"].unique())
     pieces = []
     start = INITIAL_DAYS
     while start < len(dates):
+        t0 = time.time()
         test_dates = set(dates[start:start + STEP_DAYS])
-        embargo_cut = dates[max(0, start - h - 1)]
-        train = data[data["date"] <= embargo_cut]
+        train = data[data["date"] <= dates[max(0, start - h - 1)]]
         test = data[data["date"].isin(test_dates)].copy()
-        clf = _fit_calibrated(train, _beat_label(train, h))
-        qs = _fit_quantiles(train, train[target])
-        test["p_beat"] = clf.predict_proba(test[STOCK_FEATURES])[:, 1]
+        ensemble, single = fit_classifiers(train, h)
+        qs = fit_quantiles(train, h)
+        test["p_ens"] = ensemble.predict_proba(test)[:, 1]
+        test["s_ens"] = ensemble.score(test)
+        test["p_single"] = single.predict_proba(test)[:, 1]
+        test["s_single"] = single.score(test)
         q = np.column_stack([qs[str(level)].predict(test[FORECAST_FEATURES]) for level in QUANTILES])
         test["raw_q10"], test["raw_q50"], test["raw_q90"] = np.sort(q, axis=1).T
         pieces.append(test)
-        print(f"  {h}d fold through {embargo_cut}: test {min(test_dates)}..{max(test_dates)} ({len(test):,} rows)")
+        print(f"  {h}d test {min(test_dates)}..{max(test_dates)}  train {len(train):,} rows  ({time.time() - t0:.0f}s)", flush=True)
         start += STEP_DAYS
     return pd.concat(pieces, ignore_index=True)
 
 
+def list_stats(frame: pd.DataFrame, h: int, p: str, s: str) -> dict:
+    """BUY = top 10 a day by the model, SELL = bottom 10 a day."""
+    ex, fwd = f"excess_{h}", f"fwd_{h}"
+    ordered = frame.sort_values(["date", p, s], ascending=[True, False, False])
+    buy = ordered.groupby("date").head(TOP_N)
+    sell = frame.sort_values(["date", p, s], ascending=[True, True, True]).groupby("date").head(TOP_N)
+    buy_daily = buy.groupby("date")[ex].mean()
+    sell_daily = -sell.groupby("date")[ex].mean()
+
+    def t(series: pd.Series) -> float:
+        return round(float(series.mean() / (series.std(ddof=1) / np.sqrt(len(series)))), 2) if len(series) > 2 else 0.0
+
+    beat = (frame[ex] > 0).astype(int)
+    return {
+        "first_day": str(frame["date"].min()),
+        "last_day": str(frame["date"].max()),
+        "days": int(frame["date"].nunique()),
+        "roc_auc": round(float(roc_auc_score(beat, frame[s])), 4),
+        "base_beat_rate": round(float(beat.mean()), 4),
+        "buy": {
+            "beat_rate": round(float((buy[ex] > 0).mean()), 4),
+            "avg_excess": round(float(buy_daily.mean()), 5),
+            "t_stat": t(buy_daily),
+            "avg_return": round(float(buy[fwd].mean()), 5),
+            "rose_rate": round(float((buy[fwd] > 0).mean()), 4),
+            "avg_return_after_cost": round(float(buy[fwd].mean() - COST[h]), 5),
+        },
+        "sell": {
+            "lag_rate": round(float((sell[ex] < 0).mean()), 4),
+            "avg_shortfall": round(float(sell_daily.mean()), 5),
+            "t_stat": t(sell_daily),
+            "avg_return": round(float(sell[fwd].mean()), 5),
+            "fell_rate": round(float((sell[fwd] < 0).mean()), 4),
+            "short_return_after_cost": round(float(-sell[fwd].mean() - COST[h]), 5),
+        },
+    }
+
+
+def calibration_table(frame: pd.DataFrame, h: int, p: str) -> list[dict]:
+    beat = frame[f"excess_{h}"] > 0
+    table = []
+    for lo, hi in zip(BUCKET_EDGES[:-1], BUCKET_EDGES[1:]):
+        mask = (frame[p] >= lo) & (frame[p] < hi)
+        n = int(mask.sum())
+        if n < 300:
+            continue
+        table.append({
+            "p_min": round(lo, 3), "p_max": round(min(hi, 1.0), 3),
+            "mean_p": round(float(frame.loc[mask, p].mean()), 4),
+            "actual_beat_rate": round(float(beat[mask].mean()), 4), "samples": n,
+        })
+    return table
+
+
 def fit_range_scale(frame: pd.DataFrame, h: int) -> float:
-    """Smallest stretch of the 10-90 band that covers TARGET_COVERAGE of outcomes."""
     y = frame[f"fwd_{h}"].to_numpy()
     raw = frame[["raw_q10", "raw_q50", "raw_q90"]].to_numpy()
     for scale in np.arange(0.9, 2.51, 0.01):
@@ -130,122 +193,79 @@ def fit_range_scale(frame: pd.DataFrame, h: int) -> float:
     return 2.5
 
 
-def apply_scale(frame: pd.DataFrame, scale: float) -> pd.DataFrame:
+def range_stats(frame: pd.DataFrame, h: int, scale: float) -> dict:
+    y = frame[f"fwd_{h}"].to_numpy()
     q = widen(frame[["raw_q10", "raw_q50", "raw_q90"]].to_numpy(), scale)
-    return frame.assign(q10=q[:, 0], q50=q[:, 1], q90=q[:, 2])
-
-
-def calibration_table(frame: pd.DataFrame, h: int) -> list[dict]:
-    beat = frame[f"excess_{h}"] > 0
-    table = []
-    for lo, hi in zip(BUCKET_EDGES[:-1], BUCKET_EDGES[1:]):
-        mask = (frame["p_beat"] >= lo) & (frame["p_beat"] < hi)
-        n = int(mask.sum())
-        if n < 150:
-            continue
-        table.append({
-            "p_min": round(lo, 3),
-            "p_max": round(min(hi, 1.0), 3),
-            "mean_p": round(float(frame.loc[mask, "p_beat"].mean()), 4),
-            "actual_beat_rate": round(float(beat[mask].mean()), 4),
-            "samples": n,
-        })
-    return table
-
-
-def ranking_stats(frame: pd.DataFrame, h: int) -> dict:
-    y, ex = f"fwd_{h}", f"excess_{h}"
-    ordered = frame.sort_values(["date", "p_beat"], ascending=[True, False])
-    top = ordered.groupby("date").head(TOP_N)
-    bottom = frame.sort_values(["date", "p_beat"]).groupby("date").head(TOP_N)
-    spread = top.groupby("date")[ex].mean() - bottom.groupby("date")[ex].mean()
-    t = float(spread.mean() / (spread.std(ddof=1) / np.sqrt(len(spread)))) if len(spread) > 2 else 0.0
-    beat = (frame[ex] > 0).astype(int)
     return {
-        "first_day": str(frame["date"].min()),
-        "last_day": str(frame["date"].max()),
-        "days": int(frame["date"].nunique()),
-        "roc_auc": round(float(roc_auc_score(beat, frame["p_beat"])), 4),
-        "brier_skill": round(1 - brier_score_loss(beat, frame["p_beat"]) / brier_score_loss(beat, np.full(len(beat), beat.mean())), 4),
-        "top_beat_rate": round(float((top[ex] > 0).mean()), 4),
-        "bottom_beat_rate": round(float((bottom[ex] > 0).mean()), 4),
-        "top_excess": round(float(top[ex].mean()), 5),
-        "bottom_excess": round(float(bottom[ex].mean()), 5),
-        "top_bottom_spread": round(float(spread.mean()), 5),
-        "spread_t_stat": round(t, 2),
-        "top_up_rate": round(float((top[y] > 0).mean()), 4),
-        "all_up_rate": round(float((frame[y] > 0).mean()), 4),
-    }
-
-
-def range_stats(frame: pd.DataFrame, h: int) -> dict:
-    y = frame[f"fwd_{h}"]
-    return {
-        "coverage_10_90": round(float(((y >= frame["q10"]) & (y <= frame["q90"])).mean()), 4),
-        "below_q10": round(float((y < frame["q10"]).mean()), 4),
-        "above_q90": round(float((y > frame["q90"]).mean()), 4),
-        "median_width": round(float((frame["q90"] - frame["q10"]).median()), 5),
+        "coverage_10_90": round(float(((y >= q[:, 0]) & (y <= q[:, 2])).mean()), 4),
+        "below_low": round(float((y < q[:, 0]).mean()), 4),
+        "above_high": round(float((y > q[:, 2]).mean()), 4),
+        "median_width": round(float(np.median(q[:, 2] - q[:, 0])), 5),
     }
 
 
 def main() -> None:
     frames = pd.read_pickle(FRAMES_CACHE)
-    price_frames, index_frame = frames["price_frames"], frames["index_frame"]
-    print(f"Building forecast features for {len(price_frames)} stocks ...")
-    df = forecast_frame(price_frames, index_frame, breadth_universe=set(NSE_UNIVERSE), horizons=HORIZONS)
-    print(f"Rows: {len(df):,}, days {df['date'].nunique()}, {df['date'].min()}..{df['date'].max()}")
-    # Splits and bonus issues show up as impossible one-day moves in unadjusted
-    # prices; rows touching one would teach the model nonsense.
-    suspect = (df["ret1"].abs() > 0.3) | (df["gap"].abs() > 0.25)
+    print(f"Building features for {len(frames['price_frames'])} stocks ...", flush=True)
+    df = forecast_frame(frames["price_frames"], frames["index_frame"], horizons=HORIZONS)
+    bad = df["anomaly"] > 0
     for h in HORIZONS:
-        suspect |= df[f"fwd_{h}"].abs() > 0.45
-    print(f"Dropping {int(suspect.sum())} rows around corporate actions")
-    df = df[~suspect].reset_index(drop=True)
+        bad |= df[f"fwd_{h}"].abs() > 0.45
+    df = df[~bad].reset_index(drop=True)
+    print(f"Rows {len(df):,}, stocks {df['ticker'].nunique()}, days {df['date'].nunique()} "
+          f"({df['date'].min()}..{df['date'].max()})", flush=True)
     os.makedirs(ARTIFACT_DIR, exist_ok=True)
 
     for h in HORIZONS:
-        data = df.dropna(subset=[f"fwd_{h}"]).reset_index(drop=True)
-        data[f"excess_{h}"] = data[f"fwd_{h}"] - data.groupby("date")[f"fwd_{h}"].transform("mean")
-        print(f"\n=== {h}-day: walk-forward on {len(data):,} rows")
+        data = df.dropna(subset=[f"fwd_{h}", f"excess_{h}"]).reset_index(drop=True)
+        print(f"\n=== {h}-session horizon: walk-forward on {len(data):,} rows", flush=True)
         oos = walk_forward(data, h)
         oos_days = sorted(oos["date"].unique())
         split = oos_days[len(oos_days) // 2]
         select, confirm = oos[oos["date"] < split], oos[oos["date"] >= split]
 
+        candidates = {"ensemble": ("p_ens", "s_ens"), "single": ("p_single", "s_single")}
+        selection = {name: list_stats(select, h, *cols) for name, cols in candidates.items()}
+        # Pick on the selection half only: the stronger combined buy + sell evidence.
+        chosen = max(selection, key=lambda n: selection[n]["buy"]["t_stat"] + selection[n]["sell"]["t_stat"])
+        p_col, s_col = candidates[chosen]
         scale = fit_range_scale(select, h)
-        select, confirm = apply_scale(select, scale), apply_scale(confirm, scale)
-        confirmed = ranking_stats(confirm, h)
+        confirmed = list_stats(confirm, h, p_col, s_col)
         report = {
             "horizon_days": h,
             "generated_at": datetime.now(timezone.utc).isoformat(),
+            "universe": "Nifty 200",
             "stocks": int(oos["ticker"].nunique()),
+            "model": chosen,
             "range_scale": scale,
-            "selection": {**ranking_stats(select, h), "range": range_stats(select, h)},
-            "confirmation": {**confirmed, "range": range_stats(confirm, h)},
-            # The ranking is shown as having an edge only when the untouched half confirms it.
-            "edge_confirmed": bool(confirmed["top_bottom_spread"] > 0 and confirmed["spread_t_stat"] >= 2.0),
-            "calibration": calibration_table(confirm, h),
+            "selection": {name: stats for name, stats in selection.items()},
+            "confirmation": {**confirmed, "range": range_stats(confirm, h, scale)},
+            "buy_edge_confirmed": bool(confirmed["buy"]["avg_excess"] > 0 and confirmed["buy"]["t_stat"] >= 2.0),
+            "sell_edge_confirmed": bool(confirmed["sell"]["avg_shortfall"] > 0 and confirmed["sell"]["t_stat"] >= 2.0),
+            "calibration": calibration_table(confirm, h, p_col),
         }
-        print(json.dumps({k: v for k, v in report.items() if k != "calibration"}, indent=2))
+        print(json.dumps({k: v for k, v in report.items() if k != "calibration"}, indent=2), flush=True)
         for b in report["calibration"]:
-            print(f"   p {b['p_min']:.2f}-{b['p_max']:.2f}  said {b['mean_p']:.3f}  beat {b['actual_beat_rate']:.3f}  n={b['samples']}")
+            print(f"   said {b['mean_p']:.3f} -> beat {b['actual_beat_rate']:.3f}  (n={b['samples']})")
 
+        print("  fitting final models on all data ...", flush=True)
+        ensemble, single = fit_classifiers(data, h)
         artifact = {
             "horizon_days": h,
             "features": list(FORECAST_FEATURES),
-            "classifier_features": list(STOCK_FEATURES),
-            "classifier": _fit_calibrated(data, _beat_label(data, h)),
-            "quantiles": _fit_quantiles(data, data[f"fwd_{h}"]),
+            "classifier": ensemble if chosen == "ensemble" else single,
+            "quantiles": fit_quantiles(data, h),
             "range_scale": scale,
             "calibration": report["calibration"],
-            "edge_confirmed": report["edge_confirmed"],
+            "buy_edge_confirmed": report["buy_edge_confirmed"],
+            "sell_edge_confirmed": report["sell_edge_confirmed"],
             "trained_through": str(data["date"].max()),
             "sklearn_version": sklearn.__version__,
         }
         joblib.dump(artifact, os.path.join(ARTIFACT_DIR, f"forecast_h{h}.joblib"), compress=3)
         with open(os.path.join(ARTIFACT_DIR, f"forecast_report_h{h}.json"), "w", encoding="utf-8") as fh:
             json.dump(report, fh, indent=2)
-        print(f"Saved forecast_h{h}.joblib and forecast_report_h{h}.json")
+        print(f"Saved forecast_h{h}.joblib and forecast_report_h{h}.json", flush=True)
 
 
 if __name__ == "__main__":

@@ -74,27 +74,46 @@ class RunTests(unittest.TestCase):
         self.assertEqual(result["model_run"]["status"], "withheld")
         self.assertEqual(stored["rows"], [])
 
-    def test_forecasts_publish_every_day_with_their_ranges(self):
+    def test_intraday_run_publishes_buy_and_sell_calls_with_their_window(self):
         import pandas as pd
 
         predictions = pd.DataFrame({
-            "ticker": ["TCS.NS", "INFY.NS"], "sector": ["Technology", "Technology"], "date": ["2026-10-20"] * 2,
-            "close": [3000.0, 1500.0], "p_beat": [0.58, 0.41], "q10": [-0.02, -0.03], "q50": [0.002, -0.004],
-            "q90": [0.025, 0.02], "rel_strength": [3.0, -2.5], "ret20": [0.05, -0.03], "rsi": [0.6, 0.4],
-            "close_to_ema20": [0.01, -0.02], "vol_ratio": [1.1, 0.9], "sector_above_ema50": [0.6, 0.6],
+            "ticker": ["TCS.NS", "INFY.NS", "SBIN.NS"], "sector": ["IT", "IT", "Banks"], "date": ["2026-10-23"] * 3,
+            "close": [3000.0, 1500.0, 800.0], "p_beat": [0.58, 0.47, 0.41], "rank_score": [0.6, 0.5, 0.4],
+            "q10": [-0.02, -0.03, -0.025], "q50": [0.002, -0.004, -0.003], "q90": [0.025, 0.02, 0.02],
+            "rel_strength": [3.0, -2.5, -4.0], "ret20": [0.05, -0.03, -0.06], "rsi": [0.6, 0.4, 0.35],
+            "close_to_sma200": [0.08, -0.02, -0.05], "dist_52w_high": [-0.02, -0.2, -0.35], "vol_ratio": [1.1, 0.9, 1.8],
         })
-        artifact = {"calibration": [{"p_min": 0.56, "p_max": 1.0, "actual_beat_rate": 0.55, "samples": 900}]}
+        artifact = {"calibration": [{"p_min": 0.55, "p_max": 1.0, "actual_beat_rate": 0.56, "samples": 900},
+                                    {"p_min": 0.0, "p_max": 0.45, "actual_beat_rate": 0.43, "samples": 800}]}
         stored = {}
-        with mock.patch.object(dts, "_session_complete", return_value=True),              mock.patch.object(dts, "_find_existing_run", return_value=None),              mock.patch.object(dts.forecast_engine, "load_artifact", return_value=artifact),              mock.patch.object(dts, "_forecast_universe", return_value=predictions),              mock.patch.object(dts, "_store_model_run", side_effect=lambda run, rows: stored.update(run=run, rows=rows) or run),              mock.patch.object(dts, "_log_audit"):
-            result = dts.run_daily_prediction(signal_type="1-day", risk_level="Aggressive")
-        self.assertEqual(result["model_run"]["status"], "completed")
-        rows = {r["symbol"]: r for r in stored["rows"]}
-        self.assertEqual(rows["TCS"]["signal_rank"], 1)  # higher chance to beat ranks first
-        self.assertEqual(rows["INFY"]["signal_rank"], 2)
-        self.assertEqual(rows["TCS"]["explanation_json"]["forecast"]["typical_p_beat"], 0.495)
-        forecast = rows["TCS"]["explanation_json"]["forecast"]
-        self.assertEqual((forecast["low_price"], forecast["high_price"]), (2940.0, 3075.0))
-        self.assertEqual(forecast["tested"]["actual_beat_rate"], 0.55)
+        with mock.patch.object(dts, "_session_complete", return_value=True), \
+             mock.patch.object(dts, "_last_completed_session", return_value=__import__("datetime").date(2026, 10, 23)), \
+             mock.patch.object(dts, "_find_existing_run", return_value=None), \
+             mock.patch.object(dts.forecast_engine, "load_artifact", return_value=artifact), \
+             mock.patch.object(dts, "_forecast_universe", return_value=predictions), \
+             mock.patch.object(dts, "_live_forecast_record", return_value={"calls": 0}), \
+             mock.patch.object(dts, "MAX_SELECTED_SIGNALS", 1), \
+             mock.patch.object(dts, "_store_model_run", side_effect=lambda run, rows: stored.update(run=run, rows=rows) or run), \
+             mock.patch.object(dts, "_log_audit"):
+            result = dts.run_daily_prediction(signal_type="1-day", risk_level="Aggressive", target_day=__import__("datetime").date(2026, 10, 26))
+        run = result["model_run"]
+        self.assertEqual(run["status"], "completed")
+        self.assertEqual(run["summary"]["last_session"], "2026-10-26")
+        rows = {r["direction"]: r for r in stored["rows"]}
+        self.assertEqual(rows["BUY"]["symbol"], "TCS")
+        self.assertEqual(rows["SELL"]["symbol"], "SBIN")
+        sell = rows["SELL"]["explanation_json"]["forecast"]
+        self.assertAlmostEqual(sell["p_call"], 0.59)
+        self.assertEqual(sell["stop_price"], sell["high_price"])  # a sell's exit line is the high case
+        self.assertEqual(sell["tested"]["call_rate"], 0.57)
+
+    def test_five_day_window_skips_weekends_and_holidays(self):
+        from datetime import date
+
+        from app.services.daily_signal_engine import market_calendar as mc
+
+        self.assertEqual(mc.session_after(date(2026, 11, 9), 5), date(2026, 11, 16))
 
     def test_no_run_while_the_session_is_open(self):
         with mock.patch.object(dts, "_session_complete", return_value=False):
