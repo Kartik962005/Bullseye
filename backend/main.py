@@ -1046,6 +1046,8 @@ async def get_model_status(request: Request):
     # The daily calls engine: which forecast models are loaded, and how fresh.
     status["forecast_engine"] = {
         "version": "forecast-v3",
+        # Render sets this to the commit it deployed.
+        "deployed_commit": (os.getenv("RENDER_GIT_COMMIT") or "")[:7] or None,
         "universe_size": len(forecast_engine.universe_tickers()),
         "horizons": {
             h: (
