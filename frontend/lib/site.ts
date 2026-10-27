@@ -1,5 +1,5 @@
 /** Site-wide facts used by metadata, the sitemap and the legal pages. */
-export const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL || 'https://bullseye.help').replace(/\/$/, '');
+export const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL || 'https://www.bullseye.help').replace(/\/$/, '');
 export const SITE_NAME = 'Bullseye';
 export const SITE_DESCRIPTION =
   'Screen NSE stocks in plain English, test trading rules on real price history and read a plain verdict on any stock. Research, not investment advice.';

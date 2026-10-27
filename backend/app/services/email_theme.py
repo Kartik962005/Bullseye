@@ -11,7 +11,7 @@ from __future__ import annotations
 import os
 from html import escape
 
-SITE_URL = os.getenv("PUBLIC_SITE_URL", "https://bullseye.help").rstrip("/")
+SITE_URL = os.getenv("PUBLIC_SITE_URL", "https://www.bullseye.help").rstrip("/")
 
 INK = "#0b0b0d"
 MUTED = "#5f5b72"
