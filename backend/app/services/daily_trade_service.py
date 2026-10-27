@@ -1141,40 +1141,52 @@ def run_daily_prediction(
 _FORECAST_INPUT_CACHE: dict[str, Any] = {}
 # Enough daily bars for the 200-day average and the 52-week high.
 _FORECAST_HISTORY_DAYS = 560
+# Bars kept per stock for the features: the longest window (52-week high,
+# 250 bars) plus the feature warm-up, with room to spare. Fewer bars means less
+# memory on the small server; the latest row's features are unchanged.
+_FORECAST_BARS = 340
 
 
-def _forecast_inputs() -> dict[str, Any]:
-    """Raw prices for the Nifty 200 and the index, cached across one evening's runs."""
-    key = _last_completed_session().isoformat()
+def _latest_forecast_rows(run_day: date) -> pd.DataFrame:
+    """Features for the last completed session, built once per evening.
+
+    Every horizon and risk level reads these same rows, so the expensive part
+    (fetching 200 histories and building features) runs once, not nine times,
+    and the raw prices are released straight after. On a small shared server
+    that is the difference between a few seconds of work and minutes of it.
+    """
+    key = run_day.isoformat()
     cached = _FORECAST_INPUT_CACHE.get(key)
-    if cached and (datetime.now(timezone.utc) - cached["at"]).total_seconds() < _UNIVERSE_TTL_SECONDS:
-        return cached
-    universe = forecast_engine.universe_tickers()
-    frames = {ticker: fetch_price_history(ticker, days=_FORECAST_HISTORY_DAYS) for ticker in universe}
-    loaded = {
-        "at": datetime.now(timezone.utc),
-        "frames": {t: f for t, f in frames.items() if f is not None and not f.empty},
-        "index": fetch_price_history(MARKET_INDEX.get(DEFAULT_MARKET, "^NSEI"), days=_FORECAST_HISTORY_DAYS),
-    }
+    if cached is not None and (datetime.now(timezone.utc) - cached["at"]).total_seconds() < _UNIVERSE_TTL_SECONDS:
+        return cached["rows"]
+    frames: dict[str, pd.DataFrame] = {}
+    for ticker in forecast_engine.universe_tickers():
+        frame = fetch_price_history(ticker, days=_FORECAST_HISTORY_DAYS)
+        if frame is not None and not frame.empty:
+            frames[ticker] = frame.tail(_FORECAST_BARS).reset_index(drop=True)
+    index = fetch_price_history(MARKET_INDEX.get(DEFAULT_MARKET, "^NSEI"), days=_FORECAST_HISTORY_DAYS).tail(_FORECAST_BARS)
+    rows = forecast_engine.forecast_frame(frames, index)
+    del frames
+    if not rows.empty:
+        # Never a bar newer than the last completed session: during market hours
+        # the price feed carries today's unfinished bar.
+        settled = rows[rows["date"] <= key]
+        rows = settled[settled["date"] == settled["date"].max()].copy() if not settled.empty else settled
+        # Skip stocks with a recent corporate action or data jump.
+        rows = rows[rows["anomaly"] <= 0].reset_index(drop=True)
+    import gc
+
+    gc.collect()
     _FORECAST_INPUT_CACHE.clear()
-    _FORECAST_INPUT_CACHE[key] = loaded
-    return loaded
+    _FORECAST_INPUT_CACHE[key] = {"at": datetime.now(timezone.utc), "rows": rows}
+    return rows
 
 
 def _forecast_universe(artifact: dict[str, Any], run_day: date) -> pd.DataFrame:
     """Forecasts for every stock with a clean, current bar for the last completed session."""
-    inputs = _forecast_inputs()
-    rows = forecast_engine.forecast_frame(inputs["frames"], inputs["index"])
-    if rows.empty:
-        return rows
-    # Never a bar newer than the last completed session: during market hours
-    # the price feed carries today's unfinished bar.
-    settled = rows[rows["date"] <= run_day.isoformat()]
-    if settled.empty:
-        return settled
-    latest = settled[settled["date"] == settled["date"].max()]
-    # Skip stocks with a recent corporate action or data jump.
-    latest = latest[latest["anomaly"] <= 0]
+    latest = _latest_forecast_rows(run_day)
+    if latest.empty:
+        return latest
     predictions = forecast_engine.predict(artifact, latest)
     return predictions.merge(latest.drop(columns=["sector", "date", "close"]), on="ticker", how="left")
 
@@ -1305,6 +1317,10 @@ def _live_forecast_record(horizon: int, limit: int = 400) -> dict[str, Any] | No
         return None
 
 
+_PREPARE_FAILED_AT: datetime | None = None
+_PREPARE_RETRY_SECONDS = 20 * 60
+
+
 def prepare_daily_runs(market: str = DEFAULT_MARKET) -> dict[str, Any]:
     """Build every horizon x risk level once the session has closed.
 
@@ -1312,8 +1328,13 @@ def prepare_daily_runs(market: str = DEFAULT_MARKET) -> dict[str, Any]:
     runs, so nobody waits on a model run. Cheap to repeat, as finished runs are
     found and reused.
     """
+    global _PREPARE_FAILED_AT
     if not _session_complete():
         return {"skipped": True, "reason": "Session still open"}
+    # After a failure, wait before trying again, so a persistent problem cannot
+    # rerun the heavy build every minute and starve the API.
+    if _PREPARE_FAILED_AT and (datetime.now(timezone.utc) - _PREPARE_FAILED_AT).total_seconds() < _PREPARE_RETRY_SECONDS:
+        return {"skipped": True, "reason": "Waiting after a failed build"}
     built: list[dict[str, Any]] = []
     for horizon in HORIZONS:
         for risk_level in RISK_PROFILES:
@@ -1334,6 +1355,9 @@ def prepare_daily_runs(market: str = DEFAULT_MARKET) -> dict[str, Any]:
             except Exception as exc:  # noqa: BLE001 - one failure must not block the rest
                 print(f"[DailySignals] prepare {horizon}-day/{risk_level} failed: {exc}")
                 built.append({"horizon_days": horizon, "risk_level": risk_level, "error": str(exc)})
+    _PREPARE_FAILED_AT = datetime.now(timezone.utc) if any("error" in b for b in built) else None
+    if any(not b.get("cached") for b in built):
+        print(f"[DailySignals] prepared runs: {built}")
     return {"runs": built}
 
 
