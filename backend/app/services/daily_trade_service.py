@@ -1084,8 +1084,8 @@ def run_daily_prediction(
     existing_run = _find_existing_run(run_day.isoformat(), market, risk_level, signal_type)
     if existing_run and existing_run.get("target_date") != target_date:
         existing_run = None
-    # A run made by an older engine is replaced by a current forecast run.
-    if existing_run and not str(existing_run.get("model_version") or "").startswith("forecast-v3"):
+    # A run made by an older engine (or an older publishing rule) is replaced.
+    if existing_run and not str(existing_run.get("model_version") or "").startswith(f"{FORECAST_VERSION}-h"):
         existing_run = None
     signals = _load_signals_for_run(existing_run["id"]) if existing_run and not force else []
     # A run stored without all of its calls (an interrupted save) is rebuilt.
@@ -1095,7 +1095,7 @@ def run_daily_prediction(
         notifications = _send_daily_signal_emails(existing_run, signals, user_ids=user_ids) if send_email else []
         return {"model_run": existing_run, "signals": signals, "notifications": notifications, "cached": True}
 
-    model_version = os.getenv("DAILY_SIGNAL_MODEL_VERSION", "forecast-v3") + f"-h{horizon_days}"
+    model_version = f"{FORECAST_VERSION}-h{horizon_days}"
     run_id = str(uuid4())
     generated_at = _utc_now_iso()
     signal_rows: list[dict[str, Any]] = []
@@ -1118,7 +1118,7 @@ def run_daily_prediction(
             withheld_reason = "Price data for the last session was not available, so no forecasts were made."
         else:
             typical = round(forecast_engine.display_probability(float(predictions["p_beat"].median()), artifact.get("calibration")), 4)
-            calls = _select_forecasts(predictions, risk_level, horizon_days)
+            calls = _select_forecasts(predictions, risk_level, horizon_days, artifact.get("publish"))
             for index, (_, row) in enumerate(calls.iterrows(), 1):
                 signal_rows.append(_forecast_signal_row(row, horizon_days, artifact, run_id, index,
                                                         model_version, run_day, target_date, market, typical))
@@ -1164,6 +1164,10 @@ def run_daily_prediction(
                 if report
                 else None
             ),
+            # Which sides publish, from what cut-off, and how those calls did on the
+            # untouched half of the test: what the app quotes beside each list.
+            "publish": (artifact or {}).get("publish"),
+            "side_notes": _side_notes((artifact or {}).get("publish"), horizon_days, signal_rows),
             "live_record": _live_forecast_record(horizon_days),
             "method": "Nifty 200, from the next open to the close of the horizon: calibrated chance to beat the average stock, and a 10/50/90% price range",
         },
@@ -1177,6 +1181,9 @@ def run_daily_prediction(
 # ── Forecast engine ──────────────────────────────────────────────────────────
 
 _FORECAST_INPUT_CACHE: dict[str, Any] = {}
+# Every stored run carries this tag, and a run with any other tag is rebuilt.
+# v3.1: only calls whose strength held up out of sample are published.
+FORECAST_VERSION = "forecast-v3.1"
 # Enough daily bars for the 200-day average and the 52-week high.
 _FORECAST_HISTORY_DAYS = 560
 # Bars kept per stock for the features: the longest window (52-week high,
@@ -1235,10 +1242,10 @@ _RISK_RANGE_QUANTILE = {"Conservative": 0.4, "Balanced": 0.8, "Aggressive": 1.0}
 _MAX_PER_SECTOR = 3
 
 
-def _pick(work: pd.DataFrame, limit: int) -> list[pd.Series]:
+def _pick(work: pd.DataFrame, limit: int, sector_cap: int = _MAX_PER_SECTOR) -> list[pd.Series]:
     picked, per_sector = [], defaultdict(int)
     for _, row in work.iterrows():
-        if per_sector[row["sector"]] >= _MAX_PER_SECTOR:
+        if per_sector[row["sector"]] >= sector_cap:
             continue
         per_sector[row["sector"]] += 1
         picked.append(row)
@@ -1247,29 +1254,85 @@ def _pick(work: pd.DataFrame, limit: int) -> list[pd.Series]:
     return picked
 
 
-def _select_forecasts(predictions: pd.DataFrame, risk_level: str, horizon: int = 1) -> pd.DataFrame:
+def _published_rule(publish: dict[str, Any] | None, side: str) -> dict[str, Any] | None:
+    """The cut-off for one side, if it held up on the untouched half of the test."""
+    rule = (publish or {}).get(side)
+    return rule if isinstance(rule, dict) and rule.get("confirmed") and rule.get("cut") is not None else None
+
+
+def _side_notes(publish: dict[str, Any] | None, horizon: int, signal_rows: list[dict[str, Any]]) -> dict[str, str]:
+    """Why a side has no calls in this run: nothing reached its tested bar today,
+    or the side is paused because even its strongest calls tested too close to a
+    coin toss. Shown in place of the list, and in the email."""
+    if not publish:
+        return {}
+    notes: dict[str, str] = {}
+    for side in ("buy", "sell") if horizon == 1 else ("buy",):
+        if any(row.get("direction") == side.upper() for row in signal_rows):
+            continue
+        buy = side == "buy"
+        moved, versus = ("rose", "beat") if buy else ("fell", "lagged")
+        rule = publish.get(side) or {}
+        if _published_rule(publish, side):
+            tested = rule.get("confirmation") or {}
+            notes[side] = (
+                f"No {side} call is strong enough today. {side.capitalize()} calls are published only from the strength "
+                f"that {moved} {round(tested.get('right_rate', 0) * 100)}% of the time and {versus} the market "
+                f"{round(tested.get('market_rate', 0) * 100)}% in testing, and no stock reached it."
+            )
+            continue
+        best = rule.get("best") or rule.get("confirmation") or {}
+        bar = round(float(publish.get("bar") or 0.55) * 100)
+        notes[side] = (
+            f"{side.capitalize()} calls are paused for this horizon. In testing, even the strongest {moved} only "
+            f"{round(best['right_rate'] * 100)}% of the time and {versus} the market {round(best['market_rate'] * 100)}%, "
+            f"below the {bar}% both need to reach before calls are published."
+            if best.get("right_rate") is not None and best.get("market_rate") is not None
+            else f"{side.capitalize()} calls are paused for this horizon until they test better."
+        )
+    return notes
+
+
+def _select_forecasts(
+    predictions: pd.DataFrame,
+    risk_level: str,
+    horizon: int = 1,
+    publish: dict[str, Any] | None = None,
+) -> pd.DataFrame:
     """BUY calls: most likely to beat the market. SELL calls (intraday only):
     most likely to lag it; overnight shorts are not available in Indian cash
-    equities, so 3- and 5-session forecasts publish buys only."""
+    equities, so 3- and 5-session forecasts publish buys only.
+
+    With a publishing rule (fitted out of sample by calibrate_publishing.py) a
+    call must clear the side's tested cut-off, a side whose cut-off did not hold
+    up publishes nothing, and the list is short: a few a day, two per sector.
+    Without one (an older artifact) the strongest of the day are listed."""
     work = predictions.copy()
     work["width"] = work["q90"] - work["q10"]
     limit = work["width"].quantile(_RISK_RANGE_QUANTILE.get(risk_level, 0.8))
     work = work[work["width"] <= limit + 1e-12]
     if "rank_score" not in work.columns:
         work["rank_score"] = work["p_beat"]
-    buys = _pick(work.sort_values(["p_beat", "rank_score"], ascending=False), MAX_SELECTED_SIGNALS)
+    per_day, sector_cap = MAX_SELECTED_SIGNALS, _MAX_PER_SECTOR
+    buy_pool, sell_pool = work, work if horizon == 1 else work.iloc[0:0]
+    if publish is not None:
+        per_day = min(per_day, int(publish.get("max_per_day") or per_day))
+        sector_cap = int(publish.get("sector_cap") or sector_cap)
+        buy_rule, sell_rule = _published_rule(publish, "buy"), _published_rule(publish, "sell")
+        buy_pool = work[work["p_beat"] >= buy_rule["cut"]] if buy_rule else work.iloc[0:0]
+        sell_pool = work[work["p_beat"] <= sell_rule["cut"]] if sell_rule and horizon == 1 else work.iloc[0:0]
+    buys = _pick(buy_pool.sort_values(["p_beat", "rank_score"], ascending=False), per_day, sector_cap)
     rows = [row.copy() for row in buys]
     for row in rows:
         row["direction"] = "BUY"
         row["confidence"] = row["p_beat"]
-    if horizon == 1:
-        bought = {row["ticker"] for row in rows}
-        candidates = work[~work["ticker"].isin(bought)].sort_values(["p_beat", "rank_score"], ascending=True)
-        for row in _pick(candidates, MAX_SELECTED_SIGNALS):
-            row = row.copy()
-            row["direction"] = "SELL"
-            row["confidence"] = 1 - row["p_beat"]
-            rows.append(row)
+    bought = {row["ticker"] for row in rows}
+    candidates = sell_pool[~sell_pool["ticker"].isin(bought)].sort_values(["p_beat", "rank_score"], ascending=True)
+    for row in _pick(candidates, per_day, sector_cap):
+        row = row.copy()
+        row["direction"] = "SELL"
+        row["confidence"] = 1 - row["p_beat"]
+        rows.append(row)
     return pd.DataFrame(rows)
 
 
@@ -1315,40 +1378,77 @@ def _forecast_signal_row(row: pd.Series, horizon: int, artifact: dict[str, Any],
     }
 
 
-def _live_forecast_record(horizon: int, limit: int = 400) -> dict[str, Any] | None:
-    """How the published forecast calls for this horizon have actually done."""
+def _live_forecast_record(horizon: int, limit: int = 300) -> dict[str, Any] | None:
+    """The scorecard: how this engine's published calls for the horizon actually did.
+
+    A stock called in more than one risk level's list counts once per session.
+    Each call is right when it beat (buy) or lagged (sell) the average Nifty 200
+    stock, and separately records whether it rose (buy) or fell (sell), since
+    that is what a reader checks. The latest graded session is listed call by call.
+    """
     if not supabase:
         return None
     try:
         signals = (
             supabase.table(SIGNALS_TABLE)
-            .select("id,direction,model_version")
+            .select("id,symbol,direction,target_date")
             .eq("setup_type", "forecast")
-            .like("model_version", f"forecast-v3%-h{horizon}")
-            .order("run_date", desc=True)
+            .eq("model_version", f"{FORECAST_VERSION}-h{horizon}")
+            .order("target_date", desc=True)
             .limit(limit)
             .execute()
         )
         rows = getattr(signals, "data", None) or []
-        if not rows:
-            return {"calls": 0}
-        by_id = {r["id"]: r for r in rows}
-        outcomes = (
-            supabase.table(OUTCOMES_TABLE)
-            .select("stock_signal_id,outcome,realized_r")
-            .in_("stock_signal_id", list(by_id)[:400])
-            .execute()
-        )
-        graded = [o for o in (getattr(outcomes, "data", None) or []) if o.get("outcome") in {"WIN", "LOSS"}]
-        record: dict[str, Any] = {"calls": len(graded)}
+        unique: dict[tuple[str, str, str], dict[str, Any]] = {}
+        for row in rows:
+            unique.setdefault((row["target_date"], row["symbol"], row["direction"]), row)
+        by_id = {row["id"]: row for row in unique.values()}
+        ids = list(by_id)
+        outcomes: list[dict[str, Any]] = []
+        # A few ids per request: a long id list does not fit in one URL.
+        for start in range(0, len(ids), 80):
+            response = (
+                supabase.table(OUTCOMES_TABLE)
+                .select("stock_signal_id,outcome,realized_r,notes")
+                .in_("stock_signal_id", ids[start:start + 80])
+                .execute()
+            )
+            outcomes.extend(getattr(response, "data", None) or [])
+        graded = []
+        for outcome in outcomes:
+            if outcome.get("outcome") not in {"WIN", "LOSS"}:
+                continue
+            signal = by_id[outcome["stock_signal_id"]]
+            notes = outcome.get("notes") or {}
+            graded.append({
+                "date": signal["target_date"],
+                "symbol": signal["symbol"],
+                "direction": signal["direction"],
+                "right": outcome["outcome"] == "WIN",
+                "moved": notes.get("moved"),
+                "move_pct": notes.get("move_pct"),
+                "market_pct": notes.get("market_pct"),
+                "edge_pct": round(float(outcome.get("realized_r") or 0), 3),
+            })
+        record: dict[str, Any] = {"calls": len(graded), "since": min((g["date"] for g in graded), default=None)}
         for direction in ("BUY", "SELL"):
-            mine = [o for o in graded if by_id[o["stock_signal_id"]]["direction"] == direction]
-            if mine:
-                record[direction.lower()] = {
-                    "calls": len(mine),
-                    "right": sum(1 for o in mine if o["outcome"] == "WIN"),
-                    "avg_edge_pct": round(sum(float(o.get("realized_r") or 0) for o in mine) / len(mine), 3),
-                }
+            mine = [g for g in graded if g["direction"] == direction]
+            if not mine:
+                continue
+            known = [g for g in mine if g["moved"] is not None]
+            record[direction.lower()] = {
+                "calls": len(mine),
+                "right": sum(1 for g in mine if g["right"]),
+                "moved_calls": len(known),
+                "moved": sum(1 for g in known if g["moved"]),
+                "avg_edge_pct": round(sum(g["edge_pct"] for g in mine) / len(mine), 3),
+            }
+        if graded:
+            last = max(g["date"] for g in graded)
+            record["latest"] = {
+                "date": last,
+                "calls": sorted((g for g in graded if g["date"] == last), key=lambda g: (g["direction"], g["symbol"])),
+            }
         return record
     except Exception as exc:  # noqa: BLE001 - the record is informational
         print(f"[DailySignals] live forecast record unavailable: {exc}")
@@ -1541,6 +1641,7 @@ def _send_signal_email_to_preference(
         signal_type=model_run["signal_type"],
         conviction=(model_run.get("summary") or {}).get("conviction"),
         experimental_note=_experimental_note(model_run),
+        empty_note=" ".join(((model_run.get("summary") or {}).get("side_notes") or {}).values()) or None,
     )
     result = _send_email(preference["email"], subject, text, html=html)
     log_record = {
@@ -1743,23 +1844,24 @@ def run_scheduled_tick(force: bool = False) -> dict[str, Any]:
 def _run_scheduled_tick(force: bool) -> dict[str, Any]:
     global _OUTCOME_TRACKED_FOR
     now = datetime.now(IST)
+    # Grade first, once the close is final (not at 3:30 sharp, when the closing
+    # price is still being set), so the runs built next carry today's results.
+    outcomes: dict[str, Any] | None = None
+    today = now.date().isoformat()
+    if (force or _session_complete(now)) and _OUTCOME_TRACKED_FOR != today and (force or not _is_market_holiday(now.date())):
+        try:
+            outcomes = run_outcome_tracking(review_day=now.date())
+            _OUTCOME_TRACKED_FOR = today
+            print(f"[DailySignals] outcome tracking processed {outcomes.get('processed', 0)} signal(s) for {today}")
+        except Exception as exc:  # noqa: BLE001 - never let tracking break the build or email delivery
+            print(f"[DailySignals] outcome tracking failed: {exc}")
+
     prepared: dict[str, Any] | None = None
     try:
         prepared = prepare_daily_runs()
     except Exception as exc:  # noqa: BLE001 - emails can still go out from stored runs
         print(f"[DailySignals] preparing runs failed: {exc}")
     emails = process_scheduled_daily_alerts(force=force)
-
-    outcomes: dict[str, Any] | None = None
-    today = now.date().isoformat()
-    after_close = force or now.time() >= MARKET_CLOSES.get(DEFAULT_MARKET, time(15, 30))
-    if after_close and _OUTCOME_TRACKED_FOR != today and (force or not _is_market_holiday(now.date())):
-        try:
-            outcomes = run_outcome_tracking(review_day=now.date())
-            _OUTCOME_TRACKED_FOR = today
-            print(f"[DailySignals] outcome tracking processed {outcomes.get('processed', 0)} signal(s) for {today}")
-        except Exception as exc:  # noqa: BLE001 - never let tracking break email delivery
-            print(f"[DailySignals] outcome tracking failed: {exc}")
 
     return {"prepared": prepared, "emails": emails, "outcomes": outcomes}
 
@@ -1872,6 +1974,10 @@ def _grade_forecast(
         "hit_sequence": f"forecast_{'right' if right else 'wrong'}_{'in' if in_range else 'out_of'}_range",
         "sessions_held": horizon,
         "fill_price": entry,
+        # What a reader checks first: did it rise after a buy, or fall after a sell?
+        "moved": bool(move > 0 if buy else move < 0),
+        "move_pct": round(move * 100, 3),
+        "market_pct": round(benchmark_move * 100, 3),
     }
 
 
@@ -1931,6 +2037,7 @@ def run_outcome_tracking(review_day: date | None = None, *, recompute: bool = Fa
                 "sessions_held": outcome.get("sessions_held"),
                 "window_sessions": horizon,
                 "unit": "pct" if (signal.get("explanation_json") or {}).get("forecast") else "R",
+                **{key: outcome[key] for key in ("moved", "move_pct", "market_pct") if key in outcome},
             },
         }
         if supabase:

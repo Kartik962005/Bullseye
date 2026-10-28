@@ -102,6 +102,41 @@ class SelectionTests(unittest.TestCase):
         picked = dts._select_forecasts(self.predictions(), "Conservative", horizon=1)
         self.assertNotIn("T6.NS", set(picked["ticker"]))
 
+    def rule(self, cut, confirmed=True):
+        return {"cut": cut, "confirmed": confirmed, "confirmation": {"right_rate": 0.58, "market_rate": 0.6}}
+
+    def test_only_calls_past_a_confirmed_cut_off_are_published(self):
+        publish = {"max_per_day": 5, "sector_cap": 2, "buy": self.rule(0.65), "sell": self.rule(0.35)}
+        picked = dts._select_forecasts(self.predictions(), "Aggressive", horizon=1, publish=publish)
+        buys = picked[picked["direction"] == "BUY"]
+        sells = picked[picked["direction"] == "SELL"]
+        self.assertEqual(list(buys["ticker"]), ["T0.NS", "T1.NS"])  # 0.66 and 0.64 pass, but two per sector
+        self.assertEqual(list(sells["ticker"]), ["T4.NS"])  # only 0.30 is weak enough
+
+    def test_a_side_that_did_not_hold_up_publishes_nothing(self):
+        publish = {"max_per_day": 5, "sector_cap": 2, "buy": self.rule(0.5, confirmed=False),
+                   "sell": {"cut": None, "confirmed": False, "best": {"right_rate": 0.52, "market_rate": 0.51}}}
+        picked = dts._select_forecasts(self.predictions(), "Aggressive", horizon=1, publish=publish)
+        self.assertTrue(picked.empty)
+        notes = dts._side_notes(publish, 1, [])
+        self.assertIn("paused", notes["buy"])
+        self.assertIn("52%", notes["sell"])
+
+    def test_a_published_side_with_no_call_today_says_so(self):
+        publish = {"buy": self.rule(0.99)}
+        notes = dts._side_notes(publish, 3, [])
+        self.assertIn("No buy call is strong enough today", notes["buy"])
+        self.assertIn("rose 58%", notes["buy"])
+        self.assertEqual(dts._side_notes(publish, 3, [{"direction": "BUY"}]), {})
+
+    def test_the_daily_cap_applies_to_each_side(self):
+        preds = pd.DataFrame({
+            "ticker": [f"T{i}.NS" for i in range(12)], "sector": [f"S{i}" for i in range(12)],
+            "p_beat": [0.8] * 12, "q10": [-0.02] * 12, "q90": [0.03] * 12,
+        })
+        picked = dts._select_forecasts(preds, "Aggressive", horizon=5, publish={"max_per_day": 5, "buy": self.rule(0.6)})
+        self.assertEqual(len(picked), 5)
+
 
 class ForecastGradingTests(unittest.TestCase):
     def bars(self, rows):
@@ -127,6 +162,15 @@ class ForecastGradingTests(unittest.TestCase):
         out = dts._grade_forecast(self.signal(), self.bars([(100, 103, 99, 102)]), 1, 0.05)
         self.assertEqual(out["outcome"], "LOSS")
         self.assertAlmostEqual(out["realized_r"], -3.0)
+        # ...though it did rise, which the scorecard shows separately.
+        self.assertTrue(out["moved"])
+        self.assertAlmostEqual(out["move_pct"], 2.0)
+        self.assertAlmostEqual(out["market_pct"], 5.0)
+
+    def test_a_sell_that_fell_moved_as_called(self):
+        out = dts._grade_forecast(self.signal("SELL"), self.bars([(100, 101, 96, 97)]), 1, -0.01)
+        self.assertEqual(out["outcome"], "WIN")
+        self.assertTrue(out["moved"])
 
     def test_lag_call_that_beat_the_market_outside_the_range(self):
         out = dts._grade_forecast(self.signal("SELL"), self.bars([(100, 120, 99, 112)]), 1, 0.0)

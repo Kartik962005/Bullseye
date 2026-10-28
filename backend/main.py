@@ -1041,18 +1041,23 @@ async def get_model_status(request: Request):
     """
     from app.services.daily_signal_engine import forecast as forecast_engine
     from app.services.daily_signal_engine.ml_interface import model_status
+    from app.services.daily_trade_service import FORECAST_VERSION
 
     status = model_status()
     # The daily calls engine: which forecast models are loaded, and how fresh.
     status["forecast_engine"] = {
-        "version": "forecast-v3",
+        "version": FORECAST_VERSION,
         # Render sets this to the commit it deployed.
         "deployed_commit": (os.getenv("RENDER_GIT_COMMIT") or "")[:7] or None,
         "universe_size": len(forecast_engine.universe_tickers()),
         "horizons": {
             h: (
                 {"loaded": True, "trained_through": art.get("trained_through"),
-                 "buy_edge_confirmed": art.get("buy_edge_confirmed"), "sell_edge_confirmed": art.get("sell_edge_confirmed")}
+                 "buy_edge_confirmed": art.get("buy_edge_confirmed"), "sell_edge_confirmed": art.get("sell_edge_confirmed"),
+                 # Which sides publish calls, and from what cut-off (None: paused).
+                 "publish": {side: (rule.get("cut") if rule and rule.get("confirmed") else None)
+                             for side, rule in (("buy", (art.get("publish") or {}).get("buy")),
+                                                ("sell", (art.get("publish") or {}).get("sell")))}}
                 if (art := forecast_engine.load_artifact(h)) is not None
                 else {"loaded": False}
             )

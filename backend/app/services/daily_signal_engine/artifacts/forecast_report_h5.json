@@ -237,5 +237,32 @@
         }
       ]
     }
+  },
+  "publish": {
+    "max_per_day": 5,
+    "sector_cap": 2,
+    "bar": 0.55,
+    "first_day": "2023-10-26",
+    "last_day": "2026-10-15",
+    "days": 732,
+    "base": {
+      "rose_rate": 0.5017,
+      "beat_rate": 0.4695
+    },
+    "buy": {
+      "cut": null,
+      "confirmed": false,
+      "best": {
+        "calls": 2458,
+        "days": 732,
+        "days_with_calls": 0.7541,
+        "calls_per_day": 3.36,
+        "right_rate": 0.5264,
+        "market_rate": 0.5106,
+        "avg_move": 0.00377,
+        "avg_after_cost": 0.00127,
+        "t_stat": 0.64
+      }
+    }
   }
 }

@@ -159,6 +159,32 @@ class RunTests(unittest.TestCase):
         self.assertEqual(len(calls), 9)
         self.assertTrue(second["skipped"])
 
+    def test_forecast_email_shows_moves_from_the_open(self):
+        from app.services.daily_signal_engine.email_generation import build_signal_email
+
+        forecast = {"p_beat": 0.41, "p_call": 0.59, "q10": -0.018, "q50": -0.001, "q90": 0.021, "reference_close": 500.0,
+                    "low_price": 491.0, "mid_price": 499.5, "high_price": 510.5, "stop_price": 510.5, "last_session": "2026-10-29",
+                    "tested": {"call_rate": 0.595, "samples": 6232}}
+        signal = {"symbol": "TCS", "company_name": "TCS", "direction": "SELL", "entry_low": 500.0, "entry_high": 500.0,
+                  "target_price": 499.5, "stop_loss": 510.5, "risk_reward": 1.0, "confidence": 0.59, "signal_rank": 1,
+                  "explanation_json": {"forecast": forecast, "reasons": ["Weak against its sector"]}}
+        subject, text, html = build_signal_email(signal_date="2026-10-29", market="NSE", signals=[signal], unsubscribe_url="u",
+                                                 risk_level="Balanced", signal_type="1-day")
+        self.assertIn("Likely move from the open", html)
+        self.assertIn("-1.8% to +2.1%", text)
+        self.assertIn("+2.1% from the open", text)  # a sell's exit line is the high case
+        self.assertNotIn("Expected", html)
+
+    def test_email_with_no_calls_says_why(self):
+        from app.services.daily_signal_engine.email_generation import build_signal_email
+
+        note = "Buy calls are paused for this horizon."
+        subject, text, html = build_signal_email(signal_date="2026-10-29", market="NSE", signals=[], unsubscribe_url="u",
+                                                 risk_level="Balanced", signal_type="3-day", empty_note=note)
+        self.assertIn("no strong calls", subject)
+        self.assertIn(note, html)
+        self.assertIn(note, text)
+
     def test_email_time_reads_both_form_and_database_formats(self):
         self.assertEqual(dts._parse_time_string("20:00").hour, 20)
         self.assertEqual(dts._parse_time_string("20:15:00").minute, 15)

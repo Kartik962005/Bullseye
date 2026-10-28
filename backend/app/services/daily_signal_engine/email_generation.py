@@ -86,6 +86,10 @@ def _conviction_banner(conviction: dict[str, Any] | None) -> tuple[str, str]:
     return html, text
 
 
+def _signed_pct(value: float) -> str:
+    return f"{'+' if value >= 0 else '-'}{abs(value) * 100:.1f}%"
+
+
 def build_signal_email(
     *,
     signal_date: str,
@@ -96,6 +100,7 @@ def build_signal_email(
     signal_type: str,
     conviction: dict[str, Any] | None = None,
     experimental_note: str | None = None,
+    empty_note: str | None = None,
 ) -> tuple[str, str, str]:
     from datetime import date as _date
 
@@ -116,7 +121,7 @@ def build_signal_email(
         if any((s_.get("explanation_json") or {}).get("forecast") for s_ in signals) and count_preview
         else f"Bullseye: {count_preview} pick{'' if count_preview == 1 else 's'} for {pretty_date}, held {held}"
         if count_preview
-        else f"Bullseye: no picks for {pretty_date}"
+        else f"Bullseye: no strong calls for {pretty_date}"
     )
     conviction_html, conviction_text = _conviction_banner(conviction)
     card_rows: list[str] = []
@@ -148,9 +153,6 @@ def build_signal_email(
             chance = float(forecast.get("p_call", forecast["p_beat"] if buy else 1 - forecast["p_beat"]))
             label = "BUY" if buy else "SELL"
             odds = f"{round(chance * 100)}% to {'beat' if buy else 'lag'} the market"
-            low, mid, high, stop = (
-                f"{float(forecast[k]):,.2f}" for k in ("low_price", "mid_price", "high_price", "stop_price")
-            ) if "stop_price" in forecast else (*(f"{float(forecast[k]):,.2f}" for k in ("low_price", "mid_price", "high_price")), "")
             last = f"{float(forecast['reference_close']):,.2f}"
             tested = forecast.get("tested") or {}
             rate = tested.get("call_rate", tested.get("actual_beat_rate"))
@@ -159,11 +161,17 @@ def build_signal_email(
                 if tested and rate is not None
                 else ""
             )
-            plan = (
-                [("Last close", last), ("Expected", mid), ("Likely range", f"{low}-{high}"), ("Exit if below" if buy else "Exit if above", stop)]
-                if stop
-                else [("Low case", low), ("Middle", mid), ("High case", high), ("Last close", last)]
-            )
+            # The forecast runs from the open, so its range is a move from the open,
+            # not a price from the last close (the open can gap away from it).
+            q10, q90 = float(forecast["q10"]), float(forecast["q90"])
+            against = q10 if buy else q90
+            exit_move = f"{_signed_pct(against)} from the open" if (against < 0) == buy else "outside the range"
+            plan = [
+                ("Last close", last),
+                ("Likely move from the open", f"{_signed_pct(q10)} to {_signed_pct(q90)}"),
+                ("Exit if it moves", exit_move),
+                ("Right in testing", f"{round(rate * 100)}%" if rate is not None else "n/a"),
+            ]
             if section_direction != direction:
                 section_direction = direction
                 card_rows.append(
@@ -191,8 +199,8 @@ def build_signal_email(
             )
             text_rows.append(
                 f"{symbol} {label}: {odds}\n"
-                f"Last close {last}, expected {mid}, likely range {low} to {high}"
-                + (f", exit if {'below' if buy else 'above'} {stop}" if stop else "")
+                f"Last close {last}; likely move from the open {_signed_pct(q10)} to {_signed_pct(q90)}; "
+                f"exit if it moves {exit_move}"
                 + f"\n{why}. {evidence}\n"
             )
             continue
@@ -232,7 +240,7 @@ def build_signal_email(
     title = (
         f"{count} forecast{'' if count == 1 else 's'} for {pretty_date}" if is_forecast and count
         else f"{count} pick{'' if count == 1 else 's'} for {pretty_date}" if count
-        else "No picks cleared the bar"
+        else f"No strong calls for {pretty_date}"
     )
     last_session = next(
         ((s_.get("explanation_json") or {}).get("forecast", {}).get("last_session") for s_ in signals
@@ -249,8 +257,9 @@ def build_signal_email(
     )
     how_to = (
         f"Each call runs {window}. A BUY is a stock the model rates most likely to beat the average Nifty 200 stock; "
-        "a SELL (intraday only) is one most likely to lag it. The likely range held 8 in 10 outcomes in testing, and the "
-        "exit line is its 1-in-10 bad case. These are forecasts, not advice."
+        "a SELL (intraday only) is one most likely to lag it. Only calls at a strength that held up in testing are sent, "
+        "and some will still miss. Moves are measured from the open; the likely range held 8 in 10 outcomes in testing, "
+        "and the exit line is its 1-in-10 bad case. These are forecasts, not advice."
     ) if is_forecast else (
         f"Place each order as a limit for the session on {pretty_date} only, and skip a pick that opens past its stop "
         f"or target. Exit at the target, at the stop, or at the close {'of that session' if horizon == 1 else f'of session {horizon}'}, "
@@ -272,7 +281,7 @@ def build_signal_email(
         "".join(card_rows)
         if card_rows
         else f"<p style='margin:0 0 12px;font-family:{theme.FONT};font-size:14px;line-height:1.6;color:{theme.MUTED}'>"
-        "No stock passed the quality filters for this session. On weak days, sending nothing is the honest answer.</p>"
+        f"{escape(empty_note or 'No stock passed the quality filters for this session. On weak days, sending nothing is the honest answer.')}</p>"
     )
     html = theme.email_shell(
         preheader=f"{count} {market} picks with entry, target and stop for {signal_date}." if count else f"No {market} picks for {signal_date}.",
@@ -292,7 +301,7 @@ def build_signal_email(
         + (f"Experimental: {experimental_note}\n\n" if experimental_note and count else "")
         + (how_to + "\n\n" if count else "")
         + conviction_text
-        + ("\n".join(text_rows) if text_rows else "No signals passed the quality filters for the next trading day.")
+        + ("\n".join(text_rows) if text_rows else (empty_note or "No signals passed the quality filters for the next trading day."))
         + "\nSignals are model-generated analysis. Returns are not guaranteed. Past performance does not guarantee future results.\n"
         + f"Unsubscribe: {unsubscribe_url}"
     )

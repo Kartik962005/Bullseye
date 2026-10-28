@@ -237,5 +237,43 @@
         }
       ]
     }
+  },
+  "publish": {
+    "max_per_day": 5,
+    "sector_cap": 2,
+    "bar": 0.55,
+    "first_day": "2023-10-27",
+    "last_day": "2026-10-19",
+    "days": 733,
+    "base": {
+      "rose_rate": 0.4885,
+      "beat_rate": 0.4714
+    },
+    "buy": {
+      "cut": 0.54,
+      "confirmed": false,
+      "selection": {
+        "calls": 300,
+        "days": 732,
+        "days_with_calls": 0.2131,
+        "calls_per_day": 0.41,
+        "right_rate": 0.64,
+        "market_rate": 0.5833,
+        "avg_move": 0.01131,
+        "avg_after_cost": 0.00881,
+        "t_stat": 1.44
+      },
+      "confirmation": {
+        "calls": 615,
+        "days": 733,
+        "days_with_calls": 0.2128,
+        "calls_per_day": 0.84,
+        "right_rate": 0.4829,
+        "market_rate": 0.5187,
+        "avg_move": -0.00041,
+        "avg_after_cost": -0.00291,
+        "t_stat": 1.5
+      }
+    }
   }
 }
