@@ -101,6 +101,7 @@ def build_signal_email(
     conviction: dict[str, Any] | None = None,
     experimental_note: str | None = None,
     empty_note: str | None = None,
+    record_note: str | None = None,
 ) -> tuple[str, str, str]:
     from datetime import date as _date
 
@@ -265,6 +266,9 @@ def build_signal_email(
         f"or target. Exit at the target, at the stop, or at the close {'of that session' if horizon == 1 else f'of session {horizon}'}, "
         "whichever comes first. A SELL means exit or avoid; most retail accounts cannot hold a short overnight."
     )
+    # The tested record beside the recent one, so a reader sees both before the calls.
+    if record_note and count:
+        how_to = f"{how_to} {record_note}"
     how_to_html = (
         f"<p style='margin:0 0 14px;font-family:{theme.FONT};font-size:13px;line-height:1.6;color:{theme.MUTED}'>"
         f"{escape(how_to)}</p>"

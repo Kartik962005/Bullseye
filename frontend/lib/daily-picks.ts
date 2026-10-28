@@ -130,14 +130,35 @@ export type PolicyStats = {
   t_stat?: number;
 };
 
-/** A side publishes only when `confirmed`; otherwise it is paused and `best` (or `confirmation`) says how close it came. */
+/** A side's record over its latest sessions: those graded live first, then the end of the test. */
+export type RecentRecord = {
+  sessions: number;
+  /** How many of those sessions were graded live; the rest come from testing. */
+  live_sessions: number;
+  first_day?: string;
+  last_day?: string;
+  calls: number;
+  right_rate?: number | null;
+  market_rate?: number | null;
+  /** Both rates still reach the bar, so the side keeps publishing. */
+  passes: boolean;
+};
+
+/**
+ * A side publishes only when `confirmed` and its `recent` record still passes; otherwise it is
+ * paused, and `best` (or `confirmation`, or `recent`) says how close it came.
+ */
 export type PublishSide = {
   cut: number | null;
   confirmed: boolean;
   selection?: PolicyStats;
   confirmation?: PolicyStats;
   best?: PolicyStats | null;
+  recent?: RecentRecord | null;
 };
+
+/** Held up on the untouched half of the test and still holds over its latest sessions. */
+export const isPublished = (rule?: PublishSide | null) => Boolean(rule?.confirmed && rule.cut !== null && rule.recent?.passes !== false);
 
 export type PublishRules = {
   max_per_day?: number;

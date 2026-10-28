@@ -10,7 +10,10 @@ the confidence a call needs before it is published:
      way they were called and beat (or lagged) the market at least
      TARGET_RATE of the time;
   3. checks that cut-off on the second half, untouched. Only a cut-off that
-     holds there is published; the second-half numbers are what the app quotes.
+     holds there is published; the second-half numbers are what the app quotes;
+  4. keeps the last RECENT_SESSIONS sessions of the test day by day. The app
+     rolls that window forward with live results and pauses a side whose recent
+     record slips below the bar, even if it held up over the whole test.
 
     cd backend
     python scripts/calibrate_publishing.py            # report only
@@ -41,6 +44,7 @@ TARGET_RATE = 0.56        # first half: both rates at least this
 CONFIRM_RATE = 0.55       # second half: both rates at least this, or the side is not published
 CONFIRM_T = 2.0           # and the daily edge must be clear of noise
 MIN_CALLS = 250           # too few calls on either half and the rate means little
+RECENT_SESSIONS = 120     # the latest stretch of the test, kept day by day (matches the app)
 MAX_PER_DAY = 5
 SECTOR_CAP = 2
 BUY_CUTS = [0.50, 0.52, 0.53, 0.54, 0.55, 0.56, 0.57, 0.58, 0.60, 0.62, 0.65]
@@ -101,6 +105,26 @@ def stats(chosen: pd.DataFrame, frame: pd.DataFrame, h: int, side: str) -> dict:
     }
 
 
+def recent(frame: pd.DataFrame, h: int, side: str, cut: float) -> dict:
+    """The cut-off's calls over the last RECENT_SESSIONS sessions of the test, with a
+    row per session: [date, calls, moved as called, beat (buy) or lagged (sell) the market]."""
+    days = sorted(frame["date"].unique())[-RECENT_SESSIONS:]
+    window = frame[frame["date"].isin(days)]
+    chosen = picks(window, side, cut)
+    sign = 1 if side == "buy" else -1
+    daily = (
+        chosen.assign(moved=sign * chosen[f"fwd_{h}"] > 0, market=sign * chosen[f"excess_{h}"] > 0)
+        .groupby("date").agg(calls=("moved", "size"), moved=("moved", "sum"), market=("market", "sum"))
+        .reindex(days, fill_value=0)
+    )
+    return {
+        **stats(chosen, window, h, side),
+        "first_day": str(days[0]),
+        "last_day": str(days[-1]),
+        "daily": [[str(day), int(row.calls), int(row.moved), int(row.market)] for day, row in daily.iterrows()],
+    }
+
+
 def base_rates(frame: pd.DataFrame, h: int) -> dict:
     return {
         "rose_rate": round(float((frame[f"fwd_{h}"] > 0).mean()), 4),
@@ -130,6 +154,13 @@ def decide(select: pd.DataFrame, confirm: pd.DataFrame, h: int, side: str) -> tu
     confirmed = (c["calls"] >= MIN_CALLS and c.get("right_rate", 0) >= CONFIRM_RATE
                  and c.get("market_rate", 0) >= CONFIRM_RATE and c.get("t_stat", 0) >= CONFIRM_T)
     return {"cut": rule["cut"], "confirmed": confirmed, "selection": rule["selection"], "confirmation": c}, table
+
+
+def fmt_recent(r: dict) -> str:
+    if not r.get("calls"):
+        return "no calls"
+    return (f"{r['calls']} calls, right {r['right_rate']:.3f}, mkt {r['market_rate']:.3f}, "
+            f"after cost {r['avg_after_cost']:+.4f}, t {r['t_stat']}")
 
 
 def main() -> None:
@@ -178,7 +209,13 @@ def main() -> None:
                       f"t {s.get('t_stat', 0):>5} | {c.get('calls_per_day', 0):>4} /day "
                       f"(days with calls {c.get('days_with_calls', 0):.2f}), right {c.get('right_rate', 0):.3f}, "
                       f"mkt {c.get('market_rate', 0):.3f}, after cost {c.get('avg_after_cost', 0):+.4f}, t {c.get('t_stat', 0)}")
-            print(f"  {side.upper()} rule: {json.dumps(rule)}")
+            if rule.get("cut") is not None:
+                rule["recent"] = recent(confirm, h, side, rule["cut"])
+                r = rule["recent"]
+                holds = min(r.get("right_rate", 0), r.get("market_rate", 0)) >= CONFIRM_RATE
+                print(f"  {side.upper()} last {RECENT_SESSIONS} sessions ({r['first_day']}..{r['last_day']}): "
+                      f"{fmt_recent(r)} -> {'holds' if holds else 'below the bar: the app pauses this side'}")
+            print(f"  {side.upper()} rule: {json.dumps({k: v for k, v in rule.items() if k != 'recent'})}")
             # Published only when confirmed; otherwise kept so the app can explain the pause.
             publish[side] = rule
         report["publish"] = publish

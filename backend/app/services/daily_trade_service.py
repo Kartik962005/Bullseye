@@ -1104,9 +1104,11 @@ def run_daily_prediction(
     withheld_reason = None
     forecast_count = 0
     typical = None
+    tracking: dict[str, list[str]] = {}
     report = forecast_engine.load_report(horizon_days) or {}
 
     artifact = forecast_engine.load_artifact(horizon_days)
+    publish = _effective_publish((artifact or {}).get("publish"), horizon_days)
     if artifact is None:
         run_status = "withheld"
         withheld_reason = f"The {horizon_days}-session forecast models are not available on the server yet."
@@ -1118,10 +1120,13 @@ def run_daily_prediction(
             withheld_reason = "Price data for the last session was not available, so no forecasts were made."
         else:
             typical = round(forecast_engine.display_probability(float(predictions["p_beat"].median()), artifact.get("calibration")), 4)
-            calls = _select_forecasts(predictions, risk_level, horizon_days, artifact.get("publish"))
+            calls = _select_forecasts(predictions, risk_level, horizon_days, publish)
             for index, (_, row) in enumerate(calls.iterrows(), 1):
                 signal_rows.append(_forecast_signal_row(row, horizon_days, artifact, run_id, index,
                                                         model_version, run_day, target_date, market, typical))
+            # Kept once per session (on the default risk level's run) and graded after it closes.
+            if risk_level == DEFAULT_RISK_LEVEL:
+                tracking = _would_be_calls(predictions, horizon_days, publish)
 
     confirmation = report.get("confirmation") or {}
     run_payload = {
@@ -1164,11 +1169,15 @@ def run_daily_prediction(
                 if report
                 else None
             ),
-            # Which sides publish, from what cut-off, and how those calls did on the
-            # untouched half of the test: what the app quotes beside each list.
-            "publish": (artifact or {}).get("publish"),
-            "side_notes": _side_notes((artifact or {}).get("publish"), horizon_days, signal_rows),
+            # Which sides publish, from what cut-off, how those calls did on the
+            # untouched half of the test and over the latest sessions: what the
+            # app quotes beside each list.
+            "publish": publish,
+            "side_notes": _side_notes(publish, horizon_days, signal_rows),
             "live_record": _live_forecast_record(horizon_days),
+            # The calls each tested side would make, published or not; graded
+            # into "tracked" once the window closes (see _grade_tracked_calls).
+            "tracking": tracking or None,
             "method": "Nifty 200, from the next open to the close of the horizon: calibrated chance to beat the average stock, and a 10/50/90% price range",
         },
     }
@@ -1254,19 +1263,135 @@ def _pick(work: pd.DataFrame, limit: int, sector_cap: int = _MAX_PER_SECTOR) -> 
     return picked
 
 
-def _published_rule(publish: dict[str, Any] | None, side: str) -> dict[str, Any] | None:
+def _tested_rule(publish: dict[str, Any] | None, side: str) -> dict[str, Any] | None:
     """The cut-off for one side, if it held up on the untouched half of the test."""
     rule = (publish or {}).get(side)
     return rule if isinstance(rule, dict) and rule.get("confirmed") and rule.get("cut") is not None else None
 
 
+def _published_rule(publish: dict[str, Any] | None, side: str) -> dict[str, Any] | None:
+    """The cut-off for one side, if it held up in testing and still holds over the recent stretch."""
+    rule = _tested_rule(publish, side)
+    return rule if rule and (rule.get("recent") or {}).get("passes", True) else None
+
+
+# A published side must also hold up over its latest stretch: the most recent
+# sessions of the calls it would make (graded live, published or not), filled
+# out with the end of the out-of-sample test until the window is full. A side
+# that slips below the bar there pauses, and returns once it clears it again.
+_RECENT_SESSIONS = 120
+_RECENT_MIN_CALLS = 50
+_RECENT_CACHE: dict[int, dict[str, Any]] = {}
+_RECENT_CACHE_SECONDS = 10 * 60
+
+
+def _tracked_sessions(horizon: int) -> list[tuple[str, dict[str, Any]]]:
+    """Graded would-be calls for one horizon, newest session first: (session, {side: counts})."""
+    cached = _RECENT_CACHE.get(horizon)
+    if cached and (datetime.now(timezone.utc) - cached["at"]).total_seconds() < _RECENT_CACHE_SECONDS:
+        return cached["rows"]
+    version = f"{FORECAST_VERSION}-h{horizon}"
+    if supabase:
+        try:
+            response = (
+                supabase.table(MODEL_RUNS_TABLE)
+                .select("target_date,tracked:summary->tracked")
+                .eq("risk_level", DEFAULT_RISK_LEVEL)
+                .eq("model_version", version)
+                .order("target_date", desc=True)
+                .limit(_RECENT_SESSIONS * 2)
+                .execute()
+            )
+            rows = getattr(response, "data", None) or []
+        except Exception as exc:  # noqa: BLE001 - the tested record still applies on its own
+            print(f"[DailySignals] recent record unavailable, using the test alone: {exc}")
+            return []
+    else:
+        rows = sorted(
+            ({"target_date": r["target_date"], "tracked": (r.get("summary") or {}).get("tracked")}
+             for r in _MEMORY_RUNS if r.get("risk_level") == DEFAULT_RISK_LEVEL and r.get("model_version") == version),
+            key=lambda r: r["target_date"], reverse=True,
+        )
+    sessions: list[tuple[str, dict[str, Any]]] = []
+    for row in rows:
+        if isinstance(row.get("tracked"), dict) and all(day != row["target_date"] for day, _ in sessions):
+            sessions.append((row["target_date"], row["tracked"]))
+    sessions = sessions[:_RECENT_SESSIONS]
+    _RECENT_CACHE[horizon] = {"at": datetime.now(timezone.utc), "rows": sessions}
+    return sessions
+
+
+def _recent_record(rule: dict[str, Any], side: str, live: list[tuple[str, dict[str, Any]]], bar: float) -> dict[str, Any] | None:
+    """One side's record over its latest _RECENT_SESSIONS sessions: the graded live
+    sessions, then the end of the test (day by day from calibrate_publishing.py)."""
+    mine = [(day, counts[side]) for day, counts in live if isinstance(counts.get(side), dict)][:_RECENT_SESSIONS]
+    first_live = min((day for day, _ in mine), default=None)
+    tested = [row for row in (rule.get("recent") or {}).get("daily") or [] if first_live is None or row[0] < first_live]
+    need = _RECENT_SESSIONS - len(mine)
+    older = tested[max(0, len(tested) - need):] if need > 0 else []
+    days = [day for day, _ in mine] + [row[0] for row in older]
+    if not days:
+        return None
+    calls = sum(int(c["calls"]) for _, c in mine) + sum(int(row[1]) for row in older)
+    moved = sum(int(c["moved"]) for _, c in mine) + sum(int(row[2]) for row in older)
+    market = sum(int(c["market"]) for _, c in mine) + sum(int(row[3]) for row in older)
+    right_rate = round(moved / calls, 4) if calls else None
+    market_rate = round(market / calls, 4) if calls else None
+    return {
+        "sessions": len(days),
+        "live_sessions": len(mine),
+        "first_day": min(days),
+        "last_day": max(days),
+        "calls": calls,
+        "right_rate": right_rate,
+        "market_rate": market_rate,
+        "passes": bool(calls >= _RECENT_MIN_CALLS and right_rate >= bar and market_rate >= bar),
+    }
+
+
+def _effective_publish(publish: dict[str, Any] | None, horizon: int) -> dict[str, Any] | None:
+    """Tonight's publishing rule: each tested side carries its recent record and
+    pauses if that slipped below the bar. The day-by-day test data stays in the
+    artifact, out of the stored run."""
+    if not publish:
+        return publish
+    out = dict(publish)
+    bar = float(publish.get("bar") or 0.55)
+    live: list[tuple[str, dict[str, Any]]] | None = None
+    for side in ("buy", "sell"):
+        rule = publish.get(side)
+        if not isinstance(rule, dict):
+            continue
+        out[side] = {key: value for key, value in rule.items() if key != "recent"}
+        if _tested_rule(publish, side):
+            if live is None:
+                live = _tracked_sessions(horizon)
+            out[side]["recent"] = _recent_record(rule, side, live, bar)
+    return out
+
+
+def _would_be_calls(predictions: pd.DataFrame, horizon: int, publish: dict[str, Any] | None) -> dict[str, list[str]]:
+    """The calls each tested side would make today across all 200 stocks, whether
+    or not it is published: graded later, they keep its recent record moving."""
+    tested = {side: rule for side in ("buy", "sell") if (rule := _tested_rule(publish, side))}
+    if not tested or predictions.empty:
+        return {}
+    unpaused = {**(publish or {}), **{side: {**rule, "recent": None} for side, rule in tested.items()}}
+    calls = _select_forecasts(predictions, "Aggressive", horizon, unpaused)
+    return {
+        side: [str(ticker) for ticker in calls.loc[calls["direction"] == side.upper(), "ticker"]] if not calls.empty else []
+        for side in tested
+    }
+
+
 def _side_notes(publish: dict[str, Any] | None, horizon: int, signal_rows: list[dict[str, Any]]) -> dict[str, str]:
     """Why a side has no calls in this run: nothing reached its tested bar today,
-    or the side is paused because even its strongest calls tested too close to a
-    coin toss. Shown in place of the list, and in the email."""
+    it slipped below the bar over the recent stretch, or even its strongest calls
+    tested too close to a coin toss. Shown in place of the list, and in the email."""
     if not publish:
         return {}
     notes: dict[str, str] = {}
+    bar = round(float(publish.get("bar") or 0.55) * 100)
     for side in ("buy", "sell") if horizon == 1 else ("buy",):
         if any(row.get("direction") == side.upper() for row in signal_rows):
             continue
@@ -1281,8 +1406,20 @@ def _side_notes(publish: dict[str, Any] | None, horizon: int, signal_rows: list[
                 f"{round(tested.get('market_rate', 0) * 100)}% in testing, and no stock reached it."
             )
             continue
+        recent = rule.get("recent") or {}
+        if _tested_rule(publish, side) and recent:
+            span = f"the last {recent['sessions']} sessions" + (
+                f" ({recent['live_sessions']} graded live, the rest from testing)" if recent.get("live_sessions") else " of testing"
+            )
+            notes[side] = (
+                f"{side.capitalize()} calls are paused for now. Over {span}, they {moved} "
+                f"{round(recent['right_rate'] * 100)}% of the time and {versus} the market {round(recent['market_rate'] * 100)}%, "
+                f"below the {bar}% both need. They return once that recent record clears it again."
+                if recent.get("calls", 0) >= _RECENT_MIN_CALLS and recent.get("right_rate") is not None
+                else f"{side.capitalize()} calls are paused for now: too few over {span} to show they still work."
+            )
+            continue
         best = rule.get("best") or rule.get("confirmation") or {}
-        bar = round(float(publish.get("bar") or 0.55) * 100)
         notes[side] = (
             f"{side.capitalize()} calls are paused for this horizon. In testing, even the strongest {moved} only "
             f"{round(best['right_rate'] * 100)}% of the time and {versus} the market {round(best['market_rate'] * 100)}%, "
@@ -1621,6 +1758,28 @@ def _experimental_note(model_run: dict[str, Any]) -> str | None:
     return f"in out-of-sample testing this holding period did not beat trading costs{result}. Treat these picks as research only."
 
 
+def _record_note(summary: dict[str, Any]) -> str | None:
+    """Each published side's tested record beside its recent one, for the email."""
+    publish = summary.get("publish") or {}
+    rose = (publish.get("base") or {}).get("rose_rate")
+    parts = []
+    for side in ("buy", "sell"):
+        if not _published_rule(publish, side):
+            continue
+        rule = publish[side]
+        tested, recent = rule.get("confirmation") or {}, rule.get("recent") or {}
+        if tested.get("right_rate") is None:
+            continue
+        moved = "rose" if side == "buy" else "fell"
+        text = f"{side.capitalize()} calls {moved} {round(tested['right_rate'] * 100)}% of the time in testing"
+        if recent.get("right_rate") is not None:
+            text += f" and {round(recent['right_rate'] * 100)}% over the last {recent['sessions']} sessions"
+        if rose is not None:
+            text += f" (a typical stock {moved} {round((rose if side == 'buy' else 1 - rose) * 100)}%)"
+        parts.append(text + ".")
+    return " ".join(parts) or None
+
+
 def _send_signal_email_to_preference(
     model_run: dict[str, Any],
     signals: list[dict[str, Any]],
@@ -1642,6 +1801,7 @@ def _send_signal_email_to_preference(
         conviction=(model_run.get("summary") or {}).get("conviction"),
         experimental_note=_experimental_note(model_run),
         empty_note=" ".join(((model_run.get("summary") or {}).get("side_notes") or {}).values()) or None,
+        record_note=_record_note(model_run.get("summary") or {}),
     )
     result = _send_email(preference["email"], subject, text, html=html)
     log_record = {
@@ -1913,6 +2073,16 @@ def _load_pending_signals(target_day: str, *, include_evaluated: bool = False) -
 _BENCHMARK_CACHE: dict[tuple[str, int, str], float | None] = {}
 
 
+def _history_for(ticker: str, history_by_ticker: dict[str, pd.DataFrame]) -> pd.DataFrame:
+    """A ticker's daily bars, fetched once per tracking run."""
+    if ticker not in history_by_ticker:
+        frame = fetch_price_history(ticker, days=400)
+        if not frame.empty:
+            frame["date"] = pd.to_datetime(frame["date"], errors="coerce")
+        history_by_ticker[ticker] = frame
+    return history_by_ticker[ticker]
+
+
 def _benchmark_move(start: date, horizon: int, market: str, history_by_ticker: dict[str, pd.DataFrame]) -> float | None:
     """Average move of the stocks in the universe over the same window (equal weight)."""
     key = (start.isoformat(), horizon, market)
@@ -1920,12 +2090,7 @@ def _benchmark_move(start: date, horizon: int, market: str, history_by_ticker: d
         return _BENCHMARK_CACHE[key]
     moves: list[float] = []
     for ticker in forecast_engine.universe_tickers():
-        if ticker not in history_by_ticker:
-            frame = fetch_price_history(ticker, days=400)
-            if not frame.empty:
-                frame["date"] = pd.to_datetime(frame["date"], errors="coerce")
-            history_by_ticker[ticker] = frame
-        frame = history_by_ticker[ticker]
+        frame = _history_for(ticker, history_by_ticker)
         if frame.empty:
             continue
         rows = frame[frame["date"].dt.date >= start].to_dict("records")
@@ -1933,7 +2098,10 @@ def _benchmark_move(start: date, horizon: int, market: str, history_by_ticker: d
         if move is not None and abs(move) < 0.45:
             moves.append(move)
     result = sum(moves) / len(moves) if len(moves) >= 40 else None
-    _BENCHMARK_CACHE[key] = result
+    # Only a closed window is final: caching "not yet" would keep a multi-session
+    # call ungraded for as long as the server stays up.
+    if result is not None:
+        _BENCHMARK_CACHE[key] = result
     return result
 
 
@@ -1981,6 +2149,86 @@ def _grade_forecast(
     }
 
 
+def _runs_to_track(review_day: date) -> list[dict[str, Any]]:
+    """Recent runs whose would-be calls are not graded yet (id, first session, horizon, tracking)."""
+    prefix = f"{FORECAST_VERSION}-h"
+    if supabase:
+        try:
+            response = (
+                supabase.table(MODEL_RUNS_TABLE)
+                .select("id,target_date,market,horizon:summary->horizon_days,tracking:summary->tracking,tracked:summary->tracked")
+                .eq("risk_level", DEFAULT_RISK_LEVEL)
+                .like("model_version", f"{prefix}%")
+                .lte("target_date", review_day.isoformat())
+                .order("target_date", desc=True)
+                .limit(60)
+                .execute()
+            )
+            rows = getattr(response, "data", None) or []
+        except Exception as exc:  # noqa: BLE001 - grading published calls matters more
+            print(f"[DailySignals] tracked calls not loaded: {exc}")
+            return []
+    else:
+        rows = [
+            {"id": r["id"], "target_date": r["target_date"], "market": r.get("market"),
+             "horizon": (r.get("summary") or {}).get("horizon_days"),
+             "tracking": (r.get("summary") or {}).get("tracking"), "tracked": (r.get("summary") or {}).get("tracked")}
+            for r in _MEMORY_RUNS
+            if r.get("risk_level") == DEFAULT_RISK_LEVEL and str(r.get("model_version") or "").startswith(prefix)
+            and r["target_date"] <= review_day.isoformat()
+        ]
+    return [row for row in rows if row.get("tracking") and not row.get("tracked")]
+
+
+def _store_tracked(run_id: str, tracked: dict[str, dict[str, int]]) -> None:
+    """Add the graded would-be calls to a stored run's summary."""
+    if supabase:
+        try:
+            response = supabase.table(MODEL_RUNS_TABLE).select("summary").eq("id", run_id).limit(1).execute()
+            rows = getattr(response, "data", None) or []
+            if rows:
+                summary = {**(rows[0].get("summary") or {}), "tracked": tracked}
+                supabase.table(MODEL_RUNS_TABLE).update({"summary": summary}).eq("id", run_id).execute()
+            return
+        except Exception as exc:
+            if not _should_use_memory_fallback(exc, MODEL_RUNS_TABLE):
+                raise
+    for item in _MEMORY_RUNS:
+        if item["id"] == run_id:
+            item["summary"] = {**(item.get("summary") or {}), "tracked": tracked}
+
+
+def _grade_tracked_calls(review_day: date, history_by_ticker: dict[str, pd.DataFrame]) -> int:
+    """Grade each run's would-be calls once their window has closed, the way
+    published calls are graded (next open to the close of session h, against the
+    average stock), and keep the counts on the run for the recent record."""
+    graded = 0
+    for run in _runs_to_track(review_day):
+        horizon = int(run.get("horizon") or 1)
+        start = date.fromisoformat(str(run["target_date"])[:10])
+        benchmark = _benchmark_move(start, horizon, run.get("market") or DEFAULT_MARKET, history_by_ticker)
+        if benchmark is None:
+            continue  # the window has not closed yet
+        tracked: dict[str, dict[str, int]] = {}
+        for side, tickers in (run.get("tracking") or {}).items():
+            sign = 1 if side == "buy" else -1
+            tally = {"calls": 0, "moved": 0, "market": 0}
+            for ticker in tickers:
+                frame = _history_for(ticker, history_by_ticker)
+                move = _window_move(frame[frame["date"].dt.date >= start].to_dict("records"), horizon) if not frame.empty else None
+                if move is None or abs(move) >= 0.45:
+                    continue
+                tally["calls"] += 1
+                tally["moved"] += int(sign * move > 0)
+                tally["market"] += int(sign * (move - benchmark) > 0)
+            tracked[side] = tally
+        _store_tracked(run["id"], tracked)
+        graded += 1
+    if graded:
+        _RECENT_CACHE.clear()
+    return graded
+
+
 def run_outcome_tracking(review_day: date | None = None, *, recompute: bool = False) -> dict[str, Any]:
     """Record outcomes for signals whose target date has passed.
 
@@ -1998,12 +2246,7 @@ def run_outcome_tracking(review_day: date | None = None, *, recompute: bool = Fa
     history_by_ticker: dict[str, pd.DataFrame] = {}
     for signal in pending:
         ticker = signal["symbol"] if signal["market"] == "US" else f"{signal['symbol']}.NS"
-        if ticker not in history_by_ticker:
-            frame = fetch_price_history(ticker, days=400)
-            if not frame.empty:
-                frame["date"] = pd.to_datetime(frame["date"], errors="coerce")
-            history_by_ticker[ticker] = frame
-        history = history_by_ticker[ticker]
+        history = _history_for(ticker, history_by_ticker)
         if history.empty:
             continue
         # Each signal is judged on ITS OWN target date. Using the review day here
@@ -2051,7 +2294,12 @@ def run_outcome_tracking(review_day: date | None = None, *, recompute: bool = Fa
         else:
             _MEMORY_OUTCOMES.append(record)
         stored.append(record)
-    return {"review_day": day.isoformat(), "processed": len(stored), "outcomes": stored}
+    tracked = 0
+    try:
+        tracked = _grade_tracked_calls(day, history_by_ticker)
+    except Exception as exc:  # noqa: BLE001 - the published calls are graded either way
+        print(f"[DailySignals] grading tracked calls failed: {exc}")
+    return {"review_day": day.isoformat(), "processed": len(stored), "outcomes": stored, "tracked_runs": tracked}
 
 
 def get_signals_today(market: str | None = None, risk_level: str | None = None, signal_type: str | None = None) -> dict[str, Any]:

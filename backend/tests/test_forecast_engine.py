@@ -179,6 +179,115 @@ class ForecastGradingTests(unittest.TestCase):
         self.assertIn("out_of_range", out["hit_sequence"])
 
 
+class RecentRecordTests(unittest.TestCase):
+    """A side that held up in testing must also hold up over its latest sessions."""
+
+    def setUp(self):
+        dts._RECENT_CACHE.clear()
+
+    def tearDown(self):
+        dts._RECENT_CACHE.clear()
+
+    def daily_rows(self, rate=0.6, sessions=120):
+        # Day by day, as calibrate_publishing.py stores it: [date, calls, moved, market].
+        days = pd.bdate_range("2026-04-01", periods=sessions).strftime("%Y-%m-%d")
+        return [[day, 5, round(5 * rate), round(5 * rate)] for day in days]
+
+    def rule(self, daily, cut=0.46):
+        return {"cut": cut, "confirmed": True, "confirmation": {"right_rate": 0.6, "market_rate": 0.6},
+                "recent": {"right_rate": 0.6, "market_rate": 0.6, "daily": daily}}
+
+    def test_live_sessions_roll_in_and_the_oldest_tested_sessions_roll_out(self):
+        daily = self.daily_rows(0.6)
+        live = [(f"2026-11-{d:02d}", {"sell": {"calls": 5, "moved": 1, "market": 1}}) for d in range(20, 0, -1)]
+        record = dts._recent_record(self.rule(daily), "sell", live, 0.55)
+        self.assertEqual((record["sessions"], record["live_sessions"], record["calls"]), (120, 20, 600))
+        self.assertEqual(record["first_day"], daily[20][0])  # the 20 oldest tested sessions dropped out
+        self.assertAlmostEqual(record["right_rate"], (20 * 1 + 100 * 3) / 600, places=4)
+        self.assertFalse(record["passes"])  # 53% is below the 55% bar
+        self.assertTrue(dts._recent_record(self.rule(daily), "sell", [], 0.55)["passes"])
+
+    def test_too_few_recent_calls_do_not_pass(self):
+        record = dts._recent_record(self.rule(self.daily_rows(0.8, sessions=5)), "sell", [], 0.55)
+        self.assertEqual(record["calls"], 25)
+        self.assertFalse(record["passes"])
+
+    def test_a_side_slipping_lately_pauses_but_its_calls_are_still_tracked(self):
+        predictions = SelectionTests().predictions()
+        publish = {"max_per_day": 5, "sector_cap": 2, "bar": 0.55, "sell": self.rule(self.daily_rows(0.4))}
+        with unittest.mock.patch.object(dts, "_tracked_sessions", return_value=[]):
+            effective = dts._effective_publish(publish, 1)
+        self.assertNotIn("daily", effective["sell"]["recent"])  # the day-by-day test data stays in the artifact
+        self.assertFalse(effective["sell"]["recent"]["passes"])
+        picked = dts._select_forecasts(predictions, "Aggressive", horizon=1, publish=effective)
+        self.assertTrue(picked.empty)
+        note = dts._side_notes(effective, 1, [])["sell"]
+        self.assertIn("paused for now", note)
+        self.assertIn("fell 40%", note)
+        self.assertIn("120 sessions of testing", note)
+        self.assertEqual(dts._would_be_calls(predictions, 1, effective), {"sell": ["T4.NS", "T7.NS"]})
+
+    def test_a_side_holding_up_lately_publishes_with_its_recent_record(self):
+        publish = {"max_per_day": 5, "sector_cap": 2, "sell": self.rule(self.daily_rows(0.6)),
+                   "buy": {"cut": 0.6, "confirmed": False, "recent": {"daily": self.daily_rows(0.9)}}}
+        with unittest.mock.patch.object(dts, "_tracked_sessions", return_value=[]):
+            effective = dts._effective_publish(publish, 1)
+        self.assertTrue(effective["sell"]["recent"]["passes"])
+        self.assertNotIn("recent", effective["buy"])  # a side that failed the full test is not tracked
+        picked = dts._select_forecasts(SelectionTests().predictions(), "Aggressive", horizon=1, publish=effective)
+        self.assertEqual(list(picked["ticker"]), ["T4.NS", "T7.NS"])
+
+    def test_would_be_calls_are_graded_once_their_window_closes(self):
+        run = {"id": "r1", "run_date": "2026-10-29", "target_date": "2026-10-30", "market": "NSE",
+               "risk_level": dts.DEFAULT_RISK_LEVEL, "model_version": f"{dts.FORECAST_VERSION}-h1",
+               "summary": {"horizon_days": 1, "tracking": {"sell": ["AAA.NS", "BBB.NS"]}}}
+        day = pd.Timestamp("2026-10-30")
+        history = {
+            "AAA.NS": pd.DataFrame({"date": [day], "open": [100.0], "high": [101.0], "low": [98.0], "close": [99.0]}),
+            "BBB.NS": pd.DataFrame({"date": [day], "open": [100.0], "high": [101.0], "low": [99.5], "close": [100.5]}),
+        }
+        with unittest.mock.patch.object(dts, "supabase", None), \
+             unittest.mock.patch.object(dts, "_MEMORY_RUNS", [run]), \
+             unittest.mock.patch.object(dts, "_benchmark_move", return_value=0.001):
+            self.assertEqual(dts._grade_tracked_calls(pd.Timestamp("2026-10-30").date(), history), 1)
+            # AAA fell 1% and lagged the market; BBB rose and beat it.
+            self.assertEqual(run["summary"]["tracked"], {"sell": {"calls": 2, "moved": 1, "market": 1}})
+            self.assertEqual(dts._grade_tracked_calls(pd.Timestamp("2026-10-30").date(), history), 0)  # graded once
+            self.assertEqual(dts._tracked_sessions(1), [("2026-10-30", {"sell": {"calls": 2, "moved": 1, "market": 1}})])
+
+    def test_an_unclosed_window_is_not_remembered_as_final(self):
+        tickers = [f"S{i}.NS" for i in range(45)]
+        start = pd.Timestamp("2026-10-26")
+        one_bar = {t: pd.DataFrame({"date": [start], "open": [100.0], "close": [101.0]}) for t in tickers}
+        three_bars = {t: pd.DataFrame({"date": pd.bdate_range(start, periods=3), "open": [100.0] * 3, "close": [100.0, 101.0, 102.0]})
+                      for t in tickers}
+        with unittest.mock.patch.object(dts.forecast_engine, "universe_tickers", return_value=tickers), \
+             unittest.mock.patch.object(dts, "_BENCHMARK_CACHE", {}):
+            self.assertIsNone(dts._benchmark_move(start.date(), 3, "NSE", one_bar))
+            self.assertAlmostEqual(dts._benchmark_move(start.date(), 3, "NSE", three_bars), 0.02)
+
+    def test_email_quotes_the_recent_record_beside_the_tested_one(self):
+        summary = {"publish": {"base": {"rose_rate": 0.46}, "sell": {**self.rule([]), "recent": {
+            "sessions": 120, "right_rate": 0.573, "market_rate": 0.568, "passes": True}}}}
+        self.assertEqual(dts._record_note(summary), "Sell calls fell 60% of the time in testing and 57% over the last 120 sessions "
+                                                    "(a typical stock fell 54%).")
+        summary["publish"]["sell"]["recent"]["passes"] = False
+        self.assertIsNone(dts._record_note(summary))
+
+        from app.services.daily_signal_engine.email_generation import build_signal_email
+
+        forecast = {"p_beat": 0.41, "p_call": 0.59, "q10": -0.018, "q50": -0.001, "q90": 0.021, "reference_close": 500.0,
+                    "low_price": 491.0, "mid_price": 499.5, "high_price": 510.5, "stop_price": 510.5}
+        signal = {"symbol": "TCS", "company_name": "TCS", "direction": "SELL", "entry_low": 500.0, "entry_high": 500.0,
+                  "target_price": 499.5, "stop_loss": 510.5, "risk_reward": 1.0, "confidence": 0.59, "signal_rank": 1,
+                  "explanation_json": {"forecast": forecast, "reasons": []}}
+        note = "Sell calls fell 60% of the time in testing and 57% over the last 120 sessions."
+        _, text, html = build_signal_email(signal_date="2026-10-30", market="NSE", signals=[signal], unsubscribe_url="u",
+                                           risk_level="Balanced", signal_type="1-day", record_note=note)
+        self.assertIn(note, text)
+        self.assertIn(note, html)
+
+
 if __name__ == "__main__":
     unittest.main()
 

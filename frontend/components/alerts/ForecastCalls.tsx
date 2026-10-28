@@ -10,8 +10,10 @@ import {
   type Pick,
   type PolicyStats,
   type PublishRules,
+  type RecentRecord,
   callChance,
   horizonWindow,
+  isPublished,
   prettyDate,
 } from '@/lib/daily-picks';
 
@@ -162,20 +164,22 @@ export function CallLists({
     const list = picks.filter(p => p.direction === (buy ? 'BUY' : 'SELL'));
     const rule = publish?.[side];
     const tested = rule?.confirmed ? rule.confirmation : null;
+    const recent = rule?.confirmed ? rule.recent : null;
     const note = notes?.[side];
     if (list.length === 0 && !note) return null;
     const title = buy ? 'Buy calls' : 'Sell calls';
     const base = typical(side, publish);
+    const lately = typeof recent?.right_rate === 'number' ? `, ${pct(recent.right_rate)} over the last 6 months` : '';
     const caption =
       tested && typeof tested.right_rate === 'number'
-        ? `${buy ? 'Rose' : 'Fell'} ${pct(tested.right_rate)} of the time in testing${base ? ` (typical stock ${pct(base.moved)})` : ''}`
+        ? `${buy ? 'Rose' : 'Fell'} ${pct(tested.right_rate)} of the time in testing${lately}${base ? ` (typical stock ${pct(base.moved)})` : ''}`
         : buy
           ? 'Most likely to beat the market'
           : 'Most likely to lag it · intraday only';
     return (
       <section key={side} className="mt-4" aria-label={title}>
         <div className="mb-2 flex items-baseline justify-between gap-3">
-          <h3 className={`text-[13px] font-semibold uppercase tracking-[0.08em] ${buy ? 'text-[color:var(--up)]' : 'text-[color:var(--down)]'}`}>
+          <h3 className={`shrink-0 whitespace-nowrap text-[13px] font-semibold uppercase tracking-[0.08em] ${buy ? 'text-[color:var(--up)]' : 'text-[color:var(--down)]'}`}>
             {title} {list.length > 0 && <span className="font-numeric text-[color:var(--ink-4)]">{list.length}</span>}
           </h3>
           {list.length > 0 && <span className="text-right text-[11.5px] text-[color:var(--ink-4)]">{caption}</span>}
@@ -209,12 +213,12 @@ function typical(side: Side, publish?: PublishRules | null) {
   return side === 'buy' ? { moved: base.rose_rate, market: base.beat_rate } : { moved: 1 - base.rose_rate, market: 1 - base.beat_rate };
 }
 
-function testedLine(side: Side, stats: PolicyStats, published: boolean, publish?: PublishRules | null) {
+function testedLine(side: Side, stats: PolicyStats, heldUp: boolean, publish?: PublishRules | null) {
   const buy = side === 'buy';
   const moved = buy ? 'rose' : 'fell';
   const versus = buy ? 'beat' : 'lagged';
   const rates = `${moved} ${pct(stats.right_rate ?? 0)} of the time and ${versus} the market ${pct(stats.market_rate ?? 0)}`;
-  if (!published) {
+  if (!heldUp) {
     return `${buy ? 'Buy' : 'Sell'} calls are paused: even the strongest ${rates}, below the ${pct(publish?.bar ?? 0.55)} both must reach to publish.`;
   }
   const base = typical(side, publish);
@@ -223,7 +227,18 @@ function testedLine(side: Side, stats: PolicyStats, published: boolean, publish?
     typeof stats.calls_per_day === 'number' && typeof stats.days_with_calls === 'number'
       ? ` About ${stats.calls_per_day.toFixed(1)} calls a session, on ${pct(stats.days_with_calls)} of sessions.`
       : '';
-  return `Published ${side} calls ${rates}.${compare}${often}`;
+  return `${buy ? 'Buy' : 'Sell'} calls at this strength ${rates}.${compare}${often}`;
+}
+
+/** The latest stretch, which a side must also clear to keep publishing. */
+function recentLine(side: Side, recent: RecentRecord, bar: number) {
+  if (typeof recent.right_rate !== 'number' || typeof recent.market_rate !== 'number') return null;
+  const buy = side === 'buy';
+  const span = `Over the last ${recent.sessions} sessions${recent.live_sessions ? ` (${recent.live_sessions} graded live, the rest from testing)` : ''}`;
+  const rates = `${buy ? 'rose' : 'fell'} ${pct(recent.right_rate)} and ${buy ? 'beat' : 'lagged'} the market ${pct(recent.market_rate)}`;
+  return recent.passes
+    ? `${span}, they ${rates}.`
+    : `${span}, they ${rates}: below the ${pct(bar)} bar, so ${side} calls are paused until that recovers.`;
 }
 
 /** Every graded call, right or wrong, beside how the published calls did in testing. */
@@ -239,17 +254,17 @@ export function Scorecard({
   horizon: Horizon;
 }) {
   const sides = sidesFor(horizon);
-  const published = sides.filter(side => publish?.[side]?.confirmed);
+  const published = sides.filter(side => isPublished(publish?.[side]));
   const badge = !publish ? null : published.length === 0 ? 'Paused' : published.length === sides.length ? 'Publishing' : `Publishing ${published[0]} calls`;
-  const tested = sides
-    .map(side => {
-      const rule = publish?.[side];
-      const stats = rule?.confirmed ? rule.confirmation : rule?.best ?? rule?.confirmation;
-      return stats && typeof stats.right_rate === 'number' ? testedLine(side, stats, Boolean(rule?.confirmed), publish) : null;
-    })
-    .filter(Boolean);
+  const tested = sides.flatMap(side => {
+    const rule = publish?.[side];
+    const stats = rule?.confirmed ? rule.confirmation : rule?.best ?? rule?.confirmation;
+    if (!stats || typeof stats.right_rate !== 'number') return [];
+    const recent = rule?.confirmed && rule.recent ? recentLine(side, rule.recent, publish?.bar ?? 0.55) : null;
+    return [testedLine(side, stats, Boolean(rule?.confirmed), publish), ...(recent ? [recent] : [])];
+  });
   const worst = published
-    .map(side => publish?.[side]?.confirmation?.right_rate)
+    .flatMap(side => [publish?.[side]?.confirmation?.right_rate, publish?.[side]?.recent?.right_rate])
     .filter((rate): rate is number => typeof rate === 'number');
   const latest = live?.latest;
   return (

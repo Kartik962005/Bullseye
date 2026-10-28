@@ -108,6 +108,40 @@ class RunTests(unittest.TestCase):
         self.assertEqual(sell["stop_price"], sell["high_price"])  # a sell's exit line is the high case
         self.assertEqual(sell["tested"]["call_rate"], 0.57)
 
+    def test_default_run_keeps_its_would_be_calls_and_recent_record(self):
+        import pandas as pd
+
+        predictions = pd.DataFrame({
+            "ticker": ["TCS.NS", "INFY.NS", "SBIN.NS"], "sector": ["IT", "IT", "Banks"], "date": ["2026-10-29"] * 3,
+            "close": [3000.0, 1500.0, 800.0], "p_beat": [0.58, 0.47, 0.41], "rank_score": [0.6, 0.5, 0.4],
+            "q10": [-0.02, -0.03, -0.025], "q50": [0.002, -0.004, -0.003], "q90": [0.025, 0.02, 0.02],
+        })
+        daily = [[day, 5, 3, 3] for day in pd.bdate_range("2026-04-01", periods=120).strftime("%Y-%m-%d")]
+        artifact = {"calibration": [], "publish": {
+            "max_per_day": 5, "sector_cap": 2, "bar": 0.55,
+            "buy": {"cut": None, "confirmed": False, "best": {"right_rate": 0.54, "market_rate": 0.54}},
+            "sell": {"cut": 0.46, "confirmed": True, "confirmation": {"right_rate": 0.6, "market_rate": 0.6},
+                     "recent": {"daily": daily}},
+        }}
+        stored = {}
+        with mock.patch.object(dts, "_session_complete", return_value=True), \
+             mock.patch.object(dts, "_last_completed_session", return_value=__import__("datetime").date(2026, 10, 29)), \
+             mock.patch.object(dts, "_find_existing_run", return_value=None), \
+             mock.patch.object(dts.forecast_engine, "load_artifact", return_value=artifact), \
+             mock.patch.object(dts, "_forecast_universe", return_value=predictions), \
+             mock.patch.object(dts, "_live_forecast_record", return_value={"calls": 0}), \
+             mock.patch.object(dts, "_tracked_sessions", return_value=[]), \
+             mock.patch.object(dts, "_store_model_run", side_effect=lambda run, rows: stored.update(run=run, rows=rows) or run), \
+             mock.patch.object(dts, "_log_audit"):
+            run = dts.run_daily_prediction(signal_type="1-day", risk_level=dts.DEFAULT_RISK_LEVEL,
+                                           target_day=__import__("datetime").date(2026, 10, 30))["model_run"]
+        self.assertEqual([r["symbol"] for r in stored["rows"]], ["SBIN"])
+        self.assertEqual(run["summary"]["tracking"], {"sell": ["SBIN.NS"]})
+        recent = run["summary"]["publish"]["sell"]["recent"]
+        self.assertTrue(recent["passes"])
+        self.assertEqual((recent["sessions"], recent["calls"]), (120, 600))
+        self.assertNotIn("daily", recent)
+
     def test_five_day_window_skips_weekends_and_holidays(self):
         from datetime import date
 
