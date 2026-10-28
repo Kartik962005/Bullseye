@@ -120,6 +120,19 @@ class RunTests(unittest.TestCase):
             result = dts.run_daily_prediction(signal_type="5-day")
         self.assertTrue(result["skipped"])
 
+    def test_catch_up_builds_a_missing_run_during_the_session(self):
+        with mock.patch.object(dts, "_session_complete", return_value=False), \
+             mock.patch.object(dts, "_find_existing_run", return_value=None), \
+             mock.patch.object(dts.forecast_engine, "load_artifact", return_value=None), \
+             mock.patch.object(dts, "_store_model_run", side_effect=lambda run, rows: run), \
+             mock.patch.object(dts, "_log_audit"):
+            result = dts.run_daily_prediction(signal_type="5-day", catch_up=True)
+        self.assertNotIn("skipped", result)
+
+    def test_email_time_reads_both_form_and_database_formats(self):
+        self.assertEqual(dts._parse_time_string("20:00").hour, 20)
+        self.assertEqual(dts._parse_time_string("20:15:00").minute, 15)
+
     def test_email_now_sends_stored_picks_and_never_computes(self):
         run = {"id": "r1", "status": "completed", "target_date": "2026-10-14", "market": "NSE", "risk_level": "Balanced", "signal_type": "3-day"}
         user = {"id": "u1", "email": "a@example.com"}

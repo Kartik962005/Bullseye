@@ -192,8 +192,13 @@ def _previous_trading_day(from_day: date | None = None) -> date:
 
 def _parse_time_string(value: str | None) -> time:
     clean = (value or DEFAULT_EMAIL_TIME).strip()
-    parsed = datetime.strptime(clean, "%H:%M")
-    return parsed.time()
+    # A Postgres time column comes back as "20:00:00"; the form sends "20:00".
+    for fmt in ("%H:%M", "%H:%M:%S"):
+        try:
+            return datetime.strptime(clean, fmt).time()
+        except ValueError:
+            continue
+    return datetime.strptime(clean[:5], "%H:%M").time()
 
 
 def _public_backend_base_url() -> str:
@@ -1024,20 +1029,23 @@ def run_daily_prediction(
     send_email: bool = False,
     user_ids: list[str] | None = None,
     force: bool = False,
+    catch_up: bool = False,
 ) -> dict[str, Any]:
     """Build (or reuse) the picks for the next session at one horizon and risk level.
 
     Runs only on completed daily bars: during a trading session the latest bar
     is still moving, so features computed from it would not match anything the
     model was trained or tested on. On weekends and holidays it uses the last
-    completed session and targets the next one.
+    completed session and targets the next one. With catch_up, a run missing
+    for the session in progress is built from the previous close, the same
+    inputs it would have had the evening before.
     """
     market = _normalize_market(market)
     risk_level = _normalize_risk(risk_level)
     signal_type = _normalize_signal_type(signal_type)
     horizon_days = horizon_from_signal_type(signal_type)
     now = datetime.now(IST)
-    if not _session_complete(now) and not force:
+    if not _session_complete(now) and not (force or catch_up):
         return {
             "skipped": True,
             "reason": "Today's session is still open. Picks for the next session are built after the close.",
@@ -1322,15 +1330,15 @@ _PREPARE_RETRY_SECONDS = 20 * 60
 
 
 def prepare_daily_runs(market: str = DEFAULT_MARKET) -> dict[str, Any]:
-    """Build every horizon x risk level once the session has closed.
+    """Build every horizon x risk level for the next session.
 
     Called by the scheduled tick, never by a page: users only ever read stored
     runs, so nobody waits on a model run. Cheap to repeat, as finished runs are
-    found and reused.
+    found and reused. During a session it only fills in runs still missing for
+    that session (say the server was down the evening before), always from the
+    previous close.
     """
     global _PREPARE_FAILED_AT
-    if not _session_complete():
-        return {"skipped": True, "reason": "Session still open"}
     # After a failure, wait before trying again, so a persistent problem cannot
     # rerun the heavy build every minute and starve the API.
     if _PREPARE_FAILED_AT and (datetime.now(timezone.utc) - _PREPARE_FAILED_AT).total_seconds() < _PREPARE_RETRY_SECONDS:
@@ -1343,6 +1351,7 @@ def prepare_daily_runs(market: str = DEFAULT_MARKET) -> dict[str, Any]:
                     market=market,
                     risk_level=risk_level,
                     signal_type=signal_type_for_horizon(horizon),
+                    catch_up=True,
                 )
                 run = result.get("model_run") or {}
                 built.append({
