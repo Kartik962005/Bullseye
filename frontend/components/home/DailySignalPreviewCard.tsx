@@ -84,12 +84,13 @@ export function DailySignalPreviewCard({ signedIn, alertsEnabled, onOpenSettings
             </span>
           </div>
           <h2 className="mt-5 font-display text-[clamp(2.2rem,4.4vw,3.6rem)] font-normal leading-[1] text-paper">
-            Buy and sell calls <em className="nova-gradient-text italic">every evening.</em>
+            Only the calls that <em className="nova-gradient-text italic">tested strong.</em>
           </h2>
           <p className="mt-4 max-w-[44ch] font-body text-[15px] leading-7 text-[color:var(--ink-2)]">
-            After each close the model ranks the Nifty 200: intraday buy and sell calls for the next session, and buy
-            calls for 3 and 5 trading days, each with its expected price, likely range and how often calls like it
-            were right in testing.
+            After each close the model ranks the Nifty 200 for the next session and the next 3 and 5 trading days, and
+            publishes a call only at a strength that held up on years of data it never trained on. Each comes with its
+            likely move, an exit line and how often calls like it were right. Some days there are none, and every
+            result goes on the scorecard, right or wrong.
           </p>
           <button type="button" onClick={onOpenSettings} className="nova-btn nova-btn-primary mt-7">
             {!signedIn ? "Sign in to see every call" : alertsEnabled ? "Open daily calls" : "See every call"}
@@ -139,14 +140,16 @@ export function DailySignalPreviewCard({ signedIn, alertsEnabled, onOpenSettings
             ) : !run ? (
               <li className="py-4 text-[13px] leading-6 text-[color:var(--ink-2)]">{notReadyMessage(session)}</li>
             ) : preview.length === 0 ? (
-              <li className="py-4 text-[13px] leading-6 text-[color:var(--ink-2)]">No calls for this session.</li>
+              <li className="py-4 text-[13px] leading-6 text-[color:var(--ink-2)]">
+                {Object.values(run.summary?.side_notes ?? {}).find(Boolean) || "No strong calls for this session."}
+              </li>
             ) : (
               preview.map((pick) => <CallRow key={pick.id ?? `${pick.direction}-${pick.symbol}`} pick={pick} />)
             )}
           </ul>
 
           <button type="button" onClick={onOpenSettings} className="sx-btn-ghost mt-4 w-full justify-center">
-            {signedIn ? "See every call with price and range" : "Sign in to see prices and ranges"}
+            {signedIn ? "See every call and the scorecard" : "Sign in to see every call and the scorecard"}
           </button>
         </div>
       </div>

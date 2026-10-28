@@ -92,10 +92,65 @@ export type ForecastTest = {
   ml_top_n?: { avg_net_r?: number; fill_rate?: number; trades?: number } | null;
 };
 
+/** One graded call: did it beat (buy) or lag (sell) the market, and did it rise (buy) or fall (sell)? */
+export type GradedCall = {
+  date: string;
+  symbol: string;
+  direction: 'BUY' | 'SELL';
+  right: boolean;
+  moved?: boolean | null;
+  move_pct?: number | null;
+  market_pct?: number | null;
+  edge_pct?: number;
+};
+
+type LiveSide = { calls: number; right: number; moved_calls?: number; moved?: number; avg_edge_pct: number };
+
+/** The scorecard: how the published calls have actually done since this engine went live. */
 export type LiveRecord = {
   calls: number;
-  buy?: { calls: number; right: number; avg_edge_pct: number };
-  sell?: { calls: number; right: number; avg_edge_pct: number };
+  since?: string | null;
+  buy?: LiveSide;
+  sell?: LiveSide;
+  latest?: { date: string; calls: GradedCall[] } | null;
+};
+
+/** How a publishing cut-off did on one half of the out-of-sample test. */
+export type PolicyStats = {
+  calls: number;
+  days: number;
+  days_with_calls?: number;
+  calls_per_day?: number;
+  /** Rose after a buy, fell after a sell. */
+  right_rate?: number;
+  /** Beat the average Nifty 200 stock (buy) or lagged it (sell). */
+  market_rate?: number;
+  avg_move?: number;
+  avg_after_cost?: number;
+  t_stat?: number;
+};
+
+/** A side publishes only when `confirmed`; otherwise it is paused and `best` (or `confirmation`) says how close it came. */
+export type PublishSide = {
+  cut: number | null;
+  confirmed: boolean;
+  selection?: PolicyStats;
+  confirmation?: PolicyStats;
+  best?: PolicyStats | null;
+};
+
+export type PublishRules = {
+  max_per_day?: number;
+  sector_cap?: number;
+  /** Both rates must reach this on the untouched half before a side publishes. */
+  bar?: number;
+  first_day?: string;
+  last_day?: string;
+  days?: number;
+  /** A typical stock on the same days, for comparison. */
+  base?: { rose_rate: number; beat_rate: number };
+  buy?: PublishSide | null;
+  sell?: PublishSide | null;
 };
 
 export type PickRun = {
@@ -115,6 +170,9 @@ export type PickRun = {
     typical_p_beat?: number | null;
     model_test?: ForecastTest | null;
     live_record?: LiveRecord | null;
+    publish?: PublishRules | null;
+    /** Why a side has no calls in this run, keyed by side. */
+    side_notes?: { buy?: string; sell?: string } | null;
   } | null;
 };
 

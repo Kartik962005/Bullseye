@@ -92,7 +92,7 @@ const STORY: { index: string; label: string; lead: string; em: string; body: str
     label: "The verdict",
     lead: "Then it commits",
     em: "to one.",
-    body: "A call, stamped: buy or sell, the expected price, the likely range and an exit line, with the chance behind it measured on years of data the model never saw.",
+    body: "A call only when it tested strong: buy or sell, the likely move and an exit line, with how often calls like it were right on years of data the model never saw.",
     chips: ["Buy", "Sell", "Range", "Tested odds"],
   },
   {
@@ -416,8 +416,8 @@ export function NovaExperience({ signedIn, onOpenDailySignals, stockStrip }: Nov
               <em className="nova-gradient-text italic">verdict.</em>
             </h1>
             <p className="mt-6 max-w-[46ch] font-body text-[16px] leading-7 text-[color:var(--ink-2)]">
-              Every evening Bullseye ranks the Nifty 200 and hands you buy and sell calls, each with an
-              expected price, a likely range and how often calls like it were right.
+              Every evening Bullseye ranks the Nifty 200 and publishes only the calls that tested strong, each
+              with its likely move and how often calls like it were right, and a scorecard of every result.
             </p>
             <div className="mt-8 flex flex-wrap items-center gap-3">
               <Link href="/screens" className="nova-btn nova-btn-primary group">

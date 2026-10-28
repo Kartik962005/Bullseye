@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { usePresence } from '@/components/motion/usePresence';
-import { CallLists, TrackPanel, WindowBanner } from '@/components/alerts/ForecastCalls';
+import { CallLists, Scorecard, WindowBanner } from '@/components/alerts/ForecastCalls';
 import {
   type AlertSettings,
   type Horizon,
@@ -278,7 +278,8 @@ export function DailyAlertsDialog({
         ? 'Market is open now'
         : null;
   const withheld = run?.status === 'withheld';
-  const forecastCalls = picks.length > 0 && picks.every(p => Boolean(p.explanation_json?.forecast));
+  // A forecast run lists its calls by side, and says why a side has none.
+  const forecastRun = run?.summary?.kind === 'forecast' && picks.every(p => Boolean(p.explanation_json?.forecast));
 
   return (
     <>
@@ -298,7 +299,7 @@ export function DailyAlertsDialog({
                 Daily calls
               </h2>
               <p className="mt-0.5 text-[13px] leading-5 text-[color:var(--ink-3)]">
-                Buy and sell calls for the Nifty 200, built after each close. Forecasts, not advice.
+                Nifty 200 calls built after each close, published only at a strength that held up in testing. Forecasts, not advice.
               </p>
             </div>
             <button type="button" onClick={onClose} aria-label="Close daily picks" className="hdr-icon !h-9 !w-9 !min-w-9 shrink-0 !p-0">
@@ -337,12 +338,12 @@ export function DailyAlertsDialog({
                   <p className="mt-4 rounded-2xl border border-dashed border-white/10 px-4 py-5 text-[13px] leading-6 text-[color:var(--ink-2)]">
                     {notReadyMessage(session)}
                   </p>
+                ) : forecastRun ? (
+                  <CallLists picks={picks} horizon={horizon} publish={run?.summary?.publish} notes={run?.summary?.side_notes} />
                 ) : picks.length === 0 ? (
                   <p className="mt-4 rounded-2xl border border-dashed border-white/10 px-4 py-5 text-[13px] leading-6 text-[color:var(--ink-2)]">
                     No calls for this session.
                   </p>
-                ) : forecastCalls ? (
-                  <CallLists picks={picks} horizon={horizon} />
                 ) : (
                   <ol className="mt-4 flex flex-col gap-2">
                     {picks.map((pick, index) => <PickRow key={pick.id ?? pick.symbol} pick={pick} rank={index + 1} />)}
@@ -358,7 +359,9 @@ export function DailyAlertsDialog({
                 </div>
               )}
 
-              {forecastCalls && <TrackPanel test={run?.summary?.model_test} live={run?.summary?.live_record} horizon={horizon} />}
+              {forecastRun && (
+                <Scorecard test={run?.summary?.model_test} live={run?.summary?.live_record} publish={run?.summary?.publish} horizon={horizon} />
+              )}
             </section>
 
             <section className="mt-6 rounded-[20px] border border-white/[0.08] bg-white/[0.03] p-4">

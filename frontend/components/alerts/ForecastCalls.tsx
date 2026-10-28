@@ -8,6 +8,8 @@ import {
   type Horizon,
   type LiveRecord,
   type Pick,
+  type PolicyStats,
+  type PublishRules,
   callChance,
   horizonWindow,
   prettyDate,
@@ -17,6 +19,9 @@ const money = (n: number) => `₹${Number(n).toLocaleString('en-IN', { maximumFr
 const pct = (n: number) => `${Math.round(n * 100)}%`;
 const signedPct = (n: number) => `${n >= 0 ? '+' : '−'}${Math.abs(n * 100).toFixed(1)}%`;
 const monthYear = (iso: string) => new Date(`${iso}T00:00:00Z`).toLocaleDateString('en-IN', { month: 'short', year: 'numeric', timeZone: 'UTC' });
+
+type Side = 'buy' | 'sell';
+const sidesFor = (horizon: Horizon): Side[] => (horizon === 1 ? ['buy', 'sell'] : ['buy']);
 
 /** Which sessions the calls cover, counted on the NSE calendar. */
 export function WindowBanner({
@@ -62,7 +67,8 @@ function CallCard({ pick, forecast, horizon }: { pick: Pick; forecast: Forecast;
   const [open, setOpen] = useState(false);
   const buy = pick.direction === 'BUY';
   const chance = callChance(forecast, pick.direction);
-  const stop = forecast.stop_price ?? (buy ? forecast.low_price : forecast.high_price);
+  // The forecast runs from the open, so the exit line is a move from the open.
+  const against = buy ? forecast.q10 : forecast.q90;
   const tested = forecast.tested;
   const testedRate = tested ? tested.call_rate ?? (typeof tested.actual_beat_rate === 'number' ? (buy ? tested.actual_beat_rate : 1 - tested.actual_beat_rate) : null) : null;
   const endLabel = forecast.last_session ? prettyDate(forecast.last_session) : horizon === 1 ? 'the close' : `session ${horizon}`;
@@ -94,34 +100,33 @@ function CallCard({ pick, forecast, horizon }: { pick: Pick; forecast: Forecast;
         </svg>
       </button>
       <div className="flex flex-wrap gap-x-4 gap-y-1 px-4 pb-3 font-numeric text-[12px] text-[color:var(--ink-2)] sm:pl-[4.6rem]">
-        <span>Last {money(forecast.reference_close)}</span>
-        <span>Expected {money(forecast.mid_price)}</span>
-        <span className={buy ? 'text-[color:var(--down)]' : 'text-[color:var(--down)]'}>
-          Exit if {buy ? 'below' : 'above'} {money(stop)}
+        <span>
+          Likely {signedPct(forecast.q10)} to {signedPct(forecast.q90)}
         </span>
+        <span className="text-[color:var(--down)]">
+          Exit {buy ? 'below' : 'above'} {signedPct(against)}
+        </span>
+        <span className="text-[color:var(--ink-4)]">from the open</span>
       </div>
       {open && (
         <div className="anim-pop border-t border-white/[0.06] px-4 pb-3.5 pt-3 text-[12.5px] leading-5 text-[color:var(--ink-2)]" data-state="open">
           <div className="grid grid-cols-3 gap-2 font-numeric">
-            <div className="min-w-0">
-              <div className="text-[10.5px] text-[color:var(--ink-4)]">Low case</div>
-              {money(forecast.low_price)}
-              <span className="block text-[11px] text-[color:var(--ink-4)]">{signedPct(forecast.q10)}</span>
-            </div>
-            <div className="min-w-0">
-              <div className="text-[10.5px] text-[color:var(--ink-4)]">Expected</div>
-              {money(forecast.mid_price)}
-              <span className="block text-[11px] text-[color:var(--ink-4)]">{signedPct(forecast.q50)}</span>
-            </div>
-            <div className="min-w-0">
-              <div className="text-[10.5px] text-[color:var(--ink-4)]">High case</div>
-              {money(forecast.high_price)}
-              <span className="block text-[11px] text-[color:var(--ink-4)]">{signedPct(forecast.q90)}</span>
-            </div>
+            {([
+              ['Low case', forecast.q10, forecast.low_price],
+              ['Middle', forecast.q50, forecast.mid_price],
+              ['High case', forecast.q90, forecast.high_price],
+            ] as const).map(([label, move, price]) => (
+              <div key={label} className="min-w-0">
+                <div className="text-[10.5px] text-[color:var(--ink-4)]">{label}</div>
+                {signedPct(move)}
+                <span className="block text-[11px] text-[color:var(--ink-4)]">≈ {money(price)}</span>
+              </div>
+            ))}
           </div>
           <p className="mt-2.5 text-[12px] text-[color:var(--ink-3)]">
-            “Expected” is the middle of the forecast: half of outcomes finished above it, half below. By {endLabel}, 8 in 10
-            outcomes in testing landed between the low and high case; the exit line is the 1-in-10 {buy ? 'low' : 'high'}.
+            Moves run from the 9:15 AM open to the close {horizon === 1 ? 'the same day' : `on ${endLabel}`}. The prices assume it opens near the
+            last close ({money(forecast.reference_close)}); if it opens higher or lower, they shift with it. By {endLabel}, 8 in 10 outcomes in
+            testing landed between the low and high case, and the exit line is the 1-in-10 {buy ? 'low' : 'high'}.
             {tested && testedRate !== null
               ? ` Calls with this chance were right ${pct(testedRate)} of the time in testing (${tested.samples.toLocaleString('en-IN')} cases).`
               : ''}
@@ -140,92 +145,201 @@ function CallCard({ pick, forecast, horizon }: { pick: Pick; forecast: Forecast;
   );
 }
 
-/** Buy calls, then sell calls (intraday), each with its own heading. */
-export function CallLists({ picks, horizon }: { picks: Pick[]; horizon: Horizon }) {
-  const buys = picks.filter(p => p.direction === 'BUY');
-  const sells = picks.filter(p => p.direction === 'SELL');
-  const section = (title: string, note: string, list: Pick[], tone: 'up' | 'down') =>
-    list.length > 0 && (
-      <section className="mt-4" aria-label={title}>
+/** Buy calls, then sell calls (intraday), each with its tested record; a side with no calls says why. */
+export function CallLists({
+  picks,
+  horizon,
+  publish,
+  notes,
+}: {
+  picks: Pick[];
+  horizon: Horizon;
+  publish?: PublishRules | null;
+  notes?: { buy?: string; sell?: string } | null;
+}) {
+  const sections = sidesFor(horizon).map(side => {
+    const buy = side === 'buy';
+    const list = picks.filter(p => p.direction === (buy ? 'BUY' : 'SELL'));
+    const rule = publish?.[side];
+    const tested = rule?.confirmed ? rule.confirmation : null;
+    const note = notes?.[side];
+    if (list.length === 0 && !note) return null;
+    const title = buy ? 'Buy calls' : 'Sell calls';
+    const base = typical(side, publish);
+    const caption =
+      tested && typeof tested.right_rate === 'number'
+        ? `${buy ? 'Rose' : 'Fell'} ${pct(tested.right_rate)} of the time in testing${base ? ` (typical stock ${pct(base.moved)})` : ''}`
+        : buy
+          ? 'Most likely to beat the market'
+          : 'Most likely to lag it · intraday only';
+    return (
+      <section key={side} className="mt-4" aria-label={title}>
         <div className="mb-2 flex items-baseline justify-between gap-3">
-          <h3 className={`text-[13px] font-semibold uppercase tracking-[0.08em] ${tone === 'up' ? 'text-[color:var(--up)]' : 'text-[color:var(--down)]'}`}>
-            {title} <span className="font-numeric text-[color:var(--ink-4)]">{list.length}</span>
+          <h3 className={`text-[13px] font-semibold uppercase tracking-[0.08em] ${buy ? 'text-[color:var(--up)]' : 'text-[color:var(--down)]'}`}>
+            {title} {list.length > 0 && <span className="font-numeric text-[color:var(--ink-4)]">{list.length}</span>}
           </h3>
-          <span className="text-right text-[11.5px] text-[color:var(--ink-4)]">{note}</span>
+          {list.length > 0 && <span className="text-right text-[11.5px] text-[color:var(--ink-4)]">{caption}</span>}
         </div>
-        <ol className="flex flex-col gap-2">
-          {list.map(pick => (
-            <CallCard key={pick.id ?? `${pick.direction}-${pick.symbol}`} pick={pick} forecast={pick.explanation_json!.forecast!} horizon={horizon} />
-          ))}
-        </ol>
+        {list.length > 0 ? (
+          <ol className="flex flex-col gap-2">
+            {list.map(pick => (
+              <CallCard key={pick.id ?? `${pick.direction}-${pick.symbol}`} pick={pick} forecast={pick.explanation_json!.forecast!} horizon={horizon} />
+            ))}
+          </ol>
+        ) : (
+          <p className="rounded-2xl border border-dashed border-white/10 px-4 py-4 text-[12.5px] leading-5 text-[color:var(--ink-2)]">{note}</p>
+        )}
       </section>
     );
-  return (
-    <>
-      {section('Buy calls', 'Most likely to beat the market', buys, 'up')}
-      {section('Sell calls', 'Most likely to lag it · intraday only', sells, 'down')}
-    </>
-  );
+  });
+  if (sections.every(section => section === null)) {
+    return (
+      <p className="mt-4 rounded-2xl border border-dashed border-white/10 px-4 py-5 text-[13px] leading-6 text-[color:var(--ink-2)]">
+        No strong calls for this session.
+      </p>
+    );
+  }
+  return <>{sections}</>;
 }
 
-/** How this horizon's calls did in testing, and live so far. */
-export function TrackPanel({ test, live, horizon }: { test?: ForecastTest | null; live?: LiveRecord | null; horizon: Horizon }) {
-  if (!test) return null;
-  const buy = test.buy;
-  const sell = test.sell;
-  const base = test.base_beat_rate;
-  const liveRate = (r?: { calls: number; right: number }) => (r && r.calls > 0 ? pct(r.right / r.calls) : null);
-  const buyOk = Boolean(test.buy_edge_confirmed);
-  const sellOk = horizon === 1 && Boolean(test.sell_edge_confirmed);
-  const confirmed = buyOk || sellOk;
-  const badge =
-    buyOk && sellOk ? 'Buy and sell edges confirmed' : buyOk ? 'Edge confirmed in testing' : sellOk ? 'Sell edge confirmed' : 'Edge not confirmed';
+/** A typical stock's rate on the same days: rose (buy) or fell (sell), and beat or lagged the average. */
+function typical(side: Side, publish?: PublishRules | null) {
+  const base = publish?.base;
+  if (!base) return null;
+  return side === 'buy' ? { moved: base.rose_rate, market: base.beat_rate } : { moved: 1 - base.rose_rate, market: 1 - base.beat_rate };
+}
+
+function testedLine(side: Side, stats: PolicyStats, published: boolean, publish?: PublishRules | null) {
+  const buy = side === 'buy';
+  const moved = buy ? 'rose' : 'fell';
+  const versus = buy ? 'beat' : 'lagged';
+  const rates = `${moved} ${pct(stats.right_rate ?? 0)} of the time and ${versus} the market ${pct(stats.market_rate ?? 0)}`;
+  if (!published) {
+    return `${buy ? 'Buy' : 'Sell'} calls are paused: even the strongest ${rates}, below the ${pct(publish?.bar ?? 0.55)} both must reach to publish.`;
+  }
+  const base = typical(side, publish);
+  const compare = base ? ` A typical stock ${moved} ${pct(base.moved)} and ${versus} it ${pct(base.market)} on the same days.` : '';
+  const often =
+    typeof stats.calls_per_day === 'number' && typeof stats.days_with_calls === 'number'
+      ? ` About ${stats.calls_per_day.toFixed(1)} calls a session, on ${pct(stats.days_with_calls)} of sessions.`
+      : '';
+  return `Published ${side} calls ${rates}.${compare}${often}`;
+}
+
+/** Every graded call, right or wrong, beside how the published calls did in testing. */
+export function Scorecard({
+  test,
+  live,
+  publish,
+  horizon,
+}: {
+  test?: ForecastTest | null;
+  live?: LiveRecord | null;
+  publish?: PublishRules | null;
+  horizon: Horizon;
+}) {
+  const sides = sidesFor(horizon);
+  const published = sides.filter(side => publish?.[side]?.confirmed);
+  const badge = !publish ? null : published.length === 0 ? 'Paused' : published.length === sides.length ? 'Publishing' : `Publishing ${published[0]} calls`;
+  const tested = sides
+    .map(side => {
+      const rule = publish?.[side];
+      const stats = rule?.confirmed ? rule.confirmation : rule?.best ?? rule?.confirmation;
+      return stats && typeof stats.right_rate === 'number' ? testedLine(side, stats, Boolean(rule?.confirmed), publish) : null;
+    })
+    .filter(Boolean);
+  const worst = published
+    .map(side => publish?.[side]?.confirmation?.right_rate)
+    .filter((rate): rate is number => typeof rate === 'number');
+  const latest = live?.latest;
   return (
-    <section className="mt-5 rounded-2xl border border-white/[0.08] px-4 py-3.5" aria-label="How these calls have done">
+    <section className="mt-5 rounded-2xl border border-white/[0.08] px-4 py-3.5" aria-label="Scorecard">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="text-[13.5px] font-semibold">How these calls have done</h3>
-        <span
-          className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${
-            confirmed ? 'bg-[color:var(--up)]/12 text-[color:var(--up)]' : 'bg-white/[0.07] text-[color:var(--ink-2)]'
-          }`}
-        >
-          {badge}
-        </span>
+        <h3 className="text-[13.5px] font-semibold">Scorecard</h3>
+        {badge && (
+          <span
+            className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${
+              published.length > 0 ? 'bg-[color:var(--up)]/12 text-[color:var(--up)]' : 'bg-white/[0.07] text-[color:var(--ink-2)]'
+            }`}
+          >
+            {badge}
+          </span>
+        )}
       </div>
-      <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3 text-[12.5px] sm:grid-cols-3">
-        {typeof buy?.beat_rate === 'number' && (
-          <div>
-            <dt className="text-[11px] text-[color:var(--ink-4)]">Buy calls beat the market</dt>
-            <dd className="font-numeric text-[15px] text-white">
-              {pct(buy.beat_rate)}
-              {typeof base === 'number' && <span className="ml-1 text-[11px] text-[color:var(--ink-4)]">vs {pct(base)} typical</span>}
-            </dd>
+
+      {live && live.calls > 0 ? (
+        <>
+          <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3 text-[12.5px]">
+            {sides.map(side => {
+              const record = live[side];
+              if (!record) return null;
+              const moved = typeof record.moved === 'number' && record.moved_calls ? record.moved : null;
+              return (
+                <div key={side}>
+                  <dt className="text-[11px] text-[color:var(--ink-4)]">{side === 'buy' ? 'Buy calls that rose' : 'Sell calls that fell'}</dt>
+                  <dd className="font-numeric text-[15px] text-white">
+                    {moved !== null ? `${moved} of ${record.moved_calls}` : '–'}
+                  </dd>
+                  <dd className="text-[11px] text-[color:var(--ink-4)]">
+                    {side === 'buy' ? 'beat' : 'lagged'} the market {record.right} of {record.calls}
+                  </dd>
+                </div>
+              );
+            })}
+          </dl>
+          {latest && latest.calls.length > 0 && (
+            <div className="mt-3">
+              <div className="text-[11px] text-[color:var(--ink-4)]">Last graded session · {prettyDate(latest.date)}</div>
+              <ul className="mt-1.5 divide-y divide-white/[0.06] font-numeric text-[12px]">
+                {latest.calls.map(call => {
+                  const ok = call.moved ?? call.right;
+                  return (
+                    <li key={`${call.direction}-${call.symbol}`} className="flex items-center gap-2 py-1.5">
+                      <span className={`w-9 text-[10.5px] font-semibold ${call.direction === 'BUY' ? 'text-[color:var(--up)]' : 'text-[color:var(--down)]'}`}>
+                        {call.direction}
+                      </span>
+                      <span className="min-w-0 flex-1 truncate text-white">{call.symbol}</span>
+                      {typeof call.move_pct === 'number' && <span className="text-[color:var(--ink-2)]">{signedPct(call.move_pct / 100)}</span>}
+                      {typeof call.market_pct === 'number' && (
+                        <span className="hidden text-[color:var(--ink-4)] sm:inline">market {signedPct(call.market_pct / 100)}</span>
+                      )}
+                      <span className={`w-14 text-right text-[11px] font-medium ${ok ? 'text-[color:var(--up)]' : 'text-[color:var(--down)]'}`}>
+                        {ok ? 'Right' : 'Missed'}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          )}
+          <p className="mt-2 text-[11.5px] leading-5 text-[color:var(--ink-3)]">
+            Every published call since {live.since ? prettyDate(live.since) : 'launch'}, right or wrong. Moves run from the open; a buy is right when it
+            rises, a sell when it falls.
+          </p>
+        </>
+      ) : (
+        <p className="mt-2 text-[12.5px] leading-5 text-[color:var(--ink-2)]">
+          No graded calls yet. Each call is graded after its window closes, and every result appears here, right or wrong.
+        </p>
+      )}
+
+      {tested.length > 0 && (
+        <div className="mt-3 border-t border-white/[0.06] pt-3 text-[12px] leading-5 text-[color:var(--ink-2)]">
+          <div className="text-[11px] text-[color:var(--ink-4)]">
+            In testing
+            {publish?.first_day && publish?.last_day ? `, ${monthYear(publish.first_day)} to ${monthYear(publish.last_day)}` : ''}
+            {test?.stocks ? `, ${test.stocks} ${test.universe ?? 'Nifty 200'} stocks` : ''}
           </div>
-        )}
-        {horizon === 1 && typeof sell?.lag_rate === 'number' && (
-          <div>
-            <dt className="text-[11px] text-[color:var(--ink-4)]">Sell calls lagged it</dt>
-            <dd className="font-numeric text-[15px] text-white">
-              {pct(sell.lag_rate)}
-              {typeof base === 'number' && <span className="ml-1 text-[11px] text-[color:var(--ink-4)]">vs {pct(1 - base)} typical</span>}
-            </dd>
-          </div>
-        )}
-        {typeof test.range_coverage === 'number' && (
-          <div>
-            <dt className="text-[11px] text-[color:var(--ink-4)]">Closed inside the range</dt>
-            <dd className="font-numeric text-[15px] text-white">{pct(test.range_coverage)}</dd>
-          </div>
-        )}
-      </dl>
+          {tested.map(line => (
+            <p key={line} className="mt-1">
+              {line}
+            </p>
+          ))}
+        </div>
+      )}
       <p className="mt-3 text-[11.5px] leading-5 text-[color:var(--ink-3)]">
-        Tested on {test.days ?? 'hundreds of'} trading sessions{test.first_day && test.last_day ? ` (${monthYear(test.first_day)} to ${monthYear(test.last_day)})` : ''} the model never trained on,
-        across the {test.stocks ?? 200} {test.universe ?? 'Nifty 200'} stocks.
-        {' '}
-        {live && live.calls > 0
-          ? `Live so far: buy calls right ${liveRate(live.buy) ?? '–'} of ${live.buy?.calls ?? 0}${horizon === 1 ? `, sell calls right ${liveRate(live.sell) ?? '–'} of ${live.sell?.calls ?? 0}` : ''}.`
-          : 'The live record fills in as each call’s window closes.'}
-        {' '}Forecasts, not advice; the edge is small and some calls will miss.
+        Forecasts, not advice.
+        {worst.length > 0 ? ` Even these calls missed about ${pct(1 - Math.min(...worst))} of the time in testing.` : ' Some calls will miss.'}
       </p>
     </section>
   );
