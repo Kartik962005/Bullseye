@@ -129,6 +129,20 @@ class RunTests(unittest.TestCase):
             result = dts.run_daily_prediction(signal_type="5-day", catch_up=True)
         self.assertNotIn("skipped", result)
 
+    def test_a_run_saved_without_all_its_calls_is_rebuilt(self):
+        partial = {"id": "old", "target_date": "2026-10-28", "model_version": "forecast-v3-h3", "selected_count": 10}
+        stored = {}
+        with mock.patch.object(dts, "_session_complete", return_value=False), \
+             mock.patch.object(dts, "_last_completed_session", return_value=__import__("datetime").date(2026, 10, 27)), \
+             mock.patch.object(dts, "_find_existing_run", return_value=partial), \
+             mock.patch.object(dts, "_load_signals_for_run", return_value=[{"symbol": "TCS"}]), \
+             mock.patch.object(dts.forecast_engine, "load_artifact", return_value=None), \
+             mock.patch.object(dts, "_store_model_run", side_effect=lambda run, rows: stored.update(run=run) or run), \
+             mock.patch.object(dts, "_log_audit"):
+            result = dts.run_daily_prediction(signal_type="3-day", catch_up=True)
+        self.assertFalse(result.get("cached"))
+        self.assertNotEqual(stored["run"]["id"], "old")
+
     def test_email_time_reads_both_form_and_database_formats(self):
         self.assertEqual(dts._parse_time_string("20:00").hour, 20)
         self.assertEqual(dts._parse_time_string("20:15:00").minute, 15)

@@ -925,9 +925,19 @@ def _store_model_run(run_payload: dict[str, Any], signals: list[dict[str, Any]])
                 "status": run_payload["status"],
                 "summary": run_payload["summary"],
             }
-            supabase.table(MODEL_RUNS_TABLE).upsert(run_record, on_conflict="id").execute()
-            for signal in signals:
-                supabase.table(SIGNALS_TABLE).upsert(signal, on_conflict="id").execute()
+            # One request for all of a run's calls, retried once: the shared
+            # connection to Supabase is sometimes dropped mid-run, which used to
+            # leave a run stored with only some of its calls.
+            for attempt in range(2):
+                try:
+                    supabase.table(MODEL_RUNS_TABLE).upsert(run_record, on_conflict="id").execute()
+                    if signals:
+                        supabase.table(SIGNALS_TABLE).upsert(signals, on_conflict="id").execute()
+                    break
+                except Exception as exc:
+                    if attempt or _should_use_memory_fallback(exc, MODEL_RUNS_TABLE) or _should_use_memory_fallback(exc, SIGNALS_TABLE):
+                        raise
+                    print(f"[DailySignals] storing run failed, retrying once: {exc}")
             return run_payload
         except Exception as exc:
             if not (_should_use_memory_fallback(exc, MODEL_RUNS_TABLE) or _should_use_memory_fallback(exc, SIGNALS_TABLE)):
@@ -1060,8 +1070,11 @@ def run_daily_prediction(
     # A run made by an older engine is replaced by a current forecast run.
     if existing_run and not str(existing_run.get("model_version") or "").startswith("forecast-v3"):
         existing_run = None
+    signals = _load_signals_for_run(existing_run["id"]) if existing_run and not force else []
+    # A run stored without all of its calls (an interrupted save) is rebuilt.
+    if existing_run and not force and len(signals) < int(existing_run.get("selected_count") or 0):
+        existing_run = None
     if existing_run and not force:
-        signals = _load_signals_for_run(existing_run["id"])
         notifications = _send_daily_signal_emails(existing_run, signals, user_ids=user_ids) if send_email else []
         return {"model_run": existing_run, "signals": signals, "notifications": notifications, "cached": True}
 
