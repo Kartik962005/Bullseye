@@ -30,7 +30,7 @@ jobs:
           HOOK: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
         run: |
           if [ -z "${HOOK:-}" ]; then
-            echo "RENDER_DEPLOY_HOOK_URL is not set; skipping. Deploy from the Render dashboard instead."
+            echo "::warning::RENDER_DEPLOY_HOOK_URL is not set, so nothing was deployed. Deploy from the Render dashboard, or add the secret."
             exit 0
           fi
           code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$HOOK")
