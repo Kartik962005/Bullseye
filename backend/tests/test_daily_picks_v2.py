@@ -143,6 +143,22 @@ class RunTests(unittest.TestCase):
         self.assertFalse(result.get("cached"))
         self.assertNotEqual(stored["run"]["id"], "old")
 
+    def test_no_intraday_catch_up_once_the_session_has_opened(self):
+        with mock.patch.object(dts, "_session_complete", return_value=False), \
+             mock.patch.object(dts, "_session_started", return_value=True), \
+             mock.patch.object(dts, "_store_model_run", side_effect=AssertionError("must not build")):
+            result = dts.run_daily_prediction(signal_type="1-day", catch_up=True)
+        self.assertTrue(result["skipped"])
+
+    def test_prepared_runs_are_not_looked_up_again_until_the_next_close(self):
+        calls = []
+        with mock.patch.object(dts, "_PREPARED_FOR", None), mock.patch.object(dts, "_PREPARE_FAILED_AT", None), \
+             mock.patch.object(dts, "run_daily_prediction", side_effect=lambda **kw: calls.append(kw) or {"model_run": {}, "cached": True}):
+            dts.prepare_daily_runs()
+            second = dts.prepare_daily_runs()
+        self.assertEqual(len(calls), 9)
+        self.assertTrue(second["skipped"])
+
     def test_email_time_reads_both_form_and_database_formats(self):
         self.assertEqual(dts._parse_time_string("20:00").hour, 20)
         self.assertEqual(dts._parse_time_string("20:15:00").minute, 15)

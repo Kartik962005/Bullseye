@@ -273,6 +273,15 @@ def _session_complete(now: datetime | None = None) -> bool:
     return now.time() >= settled
 
 
+_SESSION_OPENS = time(9, 15)
+
+
+def _session_started(now: datetime | None = None) -> bool:
+    """True from the open of a trading day until its close is settled."""
+    now = now or datetime.now(IST)
+    return not _is_market_holiday(now.date()) and now.time() >= _SESSION_OPENS and not _session_complete(now)
+
+
 def _current_session_date(now: datetime | None = None) -> date:
     """The session the picks on screen are for: today until the close, then the next one."""
     now = now or datetime.now(IST)
@@ -1061,6 +1070,14 @@ def run_daily_prediction(
             "reason": "Today's session is still open. Picks for the next session are built after the close.",
             "run_date": now.date().isoformat(),
         }
+    # An intraday call runs from the open, so a missing one cannot be filled in
+    # once the session has started: nobody could have acted on it.
+    if catch_up and not force and horizon_days == 1 and _session_started(now):
+        return {
+            "skipped": True,
+            "reason": "Today's session has opened, so its intraday calls can no longer be published.",
+            "run_date": now.date().isoformat(),
+        }
     run_day = _last_completed_session(now)
     target_date = (target_day or _next_trading_day(now.date() if _session_complete(now) else run_day)).isoformat()
 
@@ -1339,6 +1356,7 @@ def _live_forecast_record(horizon: int, limit: int = 400) -> dict[str, Any] | No
 
 
 _PREPARE_FAILED_AT: datetime | None = None
+_PREPARED_FOR: str | None = None
 _PREPARE_RETRY_SECONDS = 20 * 60
 
 
@@ -1351,7 +1369,13 @@ def prepare_daily_runs(market: str = DEFAULT_MARKET) -> dict[str, Any]:
     that session (say the server was down the evening before), always from the
     previous close.
     """
-    global _PREPARE_FAILED_AT
+    global _PREPARE_FAILED_AT, _PREPARED_FOR
+    now = datetime.now(IST)
+    # Once every run for this stretch is stored, nothing changes until the next
+    # close, so later ticks skip the nine lookups instead of repeating them.
+    stretch = f"{_last_completed_session(now)}:{_session_complete(now)}"
+    if _PREPARED_FOR == stretch:
+        return {"skipped": True, "reason": "Runs already prepared"}
     # After a failure, wait before trying again, so a persistent problem cannot
     # rerun the heavy build every minute and starve the API.
     if _PREPARE_FAILED_AT and (datetime.now(timezone.utc) - _PREPARE_FAILED_AT).total_seconds() < _PREPARE_RETRY_SECONDS:
@@ -1373,12 +1397,16 @@ def prepare_daily_runs(market: str = DEFAULT_MARKET) -> dict[str, Any]:
                     "status": run.get("status"),
                     "picks": run.get("selected_count"),
                     "cached": result.get("cached"),
+                    "skipped": result.get("reason") if result.get("skipped") else None,
                 })
             except Exception as exc:  # noqa: BLE001 - one failure must not block the rest
                 print(f"[DailySignals] prepare {horizon}-day/{risk_level} failed: {exc}")
                 built.append({"horizon_days": horizon, "risk_level": risk_level, "error": str(exc)})
-    _PREPARE_FAILED_AT = datetime.now(timezone.utc) if any("error" in b for b in built) else None
-    if any(not b.get("cached") for b in built):
+    failed = any("error" in b for b in built)
+    _PREPARE_FAILED_AT = datetime.now(timezone.utc) if failed else None
+    if not failed:
+        _PREPARED_FOR = stretch
+    if any(not b.get("cached") and not b.get("skipped") and "error" not in b for b in built):
         print(f"[DailySignals] prepared runs: {built}")
     return {"runs": built}
 
