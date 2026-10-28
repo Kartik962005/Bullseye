@@ -68,10 +68,9 @@ export function DailySignalPreviewCard({ signedIn, alertsEnabled, onOpenSettings
   const run = current?.run ?? null;
   const picks = current?.picks ?? [];
   const firstSession = run?.target_date ?? session.sessionDate;
-  const preview = [
-    ...picks.filter((p) => p.direction === "BUY").slice(0, horizon === 1 ? 3 : 4),
-    ...picks.filter((p) => p.direction === "SELL").slice(0, horizon === 1 ? 2 : 0),
-  ];
+  // Up to five rows: buys first, sells filling what is left (all five when buys are paused).
+  const sells = picks.filter((p) => p.direction === "SELL");
+  const preview = [...picks.filter((p) => p.direction === "BUY").slice(0, sells.length ? 3 : 5), ...sells].slice(0, 5);
 
   return (
     <section className="w-full px-5 py-20 sm:px-10 lg:px-16">
