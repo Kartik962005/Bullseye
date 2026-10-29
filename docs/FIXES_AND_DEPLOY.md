@@ -71,7 +71,9 @@ silent (impossible to debug).
   **and** records outcomes (deduped per day). Both the in-process loop and the
   `/api/v1/daily-updates/run-scheduled` endpoint now call it.
 - Every tick logs a breakdown: `considered / due / skipped{no_consent, not_due_yet,
-  already_sent, no_email}` so "no email arrived" is debuggable.
+  already_sent, no_email, retry_later, gave_up}` so "no email arrived" is debuggable.
+- A failed email is retried every 30 minutes, at most three times a session,
+  instead of on every tick. `email_logs.error_message` keeps the provider's reason.
 - The daily email now shows the conviction banner + per-signal confidence.
 
 ---

@@ -86,6 +86,7 @@ from app.services.alert_service import (
     update_alert_status,
 )
 from app.services.daily_trade_service import (
+    EmailNotSent,
     disable_daily_alerts,
     enable_daily_alerts,
     get_admin_status,
@@ -968,6 +969,8 @@ async def post_send_notification_now(request: Request, body: NotificationPrefere
             body.model_dump(exclude_none=True) if hasattr(body, "model_dump") else body.dict(exclude_none=True),
         )
         return result
+    except EmailNotSent as e:
+        raise HTTPException(status_code=502, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=401 if "sign in" in str(e).lower() or "session" in str(e).lower() else 400, detail=str(e))
     except Exception as e:

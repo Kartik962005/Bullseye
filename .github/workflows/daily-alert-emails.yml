@@ -60,21 +60,33 @@ jobs:
           )"
 
           echo "Backend HTTP status: ${status_code}"
-          echo "Backend response:"
-          cat response.json
-          echo
 
-          if [ "$status_code" -lt 200 ] || [ "$status_code" -ge 300 ]; then
-            echo "::error::Daily email endpoint returned HTTP ${status_code}."
-            exit 1
-          fi
-
-          python - <<'PY'
+          # The repository is public, and so is this log: print a summary, never
+          # the raw response, which names each recipient's email address.
+          STATUS_CODE="$status_code" python - <<'PY'
           import json
+          import os
+          import re
           import sys
 
-          with open("response.json", "r", encoding="utf-8") as handle:
-              payload = json.load(handle)
+
+          def redact(text):
+              return re.sub(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+", "<email>", str(text))
+
+
+          status = int(os.environ["STATUS_CODE"])
+          try:
+              with open("response.json", "r", encoding="utf-8") as handle:
+                  payload = json.load(handle)
+          except (OSError, ValueError):
+              payload = {}
+          if not isinstance(payload, dict):
+              payload = {}
+
+          if not 200 <= status < 300:
+              detail = redact(payload.get("detail") or "no detail")[:300]
+              print(f"::error::Daily email endpoint returned HTTP {status}: {detail}")
+              sys.exit(1)
 
           emails = payload.get("emails") or {}
           delivery = emails.get("delivery") or {}
@@ -83,6 +95,11 @@ jobs:
           failed = int(delivery.get("failed", emails.get("failed", 0)) or 0)
           skipped = int(delivery.get("skipped", emails.get("delivery_skipped", 0)) or 0)
           skip_reasons = emails.get("skipped") or {}
+          reasons = sorted({
+              redact(item.get("error") or item.get("reason") or "no reason given")[:300]
+              for item in emails.get("notifications") or []
+              if item.get("status") != "sent"
+          })
 
           print(
               "Email summary: "
@@ -90,13 +107,20 @@ jobs:
               f"attempted={attempted} sent={sent} failed={failed} "
               f"provider_skipped={skipped} skip_reasons={skip_reasons}"
           )
+          for reason in reasons:
+              print(f"Not sent: {reason}")
 
           if attempted and (failed or skipped or sent != attempted):
               print(
-                  "::error::Daily email delivery was attempted but not every "
-                  "message was accepted by the email provider. Check backend "
-                  "RESEND_API_KEY/SMTP settings, ALERT_FROM_EMAIL, and the "
-                  "notification response above."
+                  "::error::The email provider refused daily emails "
+                  f"({reasons[0] if reasons else 'no reason given'}). Check "
+                  "RESEND_API_KEY and ALERT_FROM_EMAIL on the backend."
+              )
+              sys.exit(1)
+          if skip_reasons.get("gave_up"):
+              print(
+                  "::error::Daily emails stopped retrying after repeated failures "
+                  "this evening. The backend's email_logs table has the reason."
               )
               sys.exit(1)
           PY

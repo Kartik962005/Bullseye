@@ -237,6 +237,18 @@ class RunTests(unittest.TestCase):
         send.assert_called_once()
         self.assertEqual(result["notification"]["status"], "sent")
 
+    def test_email_now_reports_an_email_the_provider_refused(self):
+        run = {"id": "r1", "status": "completed", "target_date": "2026-10-14", "market": "NSE", "risk_level": "Balanced", "signal_type": "1-day"}
+        refused = {"status": "failed", "error": 'status=401 response={"message":"API key is invalid"}'}
+        with mock.patch.object(dts, "get_notification_preference", return_value={"user_id": "u1", "email": "a@example.com"}), \
+             mock.patch.object(dts, "latest_run", return_value=run), \
+             mock.patch.object(dts, "_load_signals_for_run", return_value=[{"symbol": "TCS"}]), \
+             mock.patch.object(dts, "_send_signal_email_to_preference", return_value=refused), \
+             mock.patch.object(dts, "_log_audit") as audit:
+            with self.assertRaisesRegex(dts.EmailNotSent, "couldn't be sent"):
+                dts.send_instant_signal_email({"id": "u1", "email": "a@example.com"}, {"signal_type": "1-day"})
+        audit.assert_not_called()
+
     def test_email_now_explains_a_withheld_horizon(self):
         run = {"id": "r1", "status": "withheld", "summary": {"withheld_reason": "No edge in testing."}}
         with mock.patch.object(dts, "get_notification_preference", return_value={"user_id": "u1", "email": "a@example.com"}), \

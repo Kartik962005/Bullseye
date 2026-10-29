@@ -1738,6 +1738,55 @@ def _daily_email_already_sent_for_target(user_id: str, target_date: str, email_k
     )
 
 
+# A failed evening email is tried again, but not on every tick: the loop runs
+# about once a minute, so a dead API key once meant 300 failed sends a night.
+_EMAIL_RETRY_MINUTES = 30
+_EMAIL_MAX_ATTEMPTS = 3
+
+
+def _failed_daily_sends(user_id: str, target_date: str) -> list[str]:
+    """When each undelivered daily email for this session was tried, newest first."""
+    if supabase:
+        try:
+            response = (
+                supabase.table(EMAIL_LOGS_TABLE)
+                .select("sent_at")
+                .eq("user_id", user_id)
+                .eq("target_date", target_date)
+                .eq("email_kind", "daily_signal")
+                .in_("status", ["failed", "skipped"])
+                .order("sent_at", desc=True)
+                .limit(_EMAIL_MAX_ATTEMPTS)
+                .execute()
+            )
+            return [row["sent_at"] for row in getattr(response, "data", None) or []]
+        except Exception as exc:
+            if not _should_use_memory_fallback(exc, EMAIL_LOGS_TABLE):
+                raise
+            print(f"[DailySignals] email logs table missing during retry check, using in-memory fallback: {exc}")
+    return sorted(
+        (
+            item["sent_at"]
+            for item in _MEMORY_EMAIL_LOGS
+            if item["user_id"] == user_id
+            and item.get("target_date") == target_date
+            and item.get("email_kind") == "daily_signal"
+            and item.get("status") in {"failed", "skipped"}
+        ),
+        reverse=True,
+    )
+
+
+def _minutes_since(stamp: str) -> float:
+    try:
+        moment = datetime.fromisoformat(str(stamp))
+    except ValueError:
+        return float("inf")  # an unreadable time must not hold the email back
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    return (_utc_now() - moment).total_seconds() / 60
+
+
 def _log_email(record: dict[str, Any]):
     if supabase:
         try:
@@ -1848,6 +1897,10 @@ def _send_daily_signal_emails(model_run: dict[str, Any], signals: list[dict[str,
     return notifications
 
 
+class EmailNotSent(RuntimeError):
+    """The email provider did not accept an email the user asked for."""
+
+
 def send_instant_signal_email(user: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
     """Email the latest stored picks to the signed-in user right away.
 
@@ -1872,6 +1925,10 @@ def send_instant_signal_email(user: dict[str, Any], payload: dict[str, Any]) -> 
         raise ValueError("The model found no setups worth taking for this session, so there is nothing to send.")
     preference = {**current, "email": clean_email, "user_id": user["id"]}
     notification = _send_signal_email_to_preference(run, signals, preference, email_kind="instant_signal")
+    if notification.get("status") != "sent":
+        # The provider's reason is in email_logs; the page only says it did not go,
+        # rather than "Sent" for an email that never left.
+        raise EmailNotSent("The email couldn't be sent just now. Please try again in a few minutes.")
     _log_audit("instant_signal_email_sent", "model_runs", {"run_id": run["id"]}, user_id=user["id"], entity_id=run["id"])
     return {"model_run": run, "signals": signals, "notification": notification}
 
@@ -1884,7 +1941,7 @@ def process_scheduled_daily_alerts(force: bool = False) -> dict[str, Any]:
     target_date = _next_trading_day(now.date()).isoformat()
     due_preferences: list[dict[str, Any]] = []
     considered = 0
-    skipped = {"no_consent": 0, "not_due_yet": 0, "already_sent": 0, "no_email": 0}
+    skipped = {"no_consent": 0, "not_due_yet": 0, "already_sent": 0, "no_email": 0, "retry_later": 0, "gave_up": 0}
     for preference in _iter_preferences():
         considered += 1
         if not _has_delivery_consent(preference):
@@ -1900,6 +1957,13 @@ def process_scheduled_daily_alerts(force: bool = False) -> dict[str, Any]:
             continue
         if _daily_email_already_sent_for_target(preference["user_id"], target_date):
             skipped["already_sent"] += 1
+            continue
+        failures = _failed_daily_sends(preference["user_id"], target_date)
+        if len(failures) >= _EMAIL_MAX_ATTEMPTS:
+            skipped["gave_up"] += 1
+            continue
+        if failures and _minutes_since(failures[0]) < _EMAIL_RETRY_MINUTES:
+            skipped["retry_later"] += 1
             continue
         due_preferences.append(preference)
 

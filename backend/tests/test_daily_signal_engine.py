@@ -1,4 +1,6 @@
+from datetime import datetime, timedelta, timezone
 import unittest
+from unittest import mock
 
 from app.services.daily_signal_engine.diversification import diversify_candidates
 from app.services.daily_signal_engine.scoring import adjusted_win_rate, compute_expected_r
@@ -141,7 +143,8 @@ class DailySignalEngineTests(unittest.TestCase):
         dts._daily_email_already_sent_for_target = lambda user_id, target_date, email_kind="daily_signal": False
         dts.run_daily_prediction = fake_run_daily_prediction
         try:
-            result = dts.process_scheduled_daily_alerts(force=True)
+            with mock.patch.object(dts, "_failed_daily_sends", return_value=[]):
+                result = dts.process_scheduled_daily_alerts(force=True)
             self.assertEqual(result["attempted"], 2)
             self.assertEqual(result["sent"], 1)
             self.assertEqual(result["failed"], 1)
@@ -150,6 +153,34 @@ class DailySignalEngineTests(unittest.TestCase):
             dts._iter_preferences = original_iter_preferences
             dts._daily_email_already_sent_for_target = original_dedupe
             dts.run_daily_prediction = original_run_daily_prediction
+
+    def test_scheduled_alerts_space_out_retries_and_stop_after_three(self):
+        def preference(user_id):
+            return {"user_id": user_id, "email": f"{user_id}@example.com", "daily_stock_email_enabled": True, "market": "NSE",
+                    "risk_level": "Balanced", "signal_type": "1-day", "email_time": "18:00",
+                    "consent_accepted_at": "2026-06-03T12:00:00+00:00"}
+
+        target = dts._next_trading_day(datetime.now(dts.IST).date()).isoformat()
+
+        def failed(user_id, minutes_ago):
+            sent_at = (datetime.now(timezone.utc) - timedelta(minutes=minutes_ago)).isoformat()
+            return {"user_id": user_id, "model_run_id": "r", "email_kind": "daily_signal",
+                    "target_date": target, "status": "failed", "sent_at": sent_at}
+
+        logs = [
+            failed("just-failed", 5),
+            failed("failed-a-while-ago", 45),
+            *[failed("failed-three-times", minutes) for minutes in (100, 70, 40)],
+        ]
+        due = []
+        with mock.patch.object(dts, "supabase", None), \
+             mock.patch.object(dts, "_MEMORY_EMAIL_LOGS", logs), \
+             mock.patch.object(dts, "_iter_preferences", return_value=[preference(u) for u in ("just-failed", "failed-a-while-ago", "failed-three-times", "new")]), \
+             mock.patch.object(dts, "run_daily_prediction", side_effect=lambda **kw: due.extend(kw["user_ids"]) or {"notifications": []}):
+            result = dts.process_scheduled_daily_alerts(force=True)
+        self.assertEqual(sorted(due), ["failed-a-while-ago", "new"])
+        self.assertEqual(result["skipped"]["retry_later"], 1)
+        self.assertEqual(result["skipped"]["gave_up"], 1)
 
 
 if __name__ == "__main__":
