@@ -205,6 +205,9 @@ def _public_backend_base_url() -> str:
     return (
         os.getenv("PUBLIC_BACKEND_BASE_URL")
         or os.getenv("BACKEND_PUBLIC_URL")
+        # Render sets this to the service's own address. Without it the
+        # unsubscribe link in every email pointed at 127.0.0.1.
+        or os.getenv("RENDER_EXTERNAL_URL")
         or "http://127.0.0.1:8000"
     ).rstrip("/")
 

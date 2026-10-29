@@ -208,6 +208,8 @@ class RunTests(unittest.TestCase):
         self.assertIn("-1.8% to +2.1%", text)
         self.assertIn("+2.1% from the open", text)  # a sell's exit line is the high case
         self.assertNotIn("Expected", html)
+        self.assertNotIn("target and stop", html)  # forecasts carry a range and an exit line instead
+        self.assertIn("A likely move from the open and an exit line for each", html)
 
     def test_email_with_no_calls_says_why(self):
         from app.services.daily_signal_engine.email_generation import build_signal_email

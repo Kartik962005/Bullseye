@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+import os
 import unittest
 from unittest import mock
 
@@ -35,6 +36,12 @@ class DailySignalEngineTests(unittest.TestCase):
         ]
         selected = diversify_candidates(candidates)
         self.assertEqual([item["symbol"] for item in selected], ["AAA", "DDD"])
+
+    def test_unsubscribe_link_uses_the_address_render_gives_the_service(self):
+        with mock.patch.dict(os.environ, {"RENDER_EXTERNAL_URL": "https://api.example.onrender.com/"}):
+            for name in ("PUBLIC_BACKEND_BASE_URL", "BACKEND_PUBLIC_URL"):
+                os.environ.pop(name, None)
+            self.assertEqual(dts._public_backend_base_url(), "https://api.example.onrender.com")
 
     def test_unsubscribe_token_round_trip(self):
         token = _build_unsubscribe_token("user-123", "nonce-abc")

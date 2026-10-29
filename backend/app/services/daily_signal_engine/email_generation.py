@@ -287,11 +287,12 @@ def build_signal_email(
         else f"<p style='margin:0 0 12px;font-family:{theme.FONT};font-size:14px;line-height:1.6;color:{theme.MUTED}'>"
         f"{escape(empty_note or 'No stock passed the quality filters for this session. On weak days, sending nothing is the honest answer.')}</p>"
     )
+    detail = "a likely move from the open and an exit line" if is_forecast else "entry, target and stop"
     html = theme.email_shell(
-        preheader=f"{count} {market} picks with entry, target and stop for {signal_date}." if count else f"No {market} picks for {signal_date}.",
+        preheader=f"{count} {market} picks for {signal_date}, each with {detail}." if count else f"No {market} picks for {signal_date}.",
         eyebrow=f"Daily picks · {signal_date}",
         title=title,
-        subtitle=f"{risk_level} risk · held {held}. Entry, target and stop for each, ranked by the model.",
+        subtitle=f"{risk_level} risk · held {held}. {detail[0].upper()}{detail[1:]} for each, ranked by the model.",
         body=body,
         footer=theme.footer_html(
             "Model-generated research, not investment advice. Returns are not guaranteed, and past results don't predict future ones.",
