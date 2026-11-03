@@ -66,6 +66,16 @@ class ForecastFrameTests(unittest.TestCase):
         self.assertEqual(len(a), 6)
         pd.testing.assert_frame_equal(a, b, check_exact=False, rtol=1e-9)
 
+    def test_trimmed_live_build_gives_the_same_last_session(self):
+        full = fc.forecast_frame(self.frames, self.index)
+        trimmed = fc.forecast_frame(self.frames, self.index, keep_last=dts._FORECAST_LIVE_ROWS)
+        day = full["date"].max()
+        a = full[full["date"] == day].set_index("ticker")[fc.FORECAST_FEATURES].sort_index()
+        b = trimmed[trimmed["date"] == day].set_index("ticker")[fc.FORECAST_FEATURES].sort_index()
+        self.assertEqual(len(a), 6)
+        pd.testing.assert_frame_equal(a, b, check_exact=False, rtol=1e-9)
+        self.assertLessEqual(len(trimmed), 6 * dts._FORECAST_LIVE_ROWS)
+
 
 class SelectionTests(unittest.TestCase):
     def predictions(self):

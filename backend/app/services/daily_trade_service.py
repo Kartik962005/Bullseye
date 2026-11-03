@@ -1202,6 +1202,25 @@ _FORECAST_HISTORY_DAYS = 560
 # 250 bars) plus the feature warm-up, with room to spare. Fewer bars means less
 # memory on the small server; the latest row's features are unchanged.
 _FORECAST_BARS = 340
+# Rows per stock kept after its indicators are built: the last completed
+# session, the one before it (breadth change) and today's unfinished bar.
+_FORECAST_LIVE_ROWS = 5
+
+
+def _release_memory() -> None:
+    """Hand freed memory back to the system after a heavy job.
+
+    Linux's allocator keeps memory a big pandas job freed instead of returning
+    it, leaving less room under Render's 512 MB limit for whatever runs next.
+    """
+    import ctypes
+    import gc
+
+    gc.collect()
+    try:
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
+    except (OSError, AttributeError):
+        pass  # not glibc (Windows, macOS): nothing to trim
 
 
 def _latest_forecast_rows(run_day: date) -> pd.DataFrame:
@@ -1222,7 +1241,7 @@ def _latest_forecast_rows(run_day: date) -> pd.DataFrame:
         if frame is not None and not frame.empty:
             frames[ticker] = frame.tail(_FORECAST_BARS).reset_index(drop=True)
     index = fetch_price_history(MARKET_INDEX.get(DEFAULT_MARKET, "^NSEI"), days=_FORECAST_HISTORY_DAYS).tail(_FORECAST_BARS)
-    rows = forecast_engine.forecast_frame(frames, index)
+    rows = forecast_engine.forecast_frame(frames, index, keep_last=_FORECAST_LIVE_ROWS)
     del frames
     if not rows.empty:
         # Never a bar newer than the last completed session: during market hours
@@ -1231,9 +1250,7 @@ def _latest_forecast_rows(run_day: date) -> pd.DataFrame:
         rows = settled[settled["date"] == settled["date"].max()].copy() if not settled.empty else settled
         # Skip stocks with a recent corporate action or data jump.
         rows = rows[rows["anomaly"] <= 0].reset_index(drop=True)
-    import gc
-
-    gc.collect()
+    _release_memory()
     _FORECAST_INPUT_CACHE.clear()
     _FORECAST_INPUT_CACHE[key] = {"at": datetime.now(timezone.utc), "rows": rows}
     return rows
@@ -2082,6 +2099,8 @@ def _run_scheduled_tick(force: bool) -> dict[str, Any]:
             print(f"[DailySignals] outcome tracking processed {outcomes.get('processed', 0)} signal(s) for {today}")
         except Exception as exc:  # noqa: BLE001 - never let tracking break the build or email delivery
             print(f"[DailySignals] outcome tracking failed: {exc}")
+        # Grading held 200 price histories; free them before the build needs room.
+        _release_memory()
 
     prepared: dict[str, Any] | None = None
     try:

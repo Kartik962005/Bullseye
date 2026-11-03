@@ -34,6 +34,23 @@ class HolidayAwareCacheTests(unittest.TestCase):
         self.assertEqual(ds._sessions_missing(pd.Timestamp("2026-10-01"), now=sunday), 1)
 
 
+class PriceFrameCacheTests(unittest.TestCase):
+    def test_expired_frames_go_first_then_the_oldest_past_the_limit(self):
+        frame = pd.DataFrame({"close": [1.0]})
+        cache = {"OLD.NS": {"df": frame, "ts": time.time() - 7200}, "A.NS": {"df": frame, "ts": time.time() - 30}}
+        ds._cache_frame(cache, "B.NS", frame, ttl=3600, limit=2)
+        self.assertEqual(set(cache), {"A.NS", "B.NS"})  # the expired frame is dropped
+        ds._cache_frame(cache, "C.NS", frame, ttl=3600, limit=2)
+        self.assertEqual(set(cache), {"B.NS", "C.NS"})  # then the oldest, to stay under the limit
+
+    def test_the_cache_keeps_its_own_copy(self):
+        frame = pd.DataFrame({"close": [1.0]})
+        cache: dict = {}
+        ds._cache_frame(cache, "A.NS", frame, ttl=3600, limit=5)
+        frame.loc[0, "close"] = 9.0
+        self.assertEqual(cache["A.NS"]["df"].loc[0, "close"], 1.0)
+
+
 class ColumnsUsedTests(unittest.TestCase):
     def test_columns_and_aliases(self):
         self.assertEqual(

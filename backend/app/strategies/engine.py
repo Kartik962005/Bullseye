@@ -1,7 +1,6 @@
 import pandas as pd
 import ta
 import yfinance as yf
-from textblob import TextBlob
 import urllib.request
 import urllib.parse
 import xml.etree.ElementTree as ET
@@ -100,6 +99,10 @@ def _sentiment_for_analysis(ticker: str) -> tuple[dict, bool]:
 
 def fetch_news_sentiment(ticker: str):
     try:
+        # Loaded on first use: textblob pulls in nltk, scipy and sklearn, tens of
+        # MB and seconds of start-up on the small server, for news sentiment only.
+        from textblob import TextBlob
+
         base_ticker = ticker.split('.')[0]
         raw_name = base_ticker
         try:

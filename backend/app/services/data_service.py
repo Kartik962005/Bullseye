@@ -42,6 +42,28 @@ QUOTE_TTL = 120    # 2 minutes
 CHART_TTL = 3600
 FUNDAMENTALS_TTL = 3600 * 6
 NSE_QUOTE_TTL = 3600
+# Most price frames held at once. The evening forecasts read 200 stocks and a
+# market-wide scan 150 more; past this the oldest go first.
+HIST_CACHE_LIMIT = 400
+CHART_CACHE_LIMIT = 100
+_frame_cache_lock = threading.Lock()
+
+
+def _cache_frame(cache: dict, key: str, df: pd.DataFrame, ttl: float, limit: int) -> None:
+    """Keep a copy of a price frame, first dropping expired and then the oldest.
+
+    Expired frames are never read again, but nothing removed them: every stock
+    anyone opened or scanned stayed in memory until the 512 MB server restarted.
+    """
+    now = time.time()
+    with _frame_cache_lock:
+        for old in [k for k, item in cache.items() if now - item["ts"] >= ttl]:
+            del cache[old]
+        while len(cache) >= limit:
+            del cache[min(cache, key=lambda k: cache[k]["ts"])]
+        cache[key] = {"df": df.copy(), "ts": now}
+
+
 # How many completed trading SESSIONS the cached history may be missing before
 # we refetch from Yahoo.
 #
@@ -623,8 +645,9 @@ def get_chart_data(ticker: str, range_key: str = "1y"):
     range_key = (range_key or "1y").lower()
     cache_key = f"{ticker}:{range_key}"
     now = time.time()
-    if cache_key in _chart_cache and now - _chart_cache[cache_key]["ts"] < CHART_TTL:
-        return _chart_cache[cache_key]["df"].copy()
+    cached = _chart_cache.get(cache_key)
+    if cached and now - cached["ts"] < CHART_TTL:
+        return cached["df"].copy()
 
     options = {
         "1d":  ("1d",  "5m"),
@@ -644,7 +667,7 @@ def get_chart_data(ticker: str, range_key: str = "1y"):
             if range_key in {"1m", "1mo"}:
                 df = df.tail(31).copy()
             if not df.empty:
-                _chart_cache[cache_key] = {"df": df.copy(), "ts": time.time()}
+                _cache_frame(_chart_cache, cache_key, df, CHART_TTL, CHART_CACHE_LIMIT)
                 return df
         except Exception as exc:
             print(f"[Chart] Cached history path failed for {ticker}: {exc}")
@@ -664,7 +687,7 @@ def get_chart_data(ticker: str, range_key: str = "1y"):
 
     if df.empty:
         raise ValueError(f"No valid chart data for ticker '{ticker}'.")
-    _chart_cache[cache_key] = {"df": df.copy(), "ts": time.time()}
+    _cache_frame(_chart_cache, cache_key, df, CHART_TTL, CHART_CACHE_LIMIT)
     return df
 
 
@@ -806,8 +829,9 @@ def get_historical_data(ticker: str, days: int = 365, allow_stale: bool = False)
     """
     # ── Layer 1: RAM cache ─────────────────────────────────────────────────────
     now = time.time()
-    if ticker in _hist_cache and now - _hist_cache[ticker]['ts'] < HIST_TTL:
-        cached_df = _hist_cache[ticker]['df'].copy()
+    cached = _hist_cache.get(ticker)
+    if cached and now - cached['ts'] < HIST_TTL:
+        cached_df = cached['df'].copy()
         required_rows = _required_history_rows(days)
         if len(cached_df) >= required_rows:
             return cached_df
@@ -821,7 +845,7 @@ def get_historical_data(ticker: str, days: int = 365, allow_stale: bool = False)
                 df = _normalize_cached_history(stored_df)
                 is_usable, _ = _cache_status(df, ticker, days, "Supabase Storage")
                 if is_usable or (allow_stale and len(df) >= 60):
-                    _hist_cache[ticker] = {'df': df.copy(), 'ts': time.time()}
+                    _cache_frame(_hist_cache, ticker, df, HIST_TTL, HIST_CACHE_LIMIT)
                     return df
                 stale_cache_df = df
         except Exception as e:
@@ -848,7 +872,7 @@ def get_historical_data(ticker: str, days: int = 365, allow_stale: bool = False)
                 df = _normalize_cached_history(pd.DataFrame(db_rows))
                 is_usable, _ = _cache_status(df, ticker, days, "Supabase Postgres")
                 if is_usable or (allow_stale and len(df) >= 60):
-                    _hist_cache[ticker] = {'df': df.copy(), 'ts': time.time()}
+                    _cache_frame(_hist_cache, ticker, df, HIST_TTL, HIST_CACHE_LIMIT)
                     return df
                 stale_cache_df = df
         except Exception as e:
@@ -878,14 +902,14 @@ def get_historical_data(ticker: str, days: int = 365, allow_stale: bool = False)
         # A stale cached answer beats no answer at all when Yahoo is unreachable.
         if stale_cache_df is not None and len(stale_cache_df) > 0:
             print(f"[Download] Falling back to stale Supabase cache for {ticker}.")
-            _hist_cache[ticker] = {'df': stale_cache_df.copy(), 'ts': time.time()}
+            _cache_frame(_hist_cache, ticker, stale_cache_df, HIST_TTL, HIST_CACHE_LIMIT)
             return stale_cache_df
         raise ValueError(f"No valid OHLCV data for ticker '{ticker}'.")
 
     _schedule_writeback(ticker, df.copy())
 
     # ── Save to RAM ────────────────────────────────────────────────────────────
-    _hist_cache[ticker] = {'df': df.copy(), 'ts': time.time()}
+    _cache_frame(_hist_cache, ticker, df, HIST_TTL, HIST_CACHE_LIMIT)
     return df
 
 

@@ -1,3 +1,11 @@
+import os
+
+# Render's free instance gets a tenth of one CPU. Math libraries otherwise start
+# a thread, with its own buffers, for every core the host reports: more memory,
+# and no speed on the one share there is. Has to run before numpy is imported.
+for _threads in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
+    os.environ.setdefault(_threads, "1")
+
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,7 +19,6 @@ from concurrent.futures import ThreadPoolExecutor
 from threading import Thread
 from datetime import datetime
 from zoneinfo import ZoneInfo
-import os
 import pandas as pd
 
 load_dotenv()

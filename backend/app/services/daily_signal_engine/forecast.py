@@ -187,15 +187,22 @@ def forecast_frame(
     index_raw: pd.DataFrame,
     *,
     horizons: tuple[int, ...] = (),
+    keep_last: int | None = None,
 ) -> pd.DataFrame:
     """One row per (ticker, date) with every feature.
 
     With `horizons` (training), adds `fwd_{h}`: the return from the next open
     to the close of session h, and `excess_{h}`: that return minus the average
     stock's over the same window.
+
+    With `keep_last` (live forecasts), keeps only each stock's latest bars once
+    its own indicators are built over its full history. The cross-stock features
+    compare stocks on the same day (and breadth with the day before), so the
+    latest rows come out the same, without the work over every past day: on the
+    small server that work was a spike of about 100 MB each evening.
     """
     parts = [_stock_frame(t, raw) for t, raw in price_frames.items()]
-    parts = [p for p in parts if not p.empty]
+    parts = [p.tail(keep_last) if keep_last else p for p in parts if not p.empty]
     if not parts:
         return pd.DataFrame()
     df = pd.concat(parts, ignore_index=True)
