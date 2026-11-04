@@ -6,6 +6,9 @@
 //  • Scrolling is the browser's own. A smooth-scroll library (Lenis) used to
 //    drive it from the main thread, where the scene and page work competed
 //    with it: the homepage felt laggy, worst on laptop graphics.
+//  • One scroll, one stop: CSS scroll snapping (html.nova-snap) moves the page
+//    from the landing to the stock boxes, then act by act, then to the rest of
+//    the page, which scrolls freely. Each glide plays one formation change.
 //  • Scroll work is one rAF-throttled read per frame; the scene only receives a
 //    number. Aurora colour washes cross-fade with opacity (compositor only).
 //  • Reduced-motion or weak devices get the aurora and the copy, no WebGL.
@@ -123,6 +126,8 @@ function Eyebrow({ index, label }: { index: string; label: string }) {
 function Act({ children }: { children: ReactNode }) {
   return (
     <section data-nova-act className="relative min-h-[150svh] w-full">
+      {/* Where one scroll lands: the act's top, with its formation complete. */}
+      <div aria-hidden className="nova-stop pointer-events-none absolute inset-x-0 top-0 h-px" />
       {/* Sticky copy holds still while the particles re-form behind it.
           Desktop: left column, centred. Phone: bottom, over the scene. */}
       <div className="sticky top-0 flex h-[100svh] w-full items-end px-5 pb-[10vh] sm:px-10 md:items-center md:pb-0 lg:px-16">
@@ -163,6 +168,13 @@ export function NovaExperience({ signedIn, onOpenDailySignals, stockStrip }: Nov
     if (new URLSearchParams(window.location.search).get("scene") === "2d") webgl = false;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot client capability probe
     setMode(webgl ? "webgl" : "2d");
+  }, []);
+
+  // One scroll, one stop, while the homepage is on screen (see .nova-snap).
+  useEffect(() => {
+    const html = document.documentElement;
+    html.classList.add("nova-snap");
+    return () => html.classList.remove("nova-snap");
   }, []);
 
   // Build the scene for the chosen renderer.
@@ -349,6 +361,8 @@ export function NovaExperience({ signedIn, onOpenDailySignals, stockStrip }: Nov
   return (
     <>
       {mounted && createPortal(fixedLayer, document.body)}
+      {/* The first stop, the very top of the page (above the header and main). */}
+      {mounted && createPortal(<div aria-hidden className="nova-stop nova-stop-top" />, document.body)}
 
       {/* Progress rail: where you are in the flight, and a shortcut to each stop. */}
       <nav
@@ -402,7 +416,7 @@ export function NovaExperience({ signedIn, onOpenDailySignals, stockStrip }: Nov
             </div>
           </div>
 
-          {stockStrip ? <div className="w-full">{stockStrip}</div> : null}
+          {stockStrip ? <div className="nova-stop-center w-full">{stockStrip}</div> : null}
         </section>
 
         {STORY.map((beat, i) => (
