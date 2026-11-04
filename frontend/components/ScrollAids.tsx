@@ -2,8 +2,6 @@
 
 import { useEffect, useRef, useState } from 'react';
 
-type LenisLike = { scrollTo: (target: number, opts?: Record<string, unknown>) => void };
-
 // Only long pages get the aids; a page barely taller than the screen does not need them.
 const MIN_SCROLL_SCREENS = 1.5;
 const SHOW_TOP_AFTER_SCREENS = 1.2;
@@ -50,10 +48,8 @@ export function ScrollAids() {
   }, []);
 
   const toTop = () => {
-    const lenis = (window as unknown as { __bullseyeLenis?: LenisLike }).__bullseyeLenis;
     const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    if (lenis) lenis.scrollTo(0, { duration: reduce ? 0 : 1.1 });
-    else window.scrollTo({ top: 0, behavior: reduce ? 'auto' : 'smooth' });
+    window.scrollTo({ top: 0, behavior: reduce ? 'auto' : 'smooth' });
     // Move focus to the top too, so keyboard users land where the eye does.
     document.getElementById('main')?.focus({ preventScroll: true });
   };

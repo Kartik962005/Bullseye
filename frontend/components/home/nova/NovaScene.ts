@@ -286,17 +286,18 @@ export class NovaScene {
   };
 
   /**
-   * Step quality down while the page can't hold ~45fps: first 1× pixel ratio,
-   * then draw 60% and finally 40% of the particles. Slots are shuffled, so a
-   * smaller draw range thins every shape evenly.
+   * Step quality down while the page can't hold ~50fps, checked every half
+   * second: first 1× pixel ratio, then draw 60% and finally 40% of the
+   * particles. Slots are shuffled, so a smaller draw range thins every shape
+   * evenly. (At 45fps over a full second, laptops lagged before it reacted.)
    */
   private adaptQuality(interval: number) {
     if (this.intro < 1 || interval <= 0 || interval > 0.25) return;
     this.frameTimes.push(interval);
-    if (this.frameTimes.length < 60) return;
+    if (this.frameTimes.length < 30) return;
     const avg = this.frameTimes.reduce((a, b) => a + b, 0) / this.frameTimes.length;
     this.frameTimes.length = 0;
-    if (avg <= 0.022) return;
+    if (avg <= 0.02) return;
     if (this.dpr > 1) {
       this.dpr = 1;
       this.renderer.setPixelRatio(1);

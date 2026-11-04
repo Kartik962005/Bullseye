@@ -3,8 +3,9 @@
 // The Nova homepage hero: a fixed WebGL particle scene (portaled to <body>) that
 // morphs through five formations as the reader scrolls five acts of copy.
 //  • Copy is SSR'd and readable with WebGL off or JS off.
-//  • Lenis smooths the wheel; native scroll position is still the source of
-//    truth, so nothing else on the page has to know about it.
+//  • Scrolling is the browser's own. A smooth-scroll library (Lenis) used to
+//    drive it from the main thread, where the scene and page work competed
+//    with it: the homepage felt laggy, worst on laptop graphics.
 //  • Scroll work is one rAF-throttled read per frame; the scene only receives a
 //    number. Aurora colour washes cross-fade with opacity (compositor only).
 //  • Reduced-motion or weak devices get the aurora and the copy, no WebGL.
@@ -40,7 +41,9 @@ function pickTier(): { count: number; maxDpr: number } {
   }
   if (software || /swiftshader|llvmpipe|basic render/i.test(renderer)) return { count: 4000, maxDpr: 1 };
   if (phone) return { count: 7000, maxDpr: 1 };
-  if (/intel|uhd|iris|mali|adreno|powervr/i.test(renderer)) return { count: 11000, maxDpr: 1 };
+  // Intel Iris Xe laptops lagged at 11,000 while scrolling; the adaptive step
+  // already thinned shapes to 4,400 without losing them, so start lower.
+  if (/intel|uhd|iris|mali|adreno|powervr/i.test(renderer)) return { count: 6000, maxDpr: 1 };
   return { count: 16000, maxDpr: 1.25 };
 }
 
@@ -137,7 +140,6 @@ export function NovaExperience({ signedIn, onOpenDailySignals, stockStrip }: Nov
   const canvasWrapRef = useRef<HTMLDivElement>(null);
   const auroraRefs = useRef<Array<HTMLDivElement | null>>([]);
   const sceneRef = useRef<SceneLike | null>(null);
-  const lenisRef = useRef<{ scrollTo: (target: number | HTMLElement, opts?: Record<string, unknown>) => void } | null>(null);
 
   // True only on the client, so the portal never renders during SSR.
   const mounted = useSyncExternalStore(noopSubscribe, () => true, () => false);
@@ -161,41 +163,6 @@ export function NovaExperience({ signedIn, onOpenDailySignals, stockStrip }: Nov
     if (new URLSearchParams(window.location.search).get("scene") === "2d") webgl = false;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot client capability probe
     setMode(webgl ? "webgl" : "2d");
-  }, []);
-
-  // Smooth wheel scrolling for the homepage only.
-  useEffect(() => {
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-    let destroyed = false;
-    let instance: { destroy: () => void } | null = null;
-    import("lenis").then(({ default: Lenis }) => {
-      if (destroyed) return;
-      const lenis = new Lenis({
-        // Gentle glide: lower lerp = scroll catches up more slowly, and a
-        // slightly smaller wheel step keeps each notch from covering too much.
-        lerp: 0.075,
-        wheelMultiplier: 0.8,
-        smoothWheel: true,
-        autoRaf: true,
-        // Hand the wheel back to the browser inside dialogs, dropdowns and any
-        // other scroll box. Lenis' own nested-scroll detection could swallow
-        // wheel events over some sections, leaving only the scrollbar working.
-        prevent: (node: HTMLElement) =>
-          !!node.closest?.(
-            '[data-lenis-prevent], [role="dialog"], [role="listbox"], .overflow-y-auto, .overflow-auto, .overflow-y-scroll',
-          ),
-      });
-      instance = lenis;
-      lenisRef.current = lenis as unknown as typeof lenisRef.current;
-      // The site-wide back-to-top button scrolls through Lenis when it exists.
-      (window as unknown as { __bullseyeLenis?: unknown }).__bullseyeLenis = lenis;
-    });
-    return () => {
-      destroyed = true;
-      instance?.destroy();
-      lenisRef.current = null;
-      delete (window as unknown as { __bullseyeLenis?: unknown }).__bullseyeLenis;
-    };
   }, []);
 
   // Build the scene for the chosen renderer.
@@ -350,10 +317,7 @@ export function NovaExperience({ signedIn, onOpenDailySignals, stockStrip }: Nov
   const goTo = (i: number) => {
     const target = i === 0 ? 0 : actsIn(rootRef.current)[i - 1];
     if (target == null) return;
-    const lenis = lenisRef.current;
-    if (lenis) {
-      lenis.scrollTo(target, { duration: 1.6 });
-    } else if (typeof target === "number") {
+    if (typeof target === "number") {
       window.scrollTo({ top: target, behavior: "smooth" });
     } else {
       target.scrollIntoView({ behavior: "smooth" });

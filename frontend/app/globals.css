@@ -518,6 +518,9 @@ html:has(.nova-canvas) * {
    scene changes shape; no continuous animation on five full-screen layers. */
 .nova-aurora {
   pointer-events: none;
+  /* Their opacity follows the scroll every frame; on their own layers that is
+     a cheap blend instead of repainting five screen-sized gradients. */
+  will-change: opacity;
 }
 .nova-canvas {
   opacity: 0;
