@@ -1,13 +1,14 @@
 'use client';
 
 import Link from 'next/link';
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import {
   type Forecast,
   type ForecastTest,
   type Horizon,
   type LiveRecord,
   type Pick,
+  type PlanStats,
   type PolicyStats,
   type PublishRules,
   type RecentRecord,
@@ -17,7 +18,6 @@ import {
   prettyDate,
 } from '@/lib/daily-picks';
 
-const money = (n: number) => `₹${Number(n).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
 const pct = (n: number) => `${Math.round(n * 100)}%`;
 const signedPct = (n: number) => `${n >= 0 ? '+' : '−'}${Math.abs(n * 100).toFixed(1)}%`;
 const monthYear = (iso: string) => new Date(`${iso}T00:00:00Z`).toLocaleDateString('en-IN', { month: 'short', year: 'numeric', timeZone: 'UTC' });
@@ -56,7 +56,7 @@ export function WindowBanner({
       </div>
       <p className="mt-1 text-[12.5px] leading-5 text-[color:var(--ink-3)]">
         {horizon === 1
-          ? 'Enter at the 9:15 AM open, close out by the 3:30 PM close the same day.'
+          ? 'Enter at the 9:15 AM open and close out by 3:15 PM the same day, before brokers square off intraday trades.'
           : `Enter at the 9:15 AM open on ${prettyDate(first)}, hold to the 3:30 PM close on ${prettyDate(last)}: ${horizon} trading sessions.`}
         {skipped.length > 0 && ` Skips ${skipped.map(h => `${prettyDate(h.day)} (${h.name})`).join(', ')}.`}
         {dataDate ? ` Built from the ${prettyDate(dataDate)} close.` : ''}
@@ -65,7 +65,30 @@ export function WindowBanner({
   );
 }
 
-function CallCard({ pick, forecast, horizon }: { pick: Pick; forecast: Forecast; horizon: Horizon }) {
+/**
+ * A price a broker will take: whole ticks, coarser for dearer stocks. NSE ticks
+ * run from 1 paisa to 5 rupees by price band; a multiple of these steps is valid
+ * under every band (and under the older 5 paise everywhere).
+ */
+function orderPrice(price: number) {
+  const step = price < 1000 ? 0.05 : price < 5000 ? 0.1 : price < 10000 ? 0.5 : price < 20000 ? 1 : 5;
+  const value = Math.round(price / step) * step;
+  return `₹${value.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+const pct1 = (n: number) => `${(Math.abs(n) * 100).toFixed(1)}%`;
+/** Small per-trade numbers (an edge of a quarter of a percent) need two decimals. */
+const signedPct2 = (n: number) => `${n >= 0 ? '+' : '−'}${Math.abs(n * 100).toFixed(2)}%`;
+
+function PlanRow({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="grid grid-cols-[6.5rem_1fr] gap-3 py-2 first:pt-0 last:pb-0 sm:grid-cols-[7.5rem_1fr]">
+      <dt className="text-[11.5px] font-medium uppercase tracking-[0.06em] text-[color:var(--ink-4)]">{label}</dt>
+      <dd className="text-[12.5px] leading-5 text-[color:var(--ink-2)]">{children}</dd>
+    </div>
+  );
+}
+
+function CallCard({ pick, forecast, horizon, tested: planTested }: { pick: Pick; forecast: Forecast; horizon: Horizon; tested?: PlanStats | null }) {
   const [open, setOpen] = useState(false);
   const buy = pick.direction === 'BUY';
   const chance = callChance(forecast, pick.direction);
@@ -74,6 +97,11 @@ function CallCard({ pick, forecast, horizon }: { pick: Pick; forecast: Forecast;
   const tested = forecast.tested;
   const testedRate = tested ? tested.call_rate ?? (typeof tested.actual_beat_rate === 'number' ? (buy ? tested.actual_beat_rate : 1 - tested.actual_beat_rate) : null) : null;
   const endLabel = forecast.last_session ? prettyDate(forecast.last_session) : horizon === 1 ? 'the close' : `session ${horizon}`;
+  const plan = forecast.plan;
+  const close = orderPrice(forecast.reference_close);
+  const stopLine = forecast.stop_price ?? (buy ? forecast.low_price : forecast.high_price);
+  const exitBy = horizon === 1 ? 'by 3:15 PM' : `at the ${endLabel} close`;
+  const act = buy ? 'Buy' : 'Sell';
   return (
     <li className="rounded-2xl border border-white/[0.07] bg-white/[0.025]">
       <button type="button" onClick={() => setOpen(value => !value)} aria-expanded={open} className="flex w-full items-center gap-3 px-3.5 py-3 text-left sm:px-4">
@@ -101,37 +129,69 @@ function CallCard({ pick, forecast, horizon }: { pick: Pick; forecast: Forecast;
           <path d="m5 8 5 5 5-5" />
         </svg>
       </button>
-      <div className="flex flex-wrap gap-x-4 gap-y-1 px-4 pb-3 font-numeric text-[12px] text-[color:var(--ink-2)] sm:pl-[4.6rem]">
-        <span>
-          Likely {signedPct(forecast.q10)} to {signedPct(forecast.q90)}
-        </span>
-        <span className="text-[color:var(--down)]">
-          Exit {buy ? 'below' : 'above'} {signedPct(against)}
-        </span>
-        <span className="text-[color:var(--ink-4)]">from the open</span>
+      {/* The plan at a glance: what to do at the open, where it's wrong, when to get out. */}
+      <div className="px-4 pb-3 font-numeric text-[12px] leading-5 sm:pl-[4.6rem]">
+        <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[color:var(--ink-2)]">
+          <span className="text-white">{act} at the open</span>
+          <span aria-hidden className="text-[color:var(--ink-4)]">·</span>
+          <span>
+            Stop-loss <span className="text-[color:var(--down)]">{orderPrice(plan ? plan.stop_price : stopLine)}</span>
+          </span>
+          <span aria-hidden className="text-[color:var(--ink-4)]">·</span>
+          <span>{horizon === 1 ? (buy ? 'Sell' : 'Buy back') : 'Sell'} {exitBy}</span>
+        </div>
+        {plan && <div className="text-[11.5px] text-[color:var(--ink-4)]">Skip it if it opens below {orderPrice(plan.skip_below)}</div>}
       </div>
       {open && (
         <div className="anim-pop border-t border-white/[0.06] px-4 pb-3.5 pt-3 text-[12.5px] leading-5 text-[color:var(--ink-2)]" data-state="open">
-          <div className="grid grid-cols-3 gap-2 font-numeric">
-            {([
-              ['Low case', forecast.q10, forecast.low_price],
-              ['Middle', forecast.q50, forecast.mid_price],
-              ['High case', forecast.q90, forecast.high_price],
-            ] as const).map(([label, move, price]) => (
-              <div key={label} className="min-w-0">
-                <div className="text-[10.5px] text-[color:var(--ink-4)]">{label}</div>
-                {signedPct(move)}
-                <span className="block text-[11px] text-[color:var(--ink-4)]">≈ {money(price)}</span>
-              </div>
-            ))}
-          </div>
-          <p className="mt-2.5 text-[12px] text-[color:var(--ink-3)]">
-            Moves run from the 9:15 AM open to the close {horizon === 1 ? 'the same day' : `on ${endLabel}`}. The prices assume it opens near the
-            last close ({money(forecast.reference_close)}); if it opens higher or lower, they shift with it. By {endLabel}, 8 in 10 outcomes in
-            testing landed between the low and high case, and the exit line is the 1-in-10 {buy ? 'low' : 'high'}.
-            {tested && testedRate !== null
-              ? ` Calls with this chance were right ${pct(testedRate)} of the time in testing (${tested.samples.toLocaleString('en-IN')} cases).`
-              : ''}
+          <dl className="divide-y divide-white/[0.05]">
+            <PlanRow label="Entry">
+              <span className="text-white">{act} at market at the 9:15 AM open.</span> Yesterday&apos;s close was {close}.
+            </PlanRow>
+            {plan && (
+              <PlanRow label="Skip if">
+                It opens below <span className="text-white">{orderPrice(plan.skip_below)}</span>, {pct1(plan.skip_gap)} under that close. Sells that had
+                already fallen that far by the open lost money in testing.
+              </PlanRow>
+            )}
+            <PlanRow label="Stop-loss">
+              {plan ? (
+                <>
+                  <span className="text-white">{orderPrice(plan.stop_price)}</span>, {pct1(plan.stop_pct)} above {close}: about 1.5× its usual daily move.
+                  If you sell at another price, keep the stop {pct1(plan.stop_pct)} above your sell price.
+                </>
+              ) : (
+                <>
+                  <span className="text-white">{orderPrice(stopLine)}</span>, {signedPct(against)} from the open: the 1-in-10 bad case in testing.
+                  If it opens away from {close}, move the stop by the same amount.
+                </>
+              )}
+            </PlanRow>
+            <PlanRow label="Target">
+              {plan
+                ? 'None. In testing, booking profit early at any level made less than holding to the close.'
+                : 'None. The call was tested from the open to the close, not to a price.'}
+            </PlanRow>
+            <PlanRow label="Exit">
+              {horizon === 1
+                ? `${buy ? 'Sell' : 'Buy back'} by 3:15 PM, before your broker squares off intraday trades.`
+                : `Sell at the close on ${endLabel}, ${horizon} trading sessions after you buy.`}
+            </PlanRow>
+            {plan && <PlanRow label="Trailing stop">Not tested, so keep the stop where you set it.</PlanRow>}
+          </dl>
+          <p className="mt-3 rounded-xl bg-white/[0.03] px-3 py-2.5 text-[12px] leading-5 text-[color:var(--ink-3)]">
+            {plan && planTested ? (
+              <>
+                This plan in testing ({monthYear(planTested.first_day)} to {monthYear(planTested.last_day)},{' '}
+                {planTested.calls.toLocaleString('en-IN')} calls): fell {pct(planTested.moved_rate)} of the time, stopped out{' '}
+                {pct(planTested.stop_rate)}, {signedPct2(planTested.avg_after_cost)} a trade after {(planTested.cost * 100).toFixed(2)}% costs. Average win{' '}
+                {signedPct(planTested.avg_win)}, average loss {signedPct(planTested.avg_loss)}, worst 1 in 20 {signedPct(planTested.worst_5pct)}.
+              </>
+            ) : tested && testedRate !== null ? (
+              <>Calls with this chance were right {pct(testedRate)} of the time in testing ({tested.samples.toLocaleString('en-IN')} cases).</>
+            ) : null}{' '}
+            On 8 days in 10, calls like this ended between {signedPct(forecast.q10)} and {signedPct(forecast.q90)} from the open, so size the
+            trade so a stop-out is a loss you can afford.
           </p>
           {(forecast.context ?? []).length > 0 && (
             <ul className="mt-2 list-disc space-y-1 pl-4">
@@ -187,7 +247,13 @@ export function CallLists({
         {list.length > 0 ? (
           <ol className="flex flex-col gap-2">
             {list.map(pick => (
-              <CallCard key={pick.id ?? `${pick.direction}-${pick.symbol}`} pick={pick} forecast={pick.explanation_json!.forecast!} horizon={horizon} />
+              <CallCard
+                key={pick.id ?? `${pick.direction}-${pick.symbol}`}
+                pick={pick}
+                forecast={pick.explanation_json!.forecast!}
+                horizon={horizon}
+                tested={rule?.plan}
+              />
             ))}
           </ol>
         ) : (

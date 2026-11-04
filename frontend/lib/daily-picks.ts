@@ -61,10 +61,47 @@ export type Forecast = {
   high_price: number;
   /** The range's 1-in-10 bad case for this call: below it for a BUY, above it for a SELL. */
   stop_price?: number;
+  /** The tested intraday sell plan, priced from the last close (sells only). */
+  plan?: TradePlan;
   first_session?: string;
   last_session?: string;
   context?: string[];
   tested?: { p_min: number; p_max: number; call_rate?: number; actual_beat_rate?: number; samples: number } | null;
+};
+
+/**
+ * Sell at the open unless it opens below `skip_below`; stop-loss `stop_pct` above
+ * the entry (`stop_price` from the last close); no target; buy back by the close.
+ */
+export type TradePlan = {
+  entry: 'open';
+  skip_gap: number;
+  skip_below: number;
+  stop_pct: number;
+  stop_price: number;
+  daily_vol: number;
+  exit: 'close';
+};
+
+/** How the sell plan did on the untouched half of the test, after `cost` a trade. */
+export type PlanStats = {
+  stop_vol: number;
+  skip_gap: number;
+  cost: number;
+  first_day: string;
+  last_day: string;
+  calls: number;
+  skipped: number;
+  skipped_avg_after_cost: number;
+  moved_rate: number;
+  stop_rate: number;
+  avg_after_cost: number;
+  win_rate: number;
+  avg_win: number;
+  avg_loss: number;
+  worst_5pct: number;
+  median_stop: number;
+  hold_avg_after_cost: number;
 };
 
 /** The chance of the call itself, for v3 forecasts and older ones alike. */
@@ -155,6 +192,8 @@ export type PublishSide = {
   confirmation?: PolicyStats;
   best?: PolicyStats | null;
   recent?: RecentRecord | null;
+  /** The intraday sell plan's tested record (sells only). */
+  plan?: PlanStats | null;
 };
 
 /** Held up on the untouched half of the test and still holds over its latest sessions. */
