@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 from collections import defaultdict
+from contextlib import contextmanager
 from datetime import date, datetime, time, timedelta, timezone
 import hashlib
 import hmac
@@ -1223,6 +1224,53 @@ def _release_memory() -> None:
         pass  # not glibc (Windows, macOS): nothing to trim
 
 
+# A heavy job that dies with the server (out of memory) used to start again as
+# soon as the server came back, and die again: on 3 Nov that kept the site down
+# from 16:10 to 22:56. Each start and finish is now noted in audit_logs, and a
+# start with no finish holds that job back for half an hour, across restarts.
+_HEAVY_JOB_RETRY_MINUTES = 30
+
+
+def _last_job_note(job: str) -> dict[str, Any] | None:
+    """The newest start or finish noted for a scheduled job."""
+    if not supabase:
+        return None
+    response = (
+        supabase.table(AUDIT_LOGS_TABLE)
+        .select("action,created_at")
+        .eq("entity_type", "scheduled_job")
+        .eq("entity_id", job)
+        .order("created_at", desc=True)
+        .limit(1)
+        .execute()
+    )
+    rows = getattr(response, "data", None) or []
+    return rows[0] if rows else None
+
+
+def _heavy_job_allowed(job: str) -> bool:
+    """False while this job's last run started recently and never finished."""
+    try:
+        last = _last_job_note(job)
+    except Exception as exc:  # noqa: BLE001 - an unreadable log must not stop the job
+        print(f"[DailySignals] job history unavailable for {job}: {exc}")
+        return True
+    if not last or last.get("action") != "job_started":
+        return True
+    return _minutes_since(last.get("created_at")) >= _HEAVY_JOB_RETRY_MINUTES
+
+
+@contextmanager
+def _heavy_job(job: str):
+    """Note a heavy job's start and finish. A run that raises still finishes;
+    only one killed with the server leaves a start without a finish."""
+    _log_audit("job_started", "scheduled_job", {}, entity_id=job)
+    try:
+        yield
+    finally:
+        _log_audit("job_finished", "scheduled_job", {}, entity_id=job)
+
+
 def _latest_forecast_rows(run_day: date) -> pd.DataFrame:
     """Features for the last completed session, built once per evening.
 
@@ -1235,21 +1283,24 @@ def _latest_forecast_rows(run_day: date) -> pd.DataFrame:
     cached = _FORECAST_INPUT_CACHE.get(key)
     if cached is not None and (datetime.now(timezone.utc) - cached["at"]).total_seconds() < _UNIVERSE_TTL_SECONDS:
         return cached["rows"]
-    frames: dict[str, pd.DataFrame] = {}
-    for ticker in forecast_engine.universe_tickers():
-        frame = fetch_price_history(ticker, days=_FORECAST_HISTORY_DAYS)
-        if frame is not None and not frame.empty:
-            frames[ticker] = frame.tail(_FORECAST_BARS).reset_index(drop=True)
-    index = fetch_price_history(MARKET_INDEX.get(DEFAULT_MARKET, "^NSEI"), days=_FORECAST_HISTORY_DAYS).tail(_FORECAST_BARS)
-    rows = forecast_engine.forecast_frame(frames, index, keep_last=_FORECAST_LIVE_ROWS)
-    del frames
-    if not rows.empty:
-        # Never a bar newer than the last completed session: during market hours
-        # the price feed carries today's unfinished bar.
-        settled = rows[rows["date"] <= key]
-        rows = settled[settled["date"] == settled["date"].max()].copy() if not settled.empty else settled
-        # Skip stocks with a recent corporate action or data jump.
-        rows = rows[rows["anomaly"] <= 0].reset_index(drop=True)
+    if not _heavy_job_allowed("forecast_build"):
+        raise RuntimeError("The last forecast build stopped with the server; it is tried again after a pause.")
+    with _heavy_job("forecast_build"):
+        frames: dict[str, pd.DataFrame] = {}
+        for ticker in forecast_engine.universe_tickers():
+            frame = fetch_price_history(ticker, days=_FORECAST_HISTORY_DAYS)
+            if frame is not None and not frame.empty:
+                frames[ticker] = frame.tail(_FORECAST_BARS).reset_index(drop=True)
+        index = fetch_price_history(MARKET_INDEX.get(DEFAULT_MARKET, "^NSEI"), days=_FORECAST_HISTORY_DAYS).tail(_FORECAST_BARS)
+        rows = forecast_engine.forecast_frame(frames, index, keep_last=_FORECAST_LIVE_ROWS)
+        del frames
+        if not rows.empty:
+            # Never a bar newer than the last completed session: during market hours
+            # the price feed carries today's unfinished bar.
+            settled = rows[rows["date"] <= key]
+            rows = settled[settled["date"] == settled["date"].max()].copy() if not settled.empty else settled
+            # Skip stocks with a recent corporate action or data jump.
+            rows = rows[rows["anomaly"] <= 0].reset_index(drop=True)
     _release_memory()
     _FORECAST_INPUT_CACHE.clear()
     _FORECAST_INPUT_CACHE[key] = {"at": datetime.now(timezone.utc), "rows": rows}
@@ -2092,9 +2143,15 @@ def _run_scheduled_tick(force: bool) -> dict[str, Any]:
     # price is still being set), so the runs built next carry today's results.
     outcomes: dict[str, Any] | None = None
     today = now.date().isoformat()
-    if (force or _session_complete(now)) and _OUTCOME_TRACKED_FOR != today and (force or not _is_market_holiday(now.date())):
+    if (
+        (force or _session_complete(now))
+        and _OUTCOME_TRACKED_FOR != today
+        and (force or not _is_market_holiday(now.date()))
+        and _heavy_job_allowed("outcome_tracking")
+    ):
         try:
-            outcomes = run_outcome_tracking(review_day=now.date())
+            with _heavy_job("outcome_tracking"):
+                outcomes = run_outcome_tracking(review_day=now.date())
             _OUTCOME_TRACKED_FOR = today
             print(f"[DailySignals] outcome tracking processed {outcomes.get('processed', 0)} signal(s) for {today}")
         except Exception as exc:  # noqa: BLE001 - never let tracking break the build or email delivery

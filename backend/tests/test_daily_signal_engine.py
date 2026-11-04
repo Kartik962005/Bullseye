@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 import os
 import unittest
 from unittest import mock
@@ -188,6 +188,50 @@ class DailySignalEngineTests(unittest.TestCase):
         self.assertEqual(sorted(due), ["failed-a-while-ago", "new"])
         self.assertEqual(result["skipped"]["retry_later"], 1)
         self.assertEqual(result["skipped"]["gave_up"], 1)
+
+
+class HeavyJobGuardTests(unittest.TestCase):
+    def note(self, action, minutes_ago):
+        return {"action": action, "created_at": (datetime.now(timezone.utc) - timedelta(minutes=minutes_ago)).isoformat()}
+
+    def test_a_run_that_died_with_the_server_holds_the_job_back_for_a_while(self):
+        cases = [
+            (None, True),
+            (self.note("job_finished", 5), True),
+            (self.note("job_started", 5), False),  # started, never finished: the server died under it
+            (self.note("job_started", 45), True),  # the pause is over
+        ]
+        for last, allowed in cases:
+            with mock.patch.object(dts, "_last_job_note", return_value=last):
+                self.assertEqual(dts._heavy_job_allowed("forecast_build"), allowed, last)
+
+    def test_an_unreadable_log_never_stops_the_job(self):
+        with mock.patch.object(dts, "_last_job_note", side_effect=RuntimeError("database down")):
+            self.assertTrue(dts._heavy_job_allowed("forecast_build"))
+
+    def test_a_run_that_raises_still_notes_its_finish(self):
+        notes = []
+        with mock.patch.object(dts, "_log_audit", side_effect=lambda action, *args, **kwargs: notes.append(action)):
+            with self.assertRaises(ValueError):
+                with dts._heavy_job("forecast_build"):
+                    raise ValueError("bad data")
+        self.assertEqual(notes, ["job_started", "job_finished"])
+
+    def test_a_held_back_build_fetches_nothing(self):
+        with mock.patch.object(dts, "_heavy_job_allowed", return_value=False), \
+             mock.patch.object(dts, "_FORECAST_INPUT_CACHE", {}), \
+             mock.patch.object(dts, "fetch_price_history", side_effect=AssertionError("must not fetch")):
+            with self.assertRaisesRegex(RuntimeError, "tried again after a pause"):
+                dts._latest_forecast_rows(date(2026, 11, 4))
+
+    def test_the_tick_skips_grading_while_it_is_held_back(self):
+        with mock.patch.object(dts, "_heavy_job_allowed", return_value=False), \
+             mock.patch.object(dts, "_OUTCOME_TRACKED_FOR", None), \
+             mock.patch.object(dts, "run_outcome_tracking", side_effect=AssertionError("must not run")), \
+             mock.patch.object(dts, "prepare_daily_runs", return_value={"skipped": True}), \
+             mock.patch.object(dts, "process_scheduled_daily_alerts", return_value={}):
+            result = dts._run_scheduled_tick(force=True)
+        self.assertIsNone(result["outcomes"])
 
 
 if __name__ == "__main__":
