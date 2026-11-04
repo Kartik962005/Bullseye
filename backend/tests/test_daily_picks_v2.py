@@ -1,6 +1,8 @@
 import unittest
 from unittest import mock
 
+import pandas as pd
+
 from app.services import daily_trade_service as dts
 from app.services.daily_signal_engine.backtest import _grade_limit_entry
 from app.services.daily_signal_engine.config import (
@@ -210,6 +212,53 @@ class RunTests(unittest.TestCase):
         self.assertNotIn("Expected", html)
         self.assertNotIn("target and stop", html)  # forecasts carry a range and an exit line instead
         self.assertIn("A likely move from the open and an exit line for each", html)
+
+    def test_a_sell_gets_the_tested_plan_priced_from_its_close_and_volatility(self):
+        publish = {"sell": {"cut": 0.46, "confirmed": True, "plan": {"stop_vol": 1.5, "skip_gap": 0.01}}}
+        forecast = {"direction": "SELL", "reference_close": 335.0}
+        plan = dts._trade_plan(forecast, pd.Series({"vol20": 0.02}), 1, publish)
+        self.assertAlmostEqual(plan["stop_pct"], 0.03)
+        self.assertAlmostEqual(plan["stop_price"], 345.05)  # 3% above the close
+        self.assertAlmostEqual(plan["skip_below"], 331.65)  # 1% under it
+        # No plan where none was tested: buys, longer holds, no volatility, no rule.
+        self.assertIsNone(dts._trade_plan({**forecast, "direction": "BUY"}, pd.Series({"vol20": 0.02}), 1, publish))
+        self.assertIsNone(dts._trade_plan(forecast, pd.Series({"vol20": 0.02}), 3, publish))
+        self.assertIsNone(dts._trade_plan(forecast, pd.Series({"vol20": float("nan")}), 1, publish))
+        self.assertIsNone(dts._trade_plan(forecast, pd.Series({"vol20": 0.02}), 1, {"sell": {"cut": 0.46, "confirmed": True}}))
+
+    def test_order_prices_are_whole_ticks(self):
+        from app.services.daily_signal_engine.email_generation import _order_price
+
+        self.assertEqual(_order_price(351.23), "₹351.25")
+        self.assertEqual(_order_price(2392.73), "₹2,392.70")
+        self.assertEqual(_order_price(19371.89), "₹19,372.00")
+        self.assertEqual(_order_price(25012.0), "₹25,010.00")
+
+    def test_a_planned_sell_email_shows_entry_skip_stop_and_exit(self):
+        from app.services.daily_signal_engine.email_generation import build_signal_email
+
+        forecast = {"p_beat": 0.45, "p_call": 0.55, "q10": -0.026, "q50": -0.001, "q90": 0.023, "reference_close": 335.0,
+                    "low_price": 326.3, "mid_price": 334.7, "high_price": 342.7, "stop_price": 342.7, "last_session": "2026-11-05",
+                    "plan": {"entry": "open", "skip_gap": 0.01, "skip_below": 331.65, "stop_pct": 0.036, "stop_price": 347.06, "exit": "close"}}
+        signal = {"symbol": "TATAPOWER", "company_name": "Tata Power", "direction": "SELL", "entry_low": 335.0, "entry_high": 335.0,
+                  "target_price": 334.7, "stop_loss": 347.06, "risk_reward": 1.0, "confidence": 0.55, "signal_rank": 1,
+                  "explanation_json": {"forecast": forecast, "reasons": ["Weak against its sector"]}}
+        note = "The sell plan was tested on 3,469 calls."
+        subject, text, html = build_signal_email(signal_date="2026-11-05", market="NSE", signals=[signal], unsubscribe_url="u",
+                                                 risk_level="Balanced", signal_type="1-day", plan_note=note)
+        for expected in ("Sell at the 9:15 AM open", "₹331.65", "₹347.05 (+3.6%)", "No target; buy back by 3:15 PM", note):
+            self.assertIn(expected, html)
+        self.assertIn("stop-loss ₹347.05 (+3.6%)", text)
+        self.assertNotIn("Likely move from the open", html)
+
+    def test_the_plan_note_quotes_the_tested_plan(self):
+        plan = {"calls": 3469, "first_day": "2023-10-30", "last_day": "2026-10-22", "skip_gap": 0.01, "moved_rate": 0.6031,
+                "stop_rate": 0.0948, "avg_after_cost": 0.00262, "cost": 0.0015, "avg_loss": -0.01641, "worst_5pct": -0.03416}
+        note = dts._plan_note({"publish": {"sell": {"cut": 0.46, "confirmed": True, "plan": plan}}})
+        self.assertIn("3,469 calls (Oct 2023 to Oct 2026)", note)
+        self.assertIn("moved the right way 60% of the time, hit the stop 9% of the time", note)
+        self.assertIn("+0.26% a trade after 0.15% costs", note)
+        self.assertIsNone(dts._plan_note({"publish": {"sell": {"cut": None, "confirmed": False, "plan": plan}}}))
 
     def test_email_with_no_calls_says_why(self):
         from app.services.daily_signal_engine.email_generation import build_signal_email

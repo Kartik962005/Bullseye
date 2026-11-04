@@ -1023,6 +1023,25 @@
             1
           ]
         ]
+      },
+      "plan": {
+        "stop_vol": 1.5,
+        "skip_gap": 0.01,
+        "cost": 0.0015,
+        "first_day": "2023-10-30",
+        "last_day": "2026-10-22",
+        "calls": 3469,
+        "skipped": 197,
+        "skipped_avg_after_cost": -0.00469,
+        "moved_rate": 0.6031,
+        "stop_rate": 0.0948,
+        "avg_after_cost": 0.00245,
+        "win_rate": 0.5664,
+        "avg_win": 0.01688,
+        "avg_loss": -0.01641,
+        "worst_5pct": -0.03416,
+        "median_stop": 0.0359,
+        "hold_avg_after_cost": 0.00173
       }
     }
   }

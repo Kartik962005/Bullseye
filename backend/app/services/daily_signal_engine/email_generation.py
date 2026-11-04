@@ -90,6 +90,16 @@ def _signed_pct(value: float) -> str:
     return f"{'+' if value >= 0 else '-'}{abs(value) * 100:.1f}%"
 
 
+def _order_price(price: float) -> str:
+    """A price a broker will take: whole ticks, coarser for dearer stocks.
+
+    NSE ticks run from 1 paisa to 5 rupees by price band; a multiple of the
+    coarser steps here is valid under each band (and under the older 5 paise).
+    """
+    step = 0.05 if price < 1000 else 0.1 if price < 5000 else 0.5 if price < 10000 else 1.0 if price < 20000 else 5.0
+    return f"₹{round(round(price / step) * step, 2):,.2f}"
+
+
 def build_signal_email(
     *,
     signal_date: str,
@@ -102,6 +112,7 @@ def build_signal_email(
     experimental_note: str | None = None,
     empty_note: str | None = None,
     record_note: str | None = None,
+    plan_note: str | None = None,
 ) -> tuple[str, str, str]:
     from datetime import date as _date
 
@@ -167,12 +178,27 @@ def build_signal_email(
             q10, q90 = float(forecast["q10"]), float(forecast["q90"])
             against = q10 if buy else q90
             exit_move = f"{_signed_pct(against)} from the open" if (against < 0) == buy else "outside the range"
-            plan = [
-                ("Last close", last),
-                ("Likely move from the open", f"{_signed_pct(q10)} to {_signed_pct(q90)}"),
-                ("Exit if it moves", exit_move),
-                ("Right in testing", f"{round(rate * 100)}%" if rate is not None else "n/a"),
-            ]
+            trade = forecast.get("plan")
+            if trade:
+                # The tested intraday sell plan, priced from yesterday's close.
+                stop_pct = float(trade["stop_pct"])
+                plan = [
+                    ("Entry", "Sell at the 9:15 AM open"),
+                    ("Skip if it opens below", _order_price(float(trade["skip_below"]))),
+                    ("Stop-loss", f"{_order_price(float(trade['stop_price']))} (+{stop_pct * 100:.1f}%)"),
+                    ("Target and exit", "No target; buy back by 3:15 PM"),
+                ]
+                evidence = (
+                    f"Yesterday's close {_order_price(float(forecast['reference_close']))}. If you sell at another price, "
+                    f"keep the stop {stop_pct * 100:.1f}% above it. {evidence}"
+                ).strip()
+            else:
+                plan = [
+                    ("Last close", last),
+                    ("Likely move from the open", f"{_signed_pct(q10)} to {_signed_pct(q90)}"),
+                    ("Exit if it moves", exit_move),
+                    ("Right in testing", f"{round(rate * 100)}%" if rate is not None else "n/a"),
+                ]
             if section_direction != direction:
                 section_direction = direction
                 card_rows.append(
@@ -200,8 +226,14 @@ def build_signal_email(
             )
             text_rows.append(
                 f"{symbol} {label}: {odds}\n"
-                f"Last close {last}; likely move from the open {_signed_pct(q10)} to {_signed_pct(q90)}; "
-                f"exit if it moves {exit_move}"
+                + (
+                    "Sell at the 9:15 AM open; skip it if it opens below "
+                    f"{_order_price(float(trade['skip_below']))}; stop-loss {_order_price(float(trade['stop_price']))} "
+                    f"(+{float(trade['stop_pct']) * 100:.1f}%); no target, buy back by 3:15 PM"
+                    if trade
+                    else f"Last close {last}; likely move from the open {_signed_pct(q10)} to {_signed_pct(q90)}; "
+                    f"exit if it moves {exit_move}"
+                )
                 + f"\n{why}. {evidence}\n"
             )
             continue
@@ -256,11 +288,18 @@ def build_signal_email(
         f"from the open to the close on {pretty_date} (intraday)" if horizon == 1
         else f"from the open on {pretty_date} to the close on {last_pretty or f'session {horizon}'} ({horizon} trading sessions)"
     )
+    has_plan = any(((s_.get("explanation_json") or {}).get("forecast") or {}).get("plan") for s_ in signals)
     how_to = (
         f"Each call runs {window}. A BUY is a stock the model rates most likely to beat the average Nifty 200 stock; "
         "a SELL (intraday only) is one most likely to lag it. Only calls at a strength that held up in testing are sent, "
-        "and some will still miss. Moves are measured from the open; the likely range held 8 in 10 outcomes in testing, "
-        "and the exit line is its 1-in-10 bad case. These are forecasts, not advice."
+        "and some will still miss. "
+        + (
+            (plan_note or "Each sell comes with the plan it was tested on: entry, a level to skip it at, a stop-loss and the exit.")
+            if has_plan
+            else "Moves are measured from the open; the likely range held 8 in 10 outcomes in testing, "
+            "and the exit line is its 1-in-10 bad case."
+        )
+        + " Size each trade so a stop-out is a loss you can afford. These are forecasts, not advice."
     ) if is_forecast else (
         f"Place each order as a limit for the session on {pretty_date} only, and skip a pick that opens past its stop "
         f"or target. Exit at the target, at the stop, or at the close {'of that session' if horizon == 1 else f'of session {horizon}'}, "
@@ -287,7 +326,11 @@ def build_signal_email(
         else f"<p style='margin:0 0 12px;font-family:{theme.FONT};font-size:14px;line-height:1.6;color:{theme.MUTED}'>"
         f"{escape(empty_note or 'No stock passed the quality filters for this session. On weak days, sending nothing is the honest answer.')}</p>"
     )
-    detail = "a likely move from the open and an exit line" if is_forecast else "entry, target and stop"
+    detail = (
+        ("an entry, a stop-loss and an exit" if has_plan else "a likely move from the open and an exit line")
+        if is_forecast
+        else "entry, target and stop"
+    )
     html = theme.email_shell(
         preheader=f"{count} {market} picks for {signal_date}, each with {detail}." if count else f"No {market} picks for {signal_date}.",
         eyebrow=f"Daily picks · {signal_date}",

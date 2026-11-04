@@ -13,7 +13,11 @@ the confidence a call needs before it is published:
      holds there is published; the second-half numbers are what the app quotes;
   4. keeps the last RECENT_SESSIONS sessions of the test day by day. The app
      rolls that window forward with live results and pauses a side whose recent
-     record slips below the bar, even if it held up over the whole test.
+     record slips below the bar, even if it held up over the whole test;
+  5. measures the intraday sell plan the app prints (skip a stock that opened
+     well below its previous close, a stop-loss sized to its daily volatility,
+     no target, buy back at the close) on the second half's published calls,
+     against each traded day's high and low, after realistic retail costs.
 
     cd backend
     python scripts/calibrate_publishing.py            # report only
@@ -49,6 +53,12 @@ MAX_PER_DAY = 5
 SECTOR_CAP = 2
 BUY_CUTS = [0.50, 0.52, 0.53, 0.54, 0.55, 0.56, 0.57, 0.58, 0.60, 0.62, 0.65]
 SELL_CUTS = [0.46, 0.45, 0.44, 0.43, 0.42, 0.41, 0.40, 0.38, 0.36, 0.34]
+# The intraday sell plan. Chosen on the whole test (Nov 2026): a stop at 1.5x the
+# daily volatility beat none, fixed stops and 1x/2x; every fixed profit target
+# earned less than holding to the close; sells that opened >1% down lost money.
+PLAN_STOP_VOL = 1.5     # stop-loss above the entry: this many 20-day daily volatilities
+PLAN_SKIP_GAP = 0.01    # skip a sell that opens this much below the previous close
+PLAN_COST = 0.0015      # retail intraday round trip: brokerage, STT, charges, slippage
 
 
 def oos_predictions(data: pd.DataFrame, h: int, chosen: str) -> pd.DataFrame:
@@ -122,6 +132,59 @@ def recent(frame: pd.DataFrame, h: int, side: str, cut: float) -> dict:
         "first_day": str(days[0]),
         "last_day": str(days[-1]),
         "daily": [[str(day), int(row.calls), int(row.moved), int(row.market)] for day, row in daily.iterrows()],
+    }
+
+
+def trade_plan(chosen: pd.DataFrame, price_frames: dict[str, pd.DataFrame]) -> dict | None:
+    """The intraday sell plan the app prints, measured on these (published) calls.
+
+    Sell at the open unless it opened more than PLAN_SKIP_GAP below the previous
+    close; stop at PLAN_STOP_VOL x the 20-day daily volatility above the open; no
+    target; buy back at the close. Daily bars do not show whether the high came
+    before the low, so a day that touched the stop counts as stopped.
+    """
+    rows = []
+    for ticker, group in chosen.groupby("ticker"):
+        frame = price_frames.get(ticker)
+        if frame is None:
+            continue
+        f = frame.assign(day=pd.to_datetime(frame["date"]).dt.strftime("%Y-%m-%d")).drop_duplicates("day").reset_index(drop=True)
+        position = {day: i for i, day in enumerate(f["day"])}
+        returns = f["close"].pct_change()
+        for day in group["date"]:
+            i = position.get(str(day)[:10])
+            if i is None or i < 21 or i + 1 >= len(f):
+                continue
+            o, high, close = (float(f.at[i + 1, k]) for k in ("open", "high", "close"))
+            if min(o, high, close) <= 0:
+                continue
+            rows.append((o / float(f.at[i, "close"]) - 1, 1 - close / o, high / o - 1, float(returns.iloc[i - 19:i + 1].std()),
+                         str(day)[:10]))
+    if len(rows) < MIN_CALLS:
+        return None
+    gap, short, adverse, vol, days = (np.array(column) for column in zip(*rows))
+    keep = gap > -PLAN_SKIP_GAP
+    stop = PLAN_STOP_VOL * vol[keep]
+    stopped = adverse[keep] >= stop
+    net = np.where(stopped, -stop, short[keep]) - PLAN_COST
+    return {
+        "stop_vol": PLAN_STOP_VOL,
+        "skip_gap": PLAN_SKIP_GAP,
+        "cost": PLAN_COST,
+        "first_day": str(min(days)),
+        "last_day": str(max(days)),
+        "calls": int(keep.sum()),
+        "skipped": int((~keep).sum()),
+        "skipped_avg_after_cost": round(float(short[~keep].mean() - PLAN_COST), 5),
+        "moved_rate": round(float((short[keep] > 0).mean()), 4),
+        "stop_rate": round(float(stopped.mean()), 4),
+        "avg_after_cost": round(float(net.mean()), 5),
+        "win_rate": round(float((net > 0).mean()), 4),
+        "avg_win": round(float(net[net > 0].mean()), 5),
+        "avg_loss": round(float(net[net <= 0].mean()), 5),
+        "worst_5pct": round(float(np.quantile(net, 0.05)), 5),
+        "median_stop": round(float(np.median(stop)), 5),
+        "hold_avg_after_cost": round(float(short.mean() - PLAN_COST), 5),
     }
 
 
@@ -215,6 +278,9 @@ def main() -> None:
                 holds = min(r.get("right_rate", 0), r.get("market_rate", 0)) >= CONFIRM_RATE
                 print(f"  {side.upper()} last {RECENT_SESSIONS} sessions ({r['first_day']}..{r['last_day']}): "
                       f"{fmt_recent(r)} -> {'holds' if holds else 'below the bar: the app pauses this side'}")
+                if side == "sell" and h == 1:
+                    rule["plan"] = trade_plan(picks(confirm, side, rule["cut"]), frames["price_frames"])
+                    print(f"  SELL plan on the confirmation half: {json.dumps(rule['plan'])}")
             print(f"  {side.upper()} rule: {json.dumps({k: v for k, v in rule.items() if k != 'recent'})}")
             # Published only when confirmed; otherwise kept so the app can explain the pause.
             publish[side] = rule

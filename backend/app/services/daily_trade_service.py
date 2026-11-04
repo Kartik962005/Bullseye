@@ -1544,11 +1544,39 @@ def _select_forecasts(
     return pd.DataFrame(rows)
 
 
+def _trade_plan(forecast: dict[str, Any], row: pd.Series, horizon: int, publish: dict[str, Any] | None) -> dict[str, Any] | None:
+    """The tested intraday sell plan, priced for this stock from yesterday's close.
+
+    Measured in calibrate_publishing.trade_plan: sell at the open unless it opens
+    more than skip_gap below the close, a stop-loss stop_vol daily volatilities
+    above the entry, no profit target, buy back by the close. Other calls get no
+    plan, because none was tested for them.
+    """
+    rule = ((publish or {}).get("sell") or {}).get("plan")
+    vol = float(row.get("vol20") or 0.0)
+    if forecast.get("direction") != "SELL" or horizon != 1 or not isinstance(rule, dict) or not vol > 0:
+        return None
+    close = float(forecast["reference_close"])
+    stop_pct = float(rule["stop_vol"]) * vol
+    return {
+        "entry": "open",
+        "skip_gap": float(rule["skip_gap"]),
+        "skip_below": round(close * (1 - float(rule["skip_gap"])), 2),
+        "stop_pct": round(stop_pct, 5),
+        "stop_price": round(close * (1 + stop_pct), 2),
+        "daily_vol": round(vol, 5),
+        "exit": "close",
+    }
+
+
 def _forecast_signal_row(row: pd.Series, horizon: int, artifact: dict[str, Any], run_id: str, rank: int,
                          model_version: str, run_day: date, target_date: str, market: str,
                          typical_p_beat: float | None = None) -> dict[str, Any]:
     direction = str(row.get("direction") or "BUY")
     forecast = forecast_engine.describe(row, horizon, artifact.get("calibration"), direction)
+    plan = _trade_plan(forecast, row, horizon, artifact.get("publish"))
+    if plan:
+        forecast["plan"] = plan
     forecast["context"] = forecast_engine.context_notes(row)
     # The same model's chance for the middle stock today, for comparison.
     forecast["typical_p_beat"] = typical_p_beat
@@ -1570,7 +1598,7 @@ def _forecast_signal_row(row: pd.Series, horizon: int, artifact: dict[str, Any],
         "entry_low": close,
         "entry_high": close,
         "target_price": forecast["mid_price"],
-        "stop_loss": forecast["stop_price"],
+        "stop_loss": plan["stop_price"] if plan else forecast["stop_price"],
         "confidence": round(float(forecast["p_call"]), 6),
         "expected_r": round(forecast["q50"], 6),
         "risk_reward": round((upside / downside) if buy and downside > 0 else (downside / upside) if upside > 0 else 0.0, 6),
@@ -1900,6 +1928,23 @@ def _record_note(summary: dict[str, Any]) -> str | None:
     return " ".join(parts) or None
 
 
+def _plan_note(summary: dict[str, Any]) -> str | None:
+    """How the sell plan did in testing, for the email (see calibrate_publishing.trade_plan)."""
+    publish = summary.get("publish") or {}
+    plan = (publish.get("sell") or {}).get("plan") if _published_rule(publish, "sell") else None
+    if not isinstance(plan, dict) or not plan.get("calls"):
+        return None
+    first, last = (date.fromisoformat(plan[k]).strftime("%b %Y") for k in ("first_day", "last_day"))
+    return (
+        f"The sell plan was tested on {plan['calls']:,} calls ({first} to {last}): sell at the open, skip it if it "
+        f"opens more than {plan['skip_gap'] * 100:.0f}% below yesterday's close, a stop-loss above your entry sized to "
+        f"the stock's usual daily move, no profit target, buy back before the close. It moved the right way "
+        f"{round(plan['moved_rate'] * 100)}% of the time, hit the stop {round(plan['stop_rate'] * 100)}% of the time, and "
+        f"made {plan['avg_after_cost'] * 100:+.2f}% a trade after {plan['cost'] * 100:.2f}% costs; the average loss was "
+        f"{abs(plan['avg_loss']) * 100:.1f}% and the worst 1 in 20 lost {abs(plan['worst_5pct']) * 100:.1f}%."
+    )
+
+
 def _send_signal_email_to_preference(
     model_run: dict[str, Any],
     signals: list[dict[str, Any]],
@@ -1922,6 +1967,7 @@ def _send_signal_email_to_preference(
         experimental_note=_experimental_note(model_run),
         empty_note=" ".join(((model_run.get("summary") or {}).get("side_notes") or {}).values()) or None,
         record_note=_record_note(model_run.get("summary") or {}),
+        plan_note=_plan_note(model_run.get("summary") or {}),
     )
     result = _send_email(preference["email"], subject, text, html=html)
     log_record = {
