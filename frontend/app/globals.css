@@ -523,42 +523,6 @@ html:has(.nova-canvas) * {
   will-change: opacity;
 }
 
-/* One scroll, one stop: the homepage moves a whole section per wheel notch,
-   swipe or key press, and the particles re-form on the way. It is the
-   browser's own snapping, off the main thread, so it stays smooth. Only the
-   homepage turns it on (NovaExperience adds the class while mounted). */
-html.nova-snap {
-  scroll-snap-type: y mandatory;
-}
-/* A stop no scroll or swipe can skip. The stops are thin markers rather than
-   the 1.5-screen acts themselves: a snap target taller than the screen lets
-   the page rest anywhere inside it, which would turn a notch into a nudge. */
-.nova-stop {
-  scroll-snap-align: start;
-  scroll-snap-stop: always;
-}
-.nova-stop-top {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 1px;
-  height: 1px;
-  pointer-events: none;
-}
-/* The live stock boxes, centred in the space under the tape and header. */
-.nova-stop-center {
-  scroll-snap-align: center;
-  scroll-snap-stop: always;
-  scroll-margin-top: 6rem;
-}
-/* After the story: one stop at the top (clear of the tape and header), then
-   free scrolling. It is taller than the screen, so the page can rest anywhere
-   inside it; the bottom margin counts the page's last padding as inside. */
-.nova-after {
-  scroll-snap-align: start;
-  scroll-margin-top: 7rem;
-  scroll-margin-bottom: 4rem;
-}
 .nova-canvas {
   opacity: 0;
   transition: opacity 1.2s var(--nova-ease);

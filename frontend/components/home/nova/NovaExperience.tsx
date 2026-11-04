@@ -6,9 +6,11 @@
 //  • Scrolling is the browser's own. A smooth-scroll library (Lenis) used to
 //    drive it from the main thread, where the scene and page work competed
 //    with it: the homepage felt laggy, worst on laptop graphics.
-//  • One scroll, one stop: CSS scroll snapping (html.nova-snap) moves the page
-//    from the landing to the stock boxes, then act by act, then to the rest of
-//    the page, which scrolls freely. Each glide plays one formation change.
+//  • One scroll, one stop, as a slow glide: a wheel notch, swipe or key moves the
+//    page from the landing to the stock boxes, then act by act, then to the rest
+//    of the page, which scrolls freely. Each glide plays one formation change.
+//    The browser's own snapping was too quick and can't be slowed, so the page
+//    animates the scroll itself (a scroll position per frame, nothing heavier).
 //  • Scroll work is one rAF-throttled read per frame; the scene only receives a
 //    number. Aurora colour washes cross-fade with opacity (compositor only).
 //  • Reduced-motion or weak devices get the aurora and the copy, no WebGL.
@@ -22,6 +24,16 @@ import { THEME_EVENT } from "@/lib/theme";
 type SceneLike = Pick<NovaScene, "setMorph" | "setPointer" | "setOpacity" | "setTheme" | "resize" | "start" | "stop" | "dispose">;
 
 const noopSubscribe = () => () => {};
+
+// The glide between stops: slow enough to watch the particles re-form (about
+// 1.5 s for the short hop to the stock boxes, up to 2 s between acts).
+const GLIDE_MIN_MS = 1500;
+const GLIDE_MAX_MS = 2000;
+// After a glide the wheel must go quiet this long before the next stop, so a
+// trackpad's momentum or a spun wheel moves one stop, not several.
+const QUIET_MS = 180;
+// A touch has to travel this far to count as a swipe rather than a tap.
+const SWIPE_PX = 30;
 
 /**
  * Particle budget by GPU class. Soft glowing points don't need hi-DPI, and
@@ -126,8 +138,6 @@ function Eyebrow({ index, label }: { index: string; label: string }) {
 function Act({ children }: { children: ReactNode }) {
   return (
     <section data-nova-act className="relative min-h-[150svh] w-full">
-      {/* Where one scroll lands: the act's top, with its formation complete. */}
-      <div aria-hidden className="nova-stop pointer-events-none absolute inset-x-0 top-0 h-px" />
       {/* Sticky copy holds still while the particles re-form behind it.
           Desktop: left column, centred. Phone: bottom, over the scene. */}
       <div className="sticky top-0 flex h-[100svh] w-full items-end px-5 pb-[10vh] sm:px-10 md:items-center md:pb-0 lg:px-16">
@@ -145,6 +155,7 @@ export function NovaExperience({ signedIn, onOpenDailySignals, stockStrip }: Nov
   const canvasWrapRef = useRef<HTMLDivElement>(null);
   const auroraRefs = useRef<Array<HTMLDivElement | null>>([]);
   const sceneRef = useRef<SceneLike | null>(null);
+  const glideRef = useRef<((target: number) => void) | null>(null);
 
   // True only on the client, so the portal never renders during SSR.
   const mounted = useSyncExternalStore(noopSubscribe, () => true, () => false);
@@ -170,12 +181,168 @@ export function NovaExperience({ signedIn, onOpenDailySignals, stockStrip }: Nov
     setMode(webgl ? "webgl" : "2d");
   }, []);
 
-  // One scroll, one stop, while the homepage is on screen (see .nova-snap).
+  // One scroll, one stop, as a slow glide (see the notes at the top).
   useEffect(() => {
-    const html = document.documentElement;
-    html.classList.add("nova-snap");
-    return () => html.classList.remove("nova-snap");
-  }, []);
+    if (!mounted) return;
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    let stops: number[] = [0];
+    let tail = Infinity;
+    let frame = 0;
+    let gliding = false;
+    let quietUntil = 0;
+    let settleTimer = 0;
+    let touchY: number | null = null;
+
+    // Stops: the top, the stock boxes (centred under the tape and header), each
+    // act's top (its formation complete), and the top of the rest of the page.
+    const measure = () => {
+      const y = window.scrollY;
+      const vh = window.innerHeight;
+      const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+      const list = [0];
+      const strip = rootRef.current?.querySelector("[data-nova-stop]");
+      if (strip) {
+        const r = strip.getBoundingClientRect();
+        list.push(Math.round(r.top + y + r.height / 2 - (vh + 6 * rem) / 2));
+      }
+      actsIn(rootRef.current).forEach((el) => list.push(Math.round(el.getBoundingClientRect().top + y)));
+      const after = document.querySelector("[data-nova-after]");
+      tail = after ? Math.round(after.getBoundingClientRect().top + y - 7 * rem) : Infinity;
+      if (Number.isFinite(tail)) list.push(tail);
+      const max = document.documentElement.scrollHeight - vh;
+      stops = list
+        .map((s) => Math.min(Math.max(0, s), max))
+        .sort((a, b) => a - b)
+        .filter((s, i, all) => i === 0 || s - all[i - 1] > 40);
+    };
+
+    const ease = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+    const glideTo = (target: number) => {
+      cancelAnimationFrame(frame);
+      const from = window.scrollY;
+      const distance = target - from;
+      if (Math.abs(distance) < 2) return;
+      const duration = reduced ? 450 : Math.min(GLIDE_MAX_MS, Math.max(GLIDE_MIN_MS, 1100 + Math.abs(distance) * 0.7));
+      const start = performance.now();
+      gliding = true;
+      const step = (now: number) => {
+        const t = Math.min(1, (now - start) / duration);
+        window.scrollTo(0, from + distance * ease(t));
+        if (t < 1) {
+          frame = requestAnimationFrame(step);
+        } else {
+          gliding = false;
+          quietUntil = performance.now() + QUIET_MS;
+        }
+      };
+      frame = requestAnimationFrame(step);
+    };
+    glideRef.current = glideTo;
+
+    const next = (dir: number) => {
+      const y = window.scrollY;
+      return dir > 0 ? stops.find((s) => s > y + 4) : [...stops].reverse().find((s) => s < y - 4);
+    };
+    // Inside the story the page moves stop to stop; in the tail it scrolls freely,
+    // except that scrolling up from the tail's top returns to the last act.
+    const inStory = (dir: number) => window.scrollY < tail - 4 || (dir < 0 && window.scrollY <= tail + 4);
+    const ownScroller = (target: EventTarget | null) =>
+      target instanceof Element &&
+      !!target.closest('[data-lenis-prevent], [role="dialog"], [role="listbox"], .overflow-y-auto, .overflow-auto, .overflow-y-scroll');
+    const locked = () => getComputedStyle(document.body).overflow === "hidden";
+
+    const onWheel = (e: WheelEvent) => {
+      if (e.ctrlKey || e.defaultPrevented || ownScroller(e.target) || locked()) return;
+      const dir = Math.sign(e.deltaY);
+      if (!dir) return;
+      const y = window.scrollY;
+      const enteringStory = dir < 0 && y > tail + 4 && y + e.deltaY < tail;
+      if (!inStory(dir) && !enteringStory) return;
+      e.preventDefault();
+      // One gesture, one stop: the rest of a flick (trackpad momentum, a spun
+      // wheel) is swallowed until the glide is over and the wheel goes quiet.
+      const now = performance.now();
+      const busy = gliding || now < quietUntil;
+      quietUntil = Math.max(quietUntil, now + QUIET_MS);
+      if (busy) return;
+      const target = enteringStory ? tail : next(dir);
+      if (target !== undefined) glideTo(target);
+    };
+
+    const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey || locked()) return;
+      const el = e.target instanceof Element ? e.target : null;
+      if (el?.closest('input, textarea, select, [contenteditable="true"], [role="dialog"], [role="listbox"]')) return;
+      const space = e.key === " " && !el?.closest("button, a, summary");
+      const dir =
+        e.key === "ArrowDown" || e.key === "PageDown" || (space && !e.shiftKey) ? 1
+          : e.key === "ArrowUp" || e.key === "PageUp" || (space && e.shiftKey) ? -1
+            : 0;
+      if (!dir || !inStory(dir)) return;
+      e.preventDefault();
+      if (gliding) return;
+      const target = next(dir);
+      if (target !== undefined) glideTo(target);
+    };
+
+    const onTouchStart = (e: TouchEvent) => {
+      touchY = e.touches.length === 1 && !ownScroller(e.target) && !locked() ? e.touches[0].clientY : null;
+    };
+    const onTouchMove = (e: TouchEvent) => {
+      if (touchY === null || !e.cancelable) return;
+      const dir = Math.sign(touchY - e.touches[0].clientY);
+      if (dir && inStory(dir)) e.preventDefault();
+    };
+    const onTouchEnd = (e: TouchEvent) => {
+      if (touchY === null) return;
+      const dy = touchY - (e.changedTouches[0]?.clientY ?? touchY);
+      touchY = null;
+      if (Math.abs(dy) < SWIPE_PX) return;
+      const dir = Math.sign(dy);
+      if (!inStory(dir) || gliding) return;
+      const target = next(dir);
+      if (target !== undefined) glideTo(target);
+    };
+
+    // Anything that leaves the page between two stops (the scrollbar, Tab,
+    // find-in-page, a scroll up out of the tail) glides to the nearest one.
+    const settle = () => {
+      if (gliding || locked()) return;
+      const y = window.scrollY;
+      if (y >= tail - 2) return;
+      const nearest = stops.reduce((best, s) => (Math.abs(s - y) < Math.abs(best - y) ? s : best), stops[0]);
+      if (Math.abs(nearest - y) > 2) glideTo(nearest);
+    };
+    const onScroll = () => {
+      if (gliding) return;
+      window.clearTimeout(settleTimer);
+      settleTimer = window.setTimeout(settle, 160);
+    };
+
+    measure();
+    const ro = new ResizeObserver(measure);
+    if (rootRef.current) ro.observe(rootRef.current);
+    window.addEventListener("resize", measure);
+    window.addEventListener("wheel", onWheel, { passive: false });
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("touchstart", onTouchStart, { passive: true });
+    window.addEventListener("touchmove", onTouchMove, { passive: false });
+    window.addEventListener("touchend", onTouchEnd, { passive: true });
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      cancelAnimationFrame(frame);
+      window.clearTimeout(settleTimer);
+      glideRef.current = null;
+      ro.disconnect();
+      window.removeEventListener("resize", measure);
+      window.removeEventListener("wheel", onWheel);
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("touchstart", onTouchStart);
+      window.removeEventListener("touchmove", onTouchMove);
+      window.removeEventListener("touchend", onTouchEnd);
+      window.removeEventListener("scroll", onScroll);
+    };
+  }, [mounted]);
 
   // Build the scene for the chosen renderer.
   useEffect(() => {
@@ -329,7 +496,10 @@ export function NovaExperience({ signedIn, onOpenDailySignals, stockStrip }: Nov
   const goTo = (i: number) => {
     const target = i === 0 ? 0 : actsIn(rootRef.current)[i - 1];
     if (target == null) return;
-    if (typeof target === "number") {
+    const glide = glideRef.current;
+    if (glide) {
+      glide(typeof target === "number" ? target : Math.round(target.getBoundingClientRect().top + window.scrollY));
+    } else if (typeof target === "number") {
       window.scrollTo({ top: target, behavior: "smooth" });
     } else {
       target.scrollIntoView({ behavior: "smooth" });
@@ -361,8 +531,6 @@ export function NovaExperience({ signedIn, onOpenDailySignals, stockStrip }: Nov
   return (
     <>
       {mounted && createPortal(fixedLayer, document.body)}
-      {/* The first stop, the very top of the page (above the header and main). */}
-      {mounted && createPortal(<div aria-hidden className="nova-stop nova-stop-top" />, document.body)}
 
       {/* Progress rail: where you are in the flight, and a shortcut to each stop. */}
       <nav
@@ -416,7 +584,7 @@ export function NovaExperience({ signedIn, onOpenDailySignals, stockStrip }: Nov
             </div>
           </div>
 
-          {stockStrip ? <div className="nova-stop-center w-full">{stockStrip}</div> : null}
+          {stockStrip ? <div data-nova-stop className="w-full">{stockStrip}</div> : null}
         </section>
 
         {STORY.map((beat, i) => (

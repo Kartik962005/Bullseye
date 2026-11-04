@@ -2251,7 +2251,7 @@ export function HomeContent({ initialTicker }: { initialTicker?: string } = {}) 
               />
 
               {/* After the story: one scroll lands here, then the page scrolls freely. */}
-              <div className="nova-after flex w-full flex-col">
+              <div data-nova-after className="flex w-full flex-col">
                 <DailySignalPreviewCard
                   signedIn={Boolean(user)}
                   alertsEnabled={alertsEnabled}
