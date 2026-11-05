@@ -300,6 +300,30 @@ class RunTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "no calls for the next session yet"):
                 dts.send_instant_signal_email({"id": "u1", "email": "a@example.com"}, {"signal_type": "1-day"})
 
+    def test_the_evening_email_only_combines_runs_for_the_same_session(self):
+        runs = self.runs()
+        runs["5-day"] = {**runs["5-day"], "target_date": "2026-10-13"}  # an older run must not join in
+        with mock.patch.object(dts, "latest_run", side_effect=lambda market, risk, st: runs[st]), \
+             mock.patch.object(dts, "_load_signals_for_run", return_value=[]):
+            combined = dts._digest_runs("NSE", "Balanced")
+        self.assertEqual(sorted(combined), [1, 3])
+        items = dts._digest_items(combined)
+        self.assertEqual([item["horizon"] for item in items], [1, 3, 5])
+        self.assertIn("aren't ready yet", items[2]["withheld"])
+
+    def test_each_person_gets_one_evening_email_per_session(self):
+        runs = {1: (self.runs()["1-day"], [])}
+        prefs = [{"user_id": "u1", "email": "a@example.com", "unsubscribe_nonce": "n"},
+                 {"user_id": "u2", "email": "b@example.com", "unsubscribe_nonce": "n"}]
+        with mock.patch.object(dts, "_digest_runs", return_value=runs), \
+             mock.patch.object(dts, "_live_forecast_record", return_value=None), \
+             mock.patch.object(dts, "_iter_preferences", return_value=prefs), \
+             mock.patch.object(dts, "_daily_email_already_sent_for_target", side_effect=lambda user, target: user == "u2"), \
+             mock.patch.object(dts, "_send_digest_to_preference", return_value={"status": "sent"}) as send:
+            sent = dts._send_daily_digests("NSE", "Balanced", ["u1", "u2"])
+        self.assertEqual(len(sent), 1)
+        self.assertEqual(send.call_args.args[1]["user_id"], "u1")
+
     def test_the_evening_email_has_every_horizon_and_says_why_one_is_empty(self):
         from app.services.daily_signal_engine.email_generation import build_daily_digest_email
 

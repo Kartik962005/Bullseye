@@ -142,5 +142,6 @@ def archive_day(day: date, companies: list[tuple[str, str]], *, storage: Any, pa
         "market": market,
         "stocks": stocks,
     }, ensure_ascii=False).encode("utf-8"))
-    storage.from_(BUCKET).upload(archive_path(day), payload, file_options={"content-type": "application/gzip", "upsert": "true"})
+    # The same content type the price files use, which the bucket already accepts.
+    storage.from_(BUCKET).upload(archive_path(day), payload, file_options={"content-type": "application/octet-stream", "upsert": "true"})
     return {"stocks": len(companies), "failed": failed, "stories": sum(len(v or []) for v in stocks.values()), "bytes": len(payload)}
