@@ -192,6 +192,14 @@ def _forecast_card(signal: dict[str, Any], *, digest: bool = False) -> tuple[str
             ("Exit if it moves", exit_move),
             ("Right in testing", f"{round(rate * 100)}%" if rate is not None else "n/a"),
         ]
+    # The latest headline, as context: the model does not read news.
+    news = forecast.get("news") or {}
+    story = (news.get("stories") or [None])[0]
+    news_line = ""
+    if story:
+        source = f" ({story['source']})" if story.get("source") else ""
+        caution = "Big news in the last two days, so expect a wilder day. " if news.get("big_news") else ""
+        news_line = f"{caution}In the news (not used by the model): {story['title']}{source}."
     html = (
         f"<table role='presentation' width='100%' style='border-collapse:separate;border:1px solid {theme.LINE};"
         "border-radius:16px;margin:0 0 12px'><tr><td style='padding:16px 16px 6px'>"
@@ -208,7 +216,12 @@ def _forecast_card(signal: dict[str, Any], *, digest: bool = False) -> tuple[str
         + theme.metric_grid(plan)
         + f"<p style='margin:0 0 10px;font-family:{theme.FONT};font-size:13px;line-height:1.55;color:{theme.MUTED}'>"
         f"{escape(why)}. {escape(evidence)}</p>"
-        "</td></tr></table>"
+        + (
+            f"<p style='margin:0 0 10px;font-family:{theme.FONT};font-size:12.5px;line-height:1.55;color:{theme.FAINT}'>{escape(news_line)}</p>"
+            if news_line
+            else ""
+        )
+        + "</td></tr></table>"
     )
     if trade:
         order = (
@@ -220,7 +233,7 @@ def _forecast_card(signal: dict[str, Any], *, digest: bool = False) -> tuple[str
         order = "; ".join(f"{name}: {value}" for name, value in plan[:3])
     else:
         order = f"Last close {last}; likely move from the open {_signed_pct(q10)} to {_signed_pct(q90)}; exit if it moves {exit_move}"
-    text = f"{symbol} {label}: {odds}\n{order}\n{why}. {evidence}\n"
+    text = f"{symbol} {label}: {odds}\n{order}\n{why}. {evidence}\n" + (f"{news_line}\n" if news_line else "")
     return html, text
 
 

@@ -57,6 +57,7 @@ from app.services.daily_signal_engine.config import (
     horizon_from_signal_type,
     signal_type_for_horizon,
 )
+from app.services import news_service
 from app.services.daily_signal_engine.data_ingestion import fetch_price_history, get_symbol_metadata
 from app.services.daily_signal_engine import forecast as forecast_engine
 from app.services.daily_signal_engine import market_calendar
@@ -1580,6 +1581,11 @@ def _forecast_signal_row(row: pd.Series, horizon: int, artifact: dict[str, Any],
     if plan:
         forecast["plan"] = plan
     forecast["context"] = forecast_engine.context_notes(row)
+    # Context only: the model never reads news (see news_service).
+    if _NEWS_ENABLED:
+        news = news_service.call_headlines(forecast_engine.company_of(row["ticker"]))
+        if news and news.get("stories"):
+            forecast["news"] = news
     # The same model's chance for the middle stock today, for comparison.
     forecast["typical_p_beat"] = typical_p_beat
     forecast["first_session"] = target_date
@@ -2322,7 +2328,7 @@ def run_scheduled_tick(force: bool = False) -> dict[str, Any]:
 
 
 def _run_scheduled_tick(force: bool) -> dict[str, Any]:
-    global _OUTCOME_TRACKED_FOR
+    global _OUTCOME_TRACKED_FOR, _NEWS_ARCHIVED_FOR
     now = datetime.now(IST)
     # Grade first, once the close is final (not at 3:30 sharp, when the closing
     # price is still being set), so the runs built next carry today's results.
@@ -2351,7 +2357,36 @@ def _run_scheduled_tick(force: bool) -> dict[str, Any]:
         print(f"[DailySignals] preparing runs failed: {exc}")
     emails = process_scheduled_daily_alerts(force=force)
 
-    return {"prepared": prepared, "emails": emails, "outcomes": outcomes}
+    # Last, and once a day: the evening's headlines for every stock, kept so news
+    # can be tested later (it is light, but slow: one request per stock).
+    news = None
+    if _NEWS_ENABLED and _session_complete(now) and not _is_market_holiday(now.date()) and _NEWS_ARCHIVED_FOR != today:
+        try:
+            news = _archive_news(now.date())
+            _NEWS_ARCHIVED_FOR = today
+        except Exception as exc:  # noqa: BLE001 - never let the archive break the tick
+            print(f"[DailySignals] news archive failed: {exc}")
+
+    return {"prepared": prepared, "emails": emails, "outcomes": outcomes, "news": news}
+
+
+_NEWS_ENABLED = os.getenv("NEWS_ARCHIVE_ENABLED", "true").strip().lower() not in {"0", "false", "no"}
+_NEWS_ARCHIVED_FOR: str | None = None
+
+
+def _archive_news(day: date) -> dict[str, Any]:
+    """Save the day's headlines for all forecast stocks, unless already saved (a restart)."""
+    if not supabase:
+        return {"skipped": "no storage"}
+    storage = supabase.storage
+    existing = storage.from_(news_service.BUCKET).list(news_service.PREFIX, {"search": f"{day.isoformat()}.json.gz"})
+    if any(item.get("name") == f"{day.isoformat()}.json.gz" for item in existing or []):
+        return {"skipped": "already saved"}
+    universe = forecast_engine.load_universe()
+    companies = list(zip(universe["ticker"], universe["company"]))
+    result = news_service.archive_day(day, companies, storage=storage)
+    print(f"[DailySignals] news archive for {day}: {result}")
+    return result
 
 
 def _load_pending_signals(target_day: str, *, include_evaluated: bool = False) -> list[dict[str, Any]]:

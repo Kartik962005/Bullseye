@@ -345,6 +345,11 @@ function CallCard({
           <span>{exitBy}</span>
         </div>
         {plan && !live && <div className="text-[11.5px] text-[color:var(--ink-4)]">Skip it if it opens below {orderPrice(plan.skip_below)}</div>}
+        {forecast.news?.big_news && (
+          <div className="mt-1 inline-flex rounded-full bg-[color:var(--down)]/10 px-2 py-0.5 font-body text-[10.5px] text-[color:var(--down)]">
+            Big news in the last two days: expect a wilder day
+          </div>
+        )}
         {size && (
           <div className="text-[11.5px] text-[color:var(--ink-3)]">
             {size.qty > 0 ? (
@@ -411,6 +416,30 @@ function CallCard({
             <ul className="mt-2 list-disc space-y-1 pl-4">
               {(forecast.context ?? []).slice(0, 4).map(note => <li key={note}>{note}</li>)}
             </ul>
+          )}
+          {(forecast.news?.stories ?? []).length > 0 && (
+            <div className="mt-3">
+              <div className="text-[11px] text-[color:var(--ink-4)]">In the news · not used by the model, read it before you trade</div>
+              <ul className="mt-1 space-y-1">
+                {(forecast.news?.stories ?? []).slice(0, 3).map(story => (
+                  <li key={story.title} className="text-[12px] leading-5">
+                    {story.url ? (
+                      <a href={story.url} target="_blank" rel="noopener noreferrer" className="text-[color:var(--ink-2)] hover:underline">
+                        {story.title}
+                      </a>
+                    ) : (
+                      story.title
+                    )}
+                    <span className="text-[color:var(--ink-4)]">
+                      {story.source ? ` · ${story.source}` : ''}
+                      {story.published
+                        ? ` · ${new Date(story.published).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', timeZone: 'Asia/Kolkata' })}`
+                        : ''}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
           )}
           <Link href={`/stock/${encodeURIComponent(pick.symbol)}`} className="mt-2.5 inline-flex text-[12.5px] font-medium text-[color:var(--accent-text)] hover:underline">
             Open {pick.symbol} →

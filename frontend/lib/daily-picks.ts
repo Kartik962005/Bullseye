@@ -66,6 +66,8 @@ export type Forecast = {
   first_session?: string;
   last_session?: string;
   context?: string[];
+  /** Latest headlines, as context only: the model does not read news. */
+  news?: { stories: Array<{ title: string; source?: string; url?: string | null; published?: string | null }>; big_news?: boolean } | null;
   tested?: { p_min: number; p_max: number; call_rate?: number; actual_beat_rate?: number; samples: number } | null;
 };
 
