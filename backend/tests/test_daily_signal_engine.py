@@ -113,7 +113,7 @@ class DailySignalEngineTests(unittest.TestCase):
     def test_scheduled_alerts_count_only_provider_sent_as_sent(self):
         original_iter_preferences = dts._iter_preferences
         original_dedupe = dts._daily_email_already_sent_for_target
-        original_run_daily_prediction = dts.run_daily_prediction
+        original_send_digests = dts._send_daily_digests
         preferences = [
             {
                 "user_id": "user-sent",
@@ -137,18 +137,18 @@ class DailySignalEngineTests(unittest.TestCase):
             },
         ]
 
-        def fake_run_daily_prediction(**kwargs):
-            self.assertEqual(set(kwargs["user_ids"]), {"user-sent", "user-failed"})
-            return {
-                "notifications": [
-                    {"user_id": "user-sent", "status": "sent", "provider": "resend"},
-                    {"user_id": "user-failed", "status": "failed", "provider": "resend"},
-                ]
-            }
+        def fake_send_digests(market, risk_level, user_ids, **kwargs):
+            # Grouped by market and risk level: one email each, every horizon in it.
+            self.assertEqual((market, risk_level), ("NSE", "Balanced"))
+            self.assertEqual(set(user_ids), {"user-sent", "user-failed"})
+            return [
+                {"user_id": "user-sent", "status": "sent", "provider": "resend"},
+                {"user_id": "user-failed", "status": "failed", "provider": "resend"},
+            ]
 
         dts._iter_preferences = lambda: preferences
         dts._daily_email_already_sent_for_target = lambda user_id, target_date, email_kind="daily_signal": False
-        dts.run_daily_prediction = fake_run_daily_prediction
+        dts._send_daily_digests = fake_send_digests
         try:
             with mock.patch.object(dts, "_failed_daily_sends", return_value=[]):
                 result = dts.process_scheduled_daily_alerts(force=True)
@@ -159,7 +159,7 @@ class DailySignalEngineTests(unittest.TestCase):
         finally:
             dts._iter_preferences = original_iter_preferences
             dts._daily_email_already_sent_for_target = original_dedupe
-            dts.run_daily_prediction = original_run_daily_prediction
+            dts._send_daily_digests = original_send_digests
 
     def test_scheduled_alerts_space_out_retries_and_stop_after_three(self):
         def preference(user_id):
@@ -183,7 +183,7 @@ class DailySignalEngineTests(unittest.TestCase):
         with mock.patch.object(dts, "supabase", None), \
              mock.patch.object(dts, "_MEMORY_EMAIL_LOGS", logs), \
              mock.patch.object(dts, "_iter_preferences", return_value=[preference(u) for u in ("just-failed", "failed-a-while-ago", "failed-three-times", "new")]), \
-             mock.patch.object(dts, "run_daily_prediction", side_effect=lambda **kw: due.extend(kw["user_ids"]) or {"notifications": []}):
+             mock.patch.object(dts, "_send_daily_digests", side_effect=lambda market, risk, user_ids, **kw: due.extend(user_ids) or []):
             result = dts.process_scheduled_daily_alerts(force=True)
         self.assertEqual(sorted(due), ["failed-a-while-ago", "new"])
         self.assertEqual(result["skipped"]["retry_later"], 1)

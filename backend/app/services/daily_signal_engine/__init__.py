@@ -2,7 +2,7 @@ from .config import DEFAULT_CONSENT_VERSION
 from .data_ingestion import fetch_market_context, get_universe
 from .data_validation import validate_candidate_frame
 from .diversification import diversify_candidates
-from .email_generation import build_signal_email
+from .email_generation import build_daily_digest_email, build_signal_email
 from .feature_engineering import build_feature_frame
 from .market_regime import detect_market_regime
 from .ml_interface import build_live_feature_values, predict_signal_probabilities
@@ -20,6 +20,7 @@ __all__ = [
     "adjusted_win_rate",
     "build_feature_frame",
     "build_live_feature_values",
+    "build_daily_digest_email",
     "build_signal_email",
     "compute_expected_r",
     "compute_final_score",

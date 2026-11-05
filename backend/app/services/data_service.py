@@ -96,6 +96,32 @@ def _last_completed_session(now: datetime | None = None) -> pd.Timestamp:
     return pd.Timestamp(day)
 
 
+def _session_close_ts(day: pd.Timestamp) -> float:
+    """When a session's daily bar is final (16:00 IST that day), in epoch seconds."""
+    return datetime(day.year, day.month, day.day, _SESSION_COMPLETE_HOUR_IST, tzinfo=_IST).timestamp()
+
+
+def _fetched_before_last_close(ts: float, now: datetime | None = None) -> bool:
+    """A frame fetched before the latest session closed can hold that session's
+    unfinished bar (Yahoo's daily chart includes the day in progress)."""
+    return ts < _session_close_ts(_last_completed_session(now))
+
+
+def _completed_bars(df: pd.DataFrame, now: datetime | None = None) -> pd.DataFrame:
+    """Drop today's bar while today's session is still running.
+
+    Stored history is read back after the close as if final. A frame fetched at
+    10 AM carries a bar whose "close" is the 10 AM price; saved as it was, the
+    evening forecasts and the grading of that day's calls read that price as
+    the close (on 4 Nov a call was graded on a 0.007% "move").
+    """
+    current = (now or datetime.now(_IST)).astimezone(_IST)
+    if df is None or df.empty or current.weekday() >= 5 or current.hour >= _SESSION_COMPLETE_HOUR_IST:
+        return df
+    dates = pd.to_datetime(df["date"], errors="coerce").dt.normalize()
+    return df[dates < pd.Timestamp(current.date())]
+
+
 # The newest bar actually published, learned from Yahoo refreshes and from the
 # market snapshot. Weekday arithmetic alone can't see exchange holidays: on
 # Gandhi Jayanti every cached stock looked one session stale, so every request
@@ -115,17 +141,27 @@ def _note_latest_bar(latest: pd.Timestamp | None) -> None:
         _observed_session["ts"] = time.time()
 
 
-def _published_session() -> pd.Timestamp | None:
-    """Newest bar known to exist market-wide, if learned recently."""
+def _published_session(now: datetime | None = None) -> pd.Timestamp | None:
+    """Newest bar known to exist market-wide, if learned since the last close.
+
+    Only an observation made after the latest session closed can say that
+    session produced no bar (a holiday). One made earlier simply predates the
+    bar: on 4 Nov the snapshot, built before the close, still said 3 Nov, so
+    every stored history ending 3 Nov looked current, nothing was refreshed,
+    and 10 of that day's 11 calls went ungraded.
+    """
+    settled = _session_close_ts(_last_completed_session(now))
     candidates = []
-    if _observed_session["date"] is not None and time.time() - _observed_session["ts"] < _OBSERVED_SESSION_TTL:
+    observed_at = float(_observed_session["ts"] or 0)
+    if _observed_session["date"] is not None and observed_at >= settled and time.time() - observed_at < _OBSERVED_SESSION_TTL:
         candidates.append(_observed_session["date"])
     try:
         # Read the snapshot's in-memory cache only; never trigger a fetch here.
         from app.services import stock_snapshot_service as _snap
 
         rows = _snap._cache.get("rows") or []
-        if rows and time.time() - float(_snap._cache.get("ts") or 0) < _OBSERVED_SESSION_TTL:
+        snapped_at = float(_snap._cache.get("ts") or 0)
+        if rows and snapped_at >= settled and time.time() - snapped_at < _OBSERVED_SESSION_TTL:
             dates = [str(r.get("latest_date") or "")[:10] for r in rows if r.get("latest_date")]
             if dates:
                 candidates.append(pd.Timestamp(max(dates)))
@@ -136,7 +172,7 @@ def _published_session() -> pd.Timestamp | None:
 
 def _sessions_missing(latest_cached: pd.Timestamp, now: datetime | None = None) -> int:
     """Count weekday sessions between the cache's newest bar and the last close."""
-    published = _published_session()
+    published = _published_session(now)
     if published is not None and latest_cached.normalize() >= published:
         # Nothing newer exists yet (holiday, or today's bar not published).
         return 0
@@ -179,6 +215,12 @@ def _normalize_cached_history(df: pd.DataFrame) -> pd.DataFrame:
     return out.dropna().sort_values('date').reset_index(drop=True)
 
 
+# Tickers refreshed from Yahoo after the latest close, by that session's date.
+# Stored history written before this fix could hold a mid-session bar for that
+# day; one refresh after the close replaces it with the final bar.
+_settled_refresh: dict[str, str] = {}
+
+
 def _cache_status(df: pd.DataFrame, ticker: str, days: int, source: str) -> tuple[bool, int]:
     required_rows = _required_history_rows(days)
     if len(df) < required_rows:
@@ -186,6 +228,14 @@ def _cache_status(df: pd.DataFrame, ticker: str, days: int, source: str) -> tupl
         return False, 0
 
     latest_cached = df['date'].max()
+    last_session = _last_completed_session()
+    if (
+        latest_cached.normalize() == last_session
+        and last_session.date() == datetime.now(_IST).date()
+        and _settled_refresh.get(ticker) != last_session.strftime("%Y-%m-%d")
+    ):
+        print(f"[Cache] {source} bar for {ticker} on {last_session.date()} may predate the close - refreshing from Yahoo.")
+        return False, 1
     missing = _sessions_missing(latest_cached)
     if missing <= CACHE_MAX_MISSING_SESSIONS:
         print(f"[Cache] {source} hit for {ticker} ({len(df)} rows, latest {latest_cached.date()})")
@@ -830,7 +880,9 @@ def get_historical_data(ticker: str, days: int = 365, allow_stale: bool = False)
     # ── Layer 1: RAM cache ─────────────────────────────────────────────────────
     now = time.time()
     cached = _hist_cache.get(ticker)
-    if cached and now - cached['ts'] < HIST_TTL:
+    # A frame fetched before the latest close may end in that session's
+    # unfinished bar, so it expires at the close, not an hour after the fetch.
+    if cached and now - cached['ts'] < HIST_TTL and not _fetched_before_last_close(cached['ts']):
         cached_df = cached['df'].copy()
         required_rows = _required_history_rows(days)
         if len(cached_df) >= required_rows:
@@ -897,6 +949,7 @@ def get_historical_data(ticker: str, days: int = 365, allow_stale: bool = False)
 
     if df is not None and len(df):
         _note_latest_bar(df["date"].max())
+        _settled_refresh[ticker] = _last_completed_session().strftime("%Y-%m-%d")
 
     if df is None or len(df) == 0:
         # A stale cached answer beats no answer at all when Yahoo is unreachable.
@@ -906,7 +959,10 @@ def get_historical_data(ticker: str, days: int = 365, allow_stale: bool = False)
             return stale_cache_df
         raise ValueError(f"No valid OHLCV data for ticker '{ticker}'.")
 
-    _schedule_writeback(ticker, df.copy())
+    # Only finished sessions are stored; today's moving bar stays in memory.
+    stored = _completed_bars(df)
+    if len(stored):
+        _schedule_writeback(ticker, stored.copy())
 
     # ── Save to RAM ────────────────────────────────────────────────────────────
     _cache_frame(_hist_cache, ticker, df, HIST_TTL, HIST_CACHE_LIMIT)

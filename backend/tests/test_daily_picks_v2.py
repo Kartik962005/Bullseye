@@ -274,38 +274,72 @@ class RunTests(unittest.TestCase):
         self.assertEqual(dts._parse_time_string("20:00").hour, 20)
         self.assertEqual(dts._parse_time_string("20:15:00").minute, 15)
 
-    def test_email_now_sends_stored_picks_and_never_computes(self):
-        run = {"id": "r1", "status": "completed", "target_date": "2026-10-14", "market": "NSE", "risk_level": "Balanced", "signal_type": "3-day"}
+    def runs(self, status="completed"):
+        return {st: {"id": f"r{st}", "status": status, "target_date": "2026-10-14", "market": "NSE", "risk_level": "Balanced",
+                     "signal_type": st, "summary": {}} for st in ("1-day", "3-day", "5-day")}
+
+    def test_email_now_sends_every_horizon_from_stored_runs_and_never_computes(self):
+        runs = self.runs()
         user = {"id": "u1", "email": "a@example.com"}
-        with mock.patch.object(dts, "get_notification_preference", return_value={"user_id": "u1", "email": "a@example.com"}), \
-             mock.patch.object(dts, "latest_run", return_value=run) as latest, \
-             mock.patch.object(dts, "_load_signals_for_run", return_value=[{"symbol": "TCS"}]), \
-             mock.patch.object(dts, "run_daily_prediction", side_effect=AssertionError("must not compute")), \
-             mock.patch.object(dts, "_send_signal_email_to_preference", return_value={"status": "sent"}) as send, \
-             mock.patch.object(dts, "_log_audit"):
+        with mock.patch.object(dts, "get_notification_preference", return_value={"user_id": "u1", "email": "a@example.com"}),              mock.patch.object(dts, "latest_run", side_effect=lambda market, risk, st: runs[st]) as latest,              mock.patch.object(dts, "_load_signals_for_run", return_value=[{"symbol": "TCS"}]),              mock.patch.object(dts, "run_daily_prediction", side_effect=AssertionError("must not compute")),              mock.patch.object(dts, "_live_forecast_record", return_value=None),              mock.patch.object(dts, "_send_digest_to_preference", return_value={"status": "sent"}) as send,              mock.patch.object(dts, "_log_audit"):
             result = dts.send_instant_signal_email(user, {"risk_level": "Balanced", "signal_type": "3-day"})
-        latest.assert_called_once_with("NSE", "Balanced", "3-day")
-        send.assert_called_once()
+        self.assertEqual(sorted(call.args[2] for call in latest.call_args_list), ["1-day", "3-day", "5-day"])
+        self.assertEqual(sorted(send.call_args.args[0]), [1, 3, 5])  # the same email as the evening one
         self.assertEqual(result["notification"]["status"], "sent")
 
     def test_email_now_reports_an_email_the_provider_refused(self):
-        run = {"id": "r1", "status": "completed", "target_date": "2026-10-14", "market": "NSE", "risk_level": "Balanced", "signal_type": "1-day"}
+        runs = self.runs()
         refused = {"status": "failed", "error": 'status=401 response={"message":"API key is invalid"}'}
-        with mock.patch.object(dts, "get_notification_preference", return_value={"user_id": "u1", "email": "a@example.com"}), \
-             mock.patch.object(dts, "latest_run", return_value=run), \
-             mock.patch.object(dts, "_load_signals_for_run", return_value=[{"symbol": "TCS"}]), \
-             mock.patch.object(dts, "_send_signal_email_to_preference", return_value=refused), \
-             mock.patch.object(dts, "_log_audit") as audit:
+        with mock.patch.object(dts, "get_notification_preference", return_value={"user_id": "u1", "email": "a@example.com"}),              mock.patch.object(dts, "latest_run", side_effect=lambda market, risk, st: runs[st]),              mock.patch.object(dts, "_load_signals_for_run", return_value=[{"symbol": "TCS"}]),              mock.patch.object(dts, "_live_forecast_record", return_value=None),              mock.patch.object(dts, "_send_digest_to_preference", return_value=refused),              mock.patch.object(dts, "_log_audit") as audit:
             with self.assertRaisesRegex(dts.EmailNotSent, "couldn't be sent"):
                 dts.send_instant_signal_email({"id": "u1", "email": "a@example.com"}, {"signal_type": "1-day"})
         audit.assert_not_called()
 
-    def test_email_now_explains_a_withheld_horizon(self):
-        run = {"id": "r1", "status": "withheld", "summary": {"withheld_reason": "No edge in testing."}}
-        with mock.patch.object(dts, "get_notification_preference", return_value={"user_id": "u1", "email": "a@example.com"}), \
-             mock.patch.object(dts, "latest_run", return_value=run):
-            with self.assertRaisesRegex(ValueError, "No edge in testing"):
+    def test_email_now_says_when_nothing_is_built_yet(self):
+        with mock.patch.object(dts, "get_notification_preference", return_value={"user_id": "u1", "email": "a@example.com"}),              mock.patch.object(dts, "latest_run", return_value=None):
+            with self.assertRaisesRegex(ValueError, "no calls for the next session yet"):
                 dts.send_instant_signal_email({"id": "u1", "email": "a@example.com"}, {"signal_type": "1-day"})
+
+    def test_the_evening_email_has_every_horizon_and_says_why_one_is_empty(self):
+        from app.services.daily_signal_engine.email_generation import build_daily_digest_email
+
+        forecast = {"p_beat": 0.45, "p_call": 0.55, "q10": -0.026, "q50": -0.001, "q90": 0.023, "reference_close": 335.0,
+                    "low_price": 326.3, "mid_price": 334.7, "high_price": 342.7, "stop_price": 342.7, "last_session": "2026-11-06",
+                    "plan": {"entry": "open", "skip_gap": 0.01, "skip_below": 331.65, "stop_pct": 0.036, "stop_price": 347.06, "exit": "close"}}
+        sell = {"symbol": "TATAPOWER", "company_name": "Tata Power", "direction": "SELL", "signal_rank": 1,
+                "explanation_json": {"forecast": forecast, "reasons": ["Weak against its sector"]}}
+        horizons = [
+            {"horizon": 1, "signals": [sell], "notes": {"buy": "Buy calls are paused for now."},
+             "captions": {"sell": "Sell calls like these fell 60% of the time in testing."}, "last_session": "2026-11-06"},
+            {"horizon": 3, "signals": [], "notes": {"buy": "3-day buys are paused for this horizon."}, "last_session": "2026-11-11"},
+            {"horizon": 5, "signals": [], "notes": {"buy": "5-day buys are paused for this horizon."}, "last_session": "2026-11-13"},
+        ]
+        record = {"calls": 5, "since": "2026-10-29", "sell": {"calls": 5, "right": 3, "moved_calls": 5, "moved": 3},
+                  "plan": {"calls": 5, "taken": 4, "skipped": 1, "stopped": 1, "wins": 3, "avg_pct": 0.42},
+                  "sessions": [{"date": "2026-11-05", "moved": 3, "right": 3, "plan_avg_pct": 0.42, "calls": [
+                      {"symbol": "LICI", "direction": "SELL", "right": True, "moved": True, "move_pct": -1.2, "plan": "held", "plan_pct": 1.05},
+                      {"symbol": "MCX", "direction": "SELL", "right": False, "moved": False, "move_pct": 2.1, "plan": "stopped", "plan_pct": -3.75},
+                      {"symbol": "INDIGO", "direction": "SELL", "right": False, "moved": False, "move_pct": 0.4, "plan": "skipped"}]}]}
+        subject, text, html = build_daily_digest_email(target_date="2026-11-06", market="NSE", risk_level="Balanced",
+                                                       horizons=horizons, unsubscribe_url="u", data_date="2026-11-05", record=record)
+        self.assertEqual(subject, "Bullseye calls for Fri 06 Nov: 1 intraday sell")
+        for expected in ("Intraday · Fri 06 Nov", "3 days · Fri 06 Nov to Wed 11 Nov", "5 days · Fri 06 Nov to Fri 13 Nov",
+                         "Sell calls (1)", "Buy calls · none today", "3-day buys are paused", "5-day buys are paused",
+                         "Sell at the 9:15 AM open", "₹347.05 (+3.6%)", "How recent calls did",
+                         "Thu 05 Nov: 1 of 3 sells fell, the sell plan averaged +0.4% a trade", "stopped out -3.8%",
+                         "plan skipped it", "Since Thu 29 Oct: 3 of 5 sells fell (60%)"):
+            self.assertIn(expected, html)
+        self.assertIn("INTRADAY · FRI 06 NOV", text)
+        self.assertIn("No sell calls for 3-day holds", text)
+
+    def test_the_evening_email_with_no_calls_says_so_in_the_subject(self):
+        from app.services.daily_signal_engine.email_generation import build_daily_digest_email
+
+        horizons = [{"horizon": h, "signals": [], "notes": {"buy": "Paused."}, "last_session": "2026-11-06"} for h in (1, 3, 5)]
+        subject, text, html = build_daily_digest_email(target_date="2026-11-06", market="NSE", risk_level="Balanced",
+                                                       horizons=horizons, unsubscribe_url="u")
+        self.assertEqual(subject, "Bullseye for Fri 06 Nov: no call passed the bar")
+        self.assertIn("Sell calls · none today", html)
 
 
 if __name__ == "__main__":

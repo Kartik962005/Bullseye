@@ -22,6 +22,7 @@ from app.services.daily_signal_engine import (
     DEFAULT_CONSENT_VERSION,
     adjusted_win_rate,
     build_feature_frame,
+    build_daily_digest_email,
     build_live_feature_values,
     build_signal_email,
     compute_expected_r,
@@ -1566,6 +1567,7 @@ def _trade_plan(forecast: dict[str, Any], row: pd.Series, horizon: int, publish:
         "stop_price": round(close * (1 + stop_pct), 2),
         "daily_vol": round(vol, 5),
         "exit": "close",
+        "cost": float(rule.get("cost") or _PLAN_COST),
     }
 
 
@@ -1614,27 +1616,38 @@ def _forecast_signal_row(row: pd.Series, horizon: int, artifact: dict[str, Any],
     }
 
 
-def _live_forecast_record(horizon: int, limit: int = 300) -> dict[str, Any] | None:
+_SCORECARD_SESSIONS = 5
+
+
+def _live_forecast_record(horizon: int, limit: int = 900) -> dict[str, Any] | None:
     """The scorecard: how this engine's published calls for the horizon actually did.
 
     A stock called in more than one risk level's list counts once per session.
     Each call is right when it beat (buy) or lagged (sell) the average Nifty 200
     stock, and separately records whether it rose (buy) or fell (sell), since
-    that is what a reader checks. The latest graded session is listed call by call.
+    that is what a reader checks, and how the printed sell plan did. The last
+    five graded sessions are listed call by call.
     """
     if not supabase:
         return None
     try:
-        signals = (
-            supabase.table(SIGNALS_TABLE)
-            .select("id,symbol,direction,target_date")
-            .eq("setup_type", "forecast")
-            .eq("model_version", f"{FORECAST_VERSION}-h{horizon}")
-            .order("target_date", desc=True)
-            .limit(limit)
-            .execute()
-        )
-        rows = getattr(signals, "data", None) or []
+        rows: list[dict[str, Any]] = []
+        # PostgREST returns at most 1,000 rows a request; read in pages.
+        for start in range(0, limit, 300):
+            page = (
+                supabase.table(SIGNALS_TABLE)
+                .select("id,symbol,direction,target_date")
+                .eq("setup_type", "forecast")
+                .eq("model_version", f"{FORECAST_VERSION}-h{horizon}")
+                .order("target_date", desc=True)
+                .order("id")
+                .range(start, min(start + 300, limit) - 1)
+                .execute()
+            )
+            batch = getattr(page, "data", None) or []
+            rows.extend(batch)
+            if len(batch) < 300:
+                break
         unique: dict[tuple[str, str, str], dict[str, Any]] = {}
         for row in rows:
             unique.setdefault((row["target_date"], row["symbol"], row["direction"]), row)
@@ -1665,6 +1678,7 @@ def _live_forecast_record(horizon: int, limit: int = 300) -> dict[str, Any] | No
                 "move_pct": notes.get("move_pct"),
                 "market_pct": notes.get("market_pct"),
                 "edge_pct": round(float(outcome.get("realized_r") or 0), 3),
+                **{key: notes[key] for key in ("plan", "plan_pct") if notes.get(key) is not None},
             })
         record: dict[str, Any] = {"calls": len(graded), "since": min((g["date"] for g in graded), default=None)}
         for direction in ("BUY", "SELL"):
@@ -1679,12 +1693,33 @@ def _live_forecast_record(horizon: int, limit: int = 300) -> dict[str, Any] | No
                 "moved": sum(1 for g in known if g["moved"]),
                 "avg_edge_pct": round(sum(g["edge_pct"] for g in mine) / len(mine), 3),
             }
-        if graded:
-            last = max(g["date"] for g in graded)
-            record["latest"] = {
-                "date": last,
-                "calls": sorted((g for g in graded if g["date"] == last), key=lambda g: (g["direction"], g["symbol"])),
+        planned = [g for g in graded if g.get("plan") in {"held", "stopped", "skipped"}]
+        if planned:
+            taken = [g for g in planned if g["plan"] != "skipped" and isinstance(g.get("plan_pct"), (int, float))]
+            record["plan"] = {
+                "calls": len(planned),
+                "taken": len(taken),
+                "skipped": sum(1 for g in planned if g["plan"] == "skipped"),
+                "stopped": sum(1 for g in taken if g["plan"] == "stopped"),
+                "wins": sum(1 for g in taken if g["plan_pct"] > 0),
+                "avg_pct": round(sum(g["plan_pct"] for g in taken) / len(taken), 3) if taken else None,
+                "total_pct": round(sum(g["plan_pct"] for g in taken), 3) if taken else None,
             }
+        if graded:
+            days = sorted({g["date"] for g in graded}, reverse=True)[:_SCORECARD_SESSIONS]
+            sessions = []
+            for day in days:
+                calls = sorted((g for g in graded if g["date"] == day), key=lambda g: (g["direction"], g["symbol"]))
+                taken = [g for g in calls if g.get("plan") in {"held", "stopped"} and isinstance(g.get("plan_pct"), (int, float))]
+                sessions.append({
+                    "date": day,
+                    "calls": calls,
+                    "moved": sum(1 for g in calls if g.get("moved")),
+                    "right": sum(1 for g in calls if g["right"]),
+                    "plan_avg_pct": round(sum(g["plan_pct"] for g in taken) / len(taken), 3) if taken else None,
+                })
+            record["sessions"] = sessions
+            record["latest"] = sessions[0]
         return record
     except Exception as exc:  # noqa: BLE001 - the record is informational
         print(f"[DailySignals] live forecast record unavailable: {exc}")
@@ -1987,31 +2022,146 @@ def _send_signal_email_to_preference(
     return {"user_id": preference["user_id"], "email": preference["email"], **result}
 
 
-def _send_daily_signal_emails(model_run: dict[str, Any], signals: list[dict[str, Any]], user_ids: list[str] | None = None) -> list[dict[str, Any]]:
+def _side_caption(publish: dict[str, Any] | None, side: str) -> str | None:
+    """A published side's record in one line: tested, then over the latest stretch."""
+    if not _published_rule(publish, side):
+        return None
+    rule = (publish or {})[side]
+    tested, recent = rule.get("confirmation") or {}, rule.get("recent") or {}
+    if tested.get("right_rate") is None:
+        return None
+    moved = "rose" if side == "buy" else "fell"
+    text = f"{'Buy' if side == 'buy' else 'Sell'} calls like these {moved} {round(tested['right_rate'] * 100)}% of the time in testing"
+    if recent.get("right_rate") is not None:
+        text += f" and {round(recent['right_rate'] * 100)}% over the last {recent['sessions']} sessions"
+    rose = ((publish or {}).get("base") or {}).get("rose_rate")
+    if rose is not None:
+        text += f"; a typical stock {moved} {round((rose if side == 'buy' else 1 - rose) * 100)}%"
+    return text + "."
+
+
+def _digest_runs(market: str, risk_level: str, *, build: bool = False, force: bool = False,
+                 known: dict[int, tuple[dict[str, Any], list[dict[str, Any]]]] | None = None,
+                 ) -> dict[int, tuple[dict[str, Any], list[dict[str, Any]]]]:
+    """The stored run and calls for each horizon at one risk level, for the next session.
+
+    With build, a missing run is built first (the evening tick normally has them
+    ready). Only runs for the same session as the intraday one are kept.
+    """
+    runs: dict[int, tuple[dict[str, Any], list[dict[str, Any]]]] = dict(known or {})
+    for horizon in HORIZONS:
+        if horizon in runs:
+            continue
+        signal_type = signal_type_for_horizon(horizon)
+        if build:
+            result = run_daily_prediction(market=market, risk_level=risk_level, signal_type=signal_type, force=force)
+            run = result.get("model_run")
+            if run:
+                runs[horizon] = (run, result.get("signals") or [])
+            continue
+        run = latest_run(market, risk_level, signal_type)
+        if run:
+            runs[horizon] = (run, _load_signals_for_run(run["id"]))
+    targets = [run["target_date"] for run, _ in runs.values()]
+    session = runs[1][0]["target_date"] if 1 in runs else (min(targets) if targets else None)
+    return {h: pair for h, pair in runs.items() if pair[0]["target_date"] == session}
+
+
+def _digest_items(runs: dict[int, tuple[dict[str, Any], list[dict[str, Any]]]]) -> list[dict[str, Any]]:
+    items = []
+    for horizon in HORIZONS:
+        if horizon not in runs:
+            items.append({"horizon": horizon, "withheld": f"The {horizon}-day calls for this session aren't ready yet."})
+            continue
+        run, signals = runs[horizon]
+        summary = run.get("summary") or {}
+        publish = summary.get("publish") or {}
+        items.append({
+            "horizon": horizon,
+            "signals": signals,
+            "notes": summary.get("side_notes") or {},
+            "captions": {side: caption for side in ("buy", "sell") if (caption := _side_caption(publish, side))},
+            "last_session": summary.get("last_session"),
+            "withheld": (summary.get("withheld_reason") or "No calls for this horizon yet.") if run.get("status") == "withheld" else None,
+        })
+    return items
+
+
+def _send_digest_to_preference(
+    runs: dict[int, tuple[dict[str, Any], list[dict[str, Any]]]],
+    preference: dict[str, Any],
+    *,
+    email_kind: str,
+    record: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """One email with every horizon's calls for the session, and recent results."""
+    if not preference.get("unsubscribe_nonce"):
+        # Settings saved straight from the browser have no nonce yet. Without
+        # storing it, every email would carry a different, unusable link.
+        preference = _upsert_preference(dict(preference))
+    lead = (runs.get(1) or next(iter(runs.values())))[0]
+    summary = lead.get("summary") or {}
+    subject, text, html = build_daily_digest_email(
+        target_date=lead["target_date"],
+        market=lead["market"],
+        risk_level=lead["risk_level"],
+        horizons=_digest_items(runs),
+        unsubscribe_url=_unsubscribe_url(preference),
+        data_date=summary.get("data_date") or lead.get("run_date"),
+        record=record if record is not None else summary.get("live_record"),
+        plan_note=_plan_note(summary),
+    )
+    result = _send_email(preference["email"], subject, text, html=html)
+    _log_email({
+        "id": str(uuid4()),
+        "user_id": preference["user_id"],
+        "model_run_id": lead["id"],
+        "email": preference["email"],
+        "email_kind": email_kind,
+        "target_date": lead["target_date"],
+        "status": result.get("status"),
+        "provider": result.get("provider"),
+        "response": result,
+        "sent_at": _utc_now_iso(),
+        "error_message": result.get("error") or result.get("reason"),
+    })
+    return {"user_id": preference["user_id"], "email": preference["email"], **result}
+
+
+def _send_daily_digests(market: str, risk_level: str, user_ids: list[str], *, force: bool = False,
+                        known: dict[int, tuple[dict[str, Any], list[dict[str, Any]]]] | None = None) -> list[dict[str, Any]]:
+    """The evening email for everyone due at this risk level: every horizon in one."""
+    runs = _digest_runs(market, risk_level, build=True, force=force, known=known)
+    if not runs:
+        return []
+    target = next(iter(runs.values()))[0]["target_date"]
+    record = _live_forecast_record(1)
+    allowed = set(user_ids)
     notifications: list[dict[str, Any]] = []
-    allowed = set(user_ids or [])
     for preference in _iter_preferences():
-        if allowed and preference["user_id"] not in allowed:
+        if preference["user_id"] not in allowed:
             continue
-        if (
-            _normalize_market(preference.get("market")) != model_run["market"]
-            or preference.get("risk_level") != model_run["risk_level"]
-            or _normalize_signal_type(preference.get("signal_type")) != model_run["signal_type"]
-        ):
+        if _daily_email_already_sent_for_target(preference["user_id"], target):
             continue
-        if _email_already_sent(preference["user_id"], model_run["id"]):
-            continue
-        if _daily_email_already_sent_for_target(preference["user_id"], model_run["target_date"]):
-            continue
-        notifications.append(
-            _send_signal_email_to_preference(
-                model_run,
-                signals,
-                preference,
-                email_kind="daily_signal",
-            )
-        )
+        notifications.append(_send_digest_to_preference(runs, preference, email_kind="daily_signal", record=record))
     return notifications
+
+
+def _send_daily_signal_emails(model_run: dict[str, Any], signals: list[dict[str, Any]], user_ids: list[str] | None = None) -> list[dict[str, Any]]:
+    """Admin-built runs: email everyone at that market and risk level the full
+    evening email (every horizon), once per session."""
+    allowed = set(user_ids or [])
+    due = [
+        preference["user_id"]
+        for preference in _iter_preferences()
+        if (not allowed or preference["user_id"] in allowed)
+        and _normalize_market(preference.get("market")) == model_run["market"]
+        and _normalize_risk(preference.get("risk_level")) == model_run["risk_level"]
+    ]
+    if not due:
+        return []
+    horizon = int((model_run.get("summary") or {}).get("horizon_days") or horizon_from_signal_type(model_run["signal_type"]))
+    return _send_daily_digests(model_run["market"], model_run["risk_level"], due, known={horizon: (model_run, signals)})
 
 
 class EmailNotSent(RuntimeError):
@@ -2028,20 +2178,16 @@ def send_instant_signal_email(user: dict[str, Any], payload: dict[str, Any]) -> 
     current = get_notification_preference(user)
     market = _normalize_market(payload.get("market") or current.get("market"))
     risk_level = _normalize_risk(payload.get("risk_level") or current.get("risk_level"))
-    signal_type = _normalize_signal_type(payload.get("signal_type") or current.get("signal_type"))
     clean_email = (user.get("email") or current.get("email") or "").strip()
     if "@" not in clean_email:
         raise ValueError("Instant stock emails need a valid account email.")
-    run = latest_run(market, risk_level, signal_type)
-    if not run:
-        raise ValueError("There are no picks for the next session yet. They are built after the market closes.")
-    if run.get("status") == "withheld":
-        raise ValueError((run.get("summary") or {}).get("withheld_reason") or "This horizon publishes no picks.")
-    signals = _load_signals_for_run(run["id"])
-    if not signals:
-        raise ValueError("The model found no setups worth taking for this session, so there is nothing to send.")
+    # The same email as the evening one: every horizon for the session.
+    runs = _digest_runs(market, risk_level)
+    if not runs:
+        raise ValueError("There are no calls for the next session yet. They are built after the market closes.")
+    run, signals = runs.get(1) or next(iter(runs.values()))
     preference = {**current, "email": clean_email, "user_id": user["id"]}
-    notification = _send_signal_email_to_preference(run, signals, preference, email_kind="instant_signal")
+    notification = _send_digest_to_preference(runs, preference, email_kind="instant_signal", record=_live_forecast_record(1))
     if notification.get("status") != "sent":
         # The provider's reason is in email_logs; the page only says it did not go,
         # rather than "Sent" for an email that never left.
@@ -2104,26 +2250,19 @@ def process_scheduled_daily_alerts(force: bool = False) -> dict[str, Any]:
             "target_date": target_date,
         }
 
-    grouped: dict[tuple[str, str, str], list[str]] = defaultdict(list)
+    # One email per person with every horizon, so people are grouped by market
+    # and risk level only (the horizon they last looked at no longer matters).
+    grouped: dict[tuple[str, str], list[str]] = defaultdict(list)
     for preference in due_preferences:
-        key = (
-            _normalize_market(preference.get("market")),
-            _normalize_risk(preference.get("risk_level")),
-            _normalize_signal_type(preference.get("signal_type")),
-        )
+        key = (_normalize_market(preference.get("market")), _normalize_risk(preference.get("risk_level")))
         grouped[key].append(preference["user_id"])
 
     all_notifications: list[dict[str, Any]] = []
-    for (market, risk_level, signal_type), user_ids in grouped.items():
-        result = run_daily_prediction(
-            market=market,
-            risk_level=risk_level,
-            signal_type=signal_type,
-            send_email=True,
-            user_ids=user_ids,
-            force=force,
-        )
-        all_notifications.extend(result.get("notifications", []))
+    for (market, risk_level), user_ids in grouped.items():
+        try:
+            all_notifications.extend(_send_daily_digests(market, risk_level, user_ids, force=force))
+        except Exception as exc:  # noqa: BLE001 - one risk level's failure must not stop the others
+            print(f"[DailySignals] evening email for {market}/{risk_level} failed: {exc}")
 
     delivery = _summarize_delivery_results(all_notifications)
     print(
@@ -2260,30 +2399,135 @@ def _load_pending_signals(target_day: str, *, include_evaluated: bool = False) -
 
 
 _BENCHMARK_CACHE: dict[tuple[str, int, str], float | None] = {}
+# Sessions rebuilt from 15-minute bars, by (ticker, day); None when Yahoo has none.
+_INTRADAY_BARS: dict[tuple[str, str], dict[str, Any] | None] = {}
+# Retail intraday round trip (brokerage, STT, charges, slippage), as in calibrate_publishing.
+_PLAN_COST = 0.0015
+# What a graded forecast keeps in its outcome notes, for the scorecard.
+_OUTCOME_NOTE_KEYS = ("moved", "move_pct", "market_pct", "source", "plan", "plan_pct", "plan_entry", "plan_stop", "plan_gap_pct")
 
 
 def _history_for(ticker: str, history_by_ticker: dict[str, pd.DataFrame]) -> pd.DataFrame:
-    """A ticker's daily bars, fetched once per tracking run."""
+    """A ticker's daily bars of finished sessions, fetched once per tracking run."""
     if ticker not in history_by_ticker:
         frame = fetch_price_history(ticker, days=400)
         if not frame.empty:
             frame["date"] = pd.to_datetime(frame["date"], errors="coerce")
+            now = datetime.now(IST)
+            # A run forced during market hours must not grade on today's moving bar.
+            if not _session_complete(now):
+                frame = frame[frame["date"].dt.date < now.date()]
         history_by_ticker[ticker] = frame
     return history_by_ticker[ticker]
 
 
+def _window_sessions(start: date, horizon: int) -> list[date]:
+    """The trading sessions a call covers, counting its first session."""
+    days = [start if market_calendar.is_trading_day(start) else market_calendar.next_trading_day(start)]
+    while len(days) < horizon:
+        days.append(market_calendar.next_trading_day(days[-1]))
+    return days
+
+
+def _session_settled(day: date, now: datetime | None = None) -> bool:
+    """True once a session's daily bar is final."""
+    now = now or datetime.now(IST)
+    return day < now.date() or (day == now.date() and _session_complete(now))
+
+
+_INTRADAY_FRAMES: dict[str, tuple[float, pd.DataFrame | None]] = {}
+_INTRADAY_DAYS_KEPT = 28   # what a one-month request of 15-minute bars covers
+
+
+def _intraday_bar(ticker: str, day: date) -> dict[str, Any] | None:
+    """One session's open, high, low and close from Yahoo's 15-minute bars.
+
+    Yahoo's daily chart sometimes leaves a session blank for a stock (4 Nov 2026
+    for GODREJPROP, SWIGGY, PHOENIXLTD and SOLARINDS) while its 15-minute bars,
+    kept for about a month here, still have it. Without this the next session's bar
+    stood in for the missing one, grading a call on the wrong day.
+
+    Only for a missing session: Yahoo's daily open matched NSE's official open on
+    90 of 90 checks (Oct 2026), while the first 15-minute bar's open, the first
+    trade after the 9:15 auction, matched 45. A call graded this way says so.
+    """
+    key = (ticker, day.isoformat())
+    if key in _INTRADAY_BARS:
+        return _INTRADAY_BARS[key]
+    bar = None
+    if (date.today() - day).days <= _INTRADAY_DAYS_KEPT:
+        cached = _INTRADAY_FRAMES.get(ticker)
+        frame = cached[1] if cached and _time_now() - cached[0] < 3600 else None
+        if frame is None:
+            try:
+                from app.services.data_service import _fetch_yahoo_chart_data
+
+                # Yahoo serves 15-minute bars for up to 60 days, and rejects a 3-month range.
+                frame = _fetch_yahoo_chart_data(ticker, range_key="1mo", interval="15m")
+            except Exception as exc:  # noqa: BLE001 - the call simply waits for data
+                print(f"[DailySignals] 15-minute bars unavailable for {ticker}: {exc}")
+                frame = None
+            if len(_INTRADAY_FRAMES) > 60:
+                _INTRADAY_FRAMES.clear()
+            _INTRADAY_FRAMES[ticker] = (_time_now(), frame)
+        if frame is not None and not frame.empty:
+            # NSE's session (9:15 to 15:30 IST) falls on the same date in UTC.
+            rows = frame[pd.to_datetime(frame["date"]).dt.date == day]
+            if len(rows) >= 20:  # most of the 25 bars of a full session
+                bar = {
+                    "date": pd.Timestamp(day), "open": float(rows["open"].iloc[0]), "high": float(rows["high"].max()),
+                    "low": float(rows["low"].min()), "close": float(rows["close"].iloc[-1]), "source": "15m",
+                }
+    if len(_INTRADAY_BARS) > 500:
+        _INTRADAY_BARS.clear()
+    _INTRADAY_BARS[key] = bar
+    return bar
+
+
+def _time_now() -> float:
+    import time as _clock
+
+    return _clock.time()
+
+
+def _window_bars(
+    ticker: str,
+    start: date,
+    horizon: int,
+    history_by_ticker: dict[str, pd.DataFrame],
+    *,
+    fill_gaps: bool = True,
+) -> list[dict[str, Any]] | None:
+    """The bar of each session in a call's window, in order, or None until every
+    one is final and known. With fill_gaps, a session missing from the daily
+    chart is rebuilt from 15-minute bars."""
+    sessions = _window_sessions(start, horizon)
+    if not _session_settled(sessions[-1]):
+        return None
+    frame = _history_for(ticker, history_by_ticker)
+    by_day: dict[date, dict[str, Any]] = {}
+    if not frame.empty:
+        window = frame[(frame["date"].dt.date >= sessions[0]) & (frame["date"].dt.date <= sessions[-1])]
+        by_day = {row["date"].date(): row for row in window.to_dict("records")}
+    bars = []
+    for day in sessions:
+        bar = by_day.get(day) or (_intraday_bar(ticker, day) if fill_gaps else None)
+        if bar is None:
+            return None
+        bars.append(bar)
+    return bars
+
+
 def _benchmark_move(start: date, horizon: int, market: str, history_by_ticker: dict[str, pd.DataFrame]) -> float | None:
-    """Average move of the stocks in the universe over the same window (equal weight)."""
+    """Average move of the stocks in the universe over the same window (equal weight).
+    A stock missing any session of the window is left out rather than misdated."""
     key = (start.isoformat(), horizon, market)
     if key in _BENCHMARK_CACHE:
         return _BENCHMARK_CACHE[key]
     moves: list[float] = []
     for ticker in forecast_engine.universe_tickers():
-        frame = _history_for(ticker, history_by_ticker)
-        if frame.empty:
-            continue
-        rows = frame[frame["date"].dt.date >= start].to_dict("records")
-        move = _window_move(rows, horizon)
+        bars = _window_bars(ticker, start, horizon, history_by_ticker, fill_gaps=False)
+        move = _window_move(bars, horizon) if bars else None
         if move is not None and abs(move) < 0.45:
             moves.append(move)
     result = sum(moves) / len(moves) if len(moves) >= 40 else None
@@ -2302,6 +2546,36 @@ def _window_move(bars: list[dict[str, Any]], horizon: int) -> float | None:
     return float(bars[horizon - 1]["close"]) / entry - 1 if entry > 0 else None
 
 
+def _plan_result(forecast: dict[str, Any], bar: dict[str, Any]) -> dict[str, Any] | None:
+    """How the printed intraday sell plan did on the day, judged as it was tested:
+    skipped if it opened more than skip_gap below the reference close; otherwise
+    sold at the open, stopped out if the day's high reached the stop (daily bars
+    can't show whether the high came first, so a touch counts), else bought back
+    at the close. After _PLAN_COST."""
+    plan = forecast.get("plan")
+    close = forecast.get("reference_close")
+    if not isinstance(plan, dict) or not close:
+        return None
+    o, high, last = float(bar["open"]), float(bar["high"]), float(bar["close"])
+    if o <= 0:
+        return None
+    gap = o / float(close) - 1
+    cost = float(plan.get("cost") or _PLAN_COST)
+    if gap < -float(plan["skip_gap"]):
+        return {"plan": "skipped", "plan_gap_pct": round(gap * 100, 3)}
+    stop_pct = float(plan["stop_pct"])
+    stop = o * (1 + stop_pct)
+    stopped = high >= stop
+    net = (-stop_pct if stopped else 1 - last / o) - cost
+    return {
+        "plan": "stopped" if stopped else "held",
+        "plan_pct": round(net * 100, 3),
+        "plan_entry": round(o, 2),
+        "plan_stop": round(stop, 2),
+        "plan_gap_pct": round(gap * 100, 3),
+    }
+
+
 def _grade_forecast(
     signal: dict[str, Any],
     bars: list[dict[str, Any]],
@@ -2310,8 +2584,9 @@ def _grade_forecast(
 ) -> dict[str, Any] | None:
     """A forecast is right when the stock beat (or lagged) the average stock as
     called, from the next open to the close of session `horizon`. Also records
-    whether that close landed inside the forecast's 10-90% range. None while
-    still open, or while the benchmark move is unknown."""
+    whether that close landed inside the forecast's 10-90% range, and how the
+    printed sell plan did. None while still open, or while the benchmark move
+    is unknown."""
     move = _window_move(bars, horizon)
     if move is None or benchmark_move is None:
         return None
@@ -2323,6 +2598,7 @@ def _grade_forecast(
     forecast = (signal.get("explanation_json") or {}).get("forecast") or {}
     low, high = forecast.get("low_price"), forecast.get("high_price")
     in_range = bool(low is not None and high is not None and float(low) <= exit_close <= float(high))
+    plan = _plan_result(forecast, bars[0]) if horizon == 1 and not buy else None
     return {
         "outcome": "WIN" if right else "LOSS",
         # For forecasts: how far it beat (or lagged) the average stock, in percent,
@@ -2335,6 +2611,8 @@ def _grade_forecast(
         "moved": bool(move > 0 if buy else move < 0),
         "move_pct": round(move * 100, 3),
         "market_pct": round(benchmark_move * 100, 3),
+        **({"source": source} if (source := next((b["source"] for b in bars if b.get("source")), None)) else {}),
+        **(plan or {}),
     }
 
 
@@ -2403,8 +2681,8 @@ def _grade_tracked_calls(review_day: date, history_by_ticker: dict[str, pd.DataF
             sign = 1 if side == "buy" else -1
             tally = {"calls": 0, "moved": 0, "market": 0}
             for ticker in tickers:
-                frame = _history_for(ticker, history_by_ticker)
-                move = _window_move(frame[frame["date"].dt.date >= start].to_dict("records"), horizon) if not frame.empty else None
+                bars = _window_bars(ticker, start, horizon, history_by_ticker, fill_gaps=False)
+                move = _window_move(bars, horizon) if bars else None
                 if move is None or abs(move) >= 0.45:
                     continue
                 tally["calls"] += 1
@@ -2436,25 +2714,29 @@ def run_outcome_tracking(review_day: date | None = None, *, recompute: bool = Fa
     for signal in pending:
         ticker = signal["symbol"] if signal["market"] == "US" else f"{signal['symbol']}.NS"
         history = _history_for(ticker, history_by_ticker)
-        if history.empty:
-            continue
         # Each signal is judged on ITS OWN target date. Using the review day here
         # was only correct while this processed a single date at a time.
         try:
             signal_day = pd.to_datetime(signal["target_date"]).date()
         except Exception:  # noqa: BLE001 - a malformed row must not stop the batch
             continue
-        # Every session from the target date onward, so the trade is judged over
-        # its holding window rather than on a single bar.
-        window_rows = history[history["date"].dt.date >= signal_day]
-        if window_rows.empty:
-            continue
-        bars = window_rows.to_dict("records")
         horizon = int(((signal.get("explanation_json") or {}).get("horizon_days")) or HOLD_SESSIONS)
         if (signal.get("explanation_json") or {}).get("forecast"):
+            # Exactly the window's sessions: a session missing from the data
+            # must not let the next one stand in for it.
+            bars = _window_bars(ticker, signal_day, horizon, history_by_ticker)
+            if bars is None:
+                continue
             outcome = _grade_forecast(signal, bars, horizon, _benchmark_move(signal_day, horizon, signal["market"], history_by_ticker))
         else:
-            outcome = evaluate_signal_outcome_window(signal, bars, max_sessions=horizon)
+            if history.empty:
+                continue
+            # Every session from the target date onward, so the trade is judged over
+            # its holding window rather than on a single bar.
+            window_rows = history[history["date"].dt.date >= signal_day]
+            if window_rows.empty:
+                continue
+            outcome = evaluate_signal_outcome_window(signal, window_rows.to_dict("records"), max_sessions=horizon)
         if outcome is None:
             continue  # still open — leave it pending rather than recording a verdict
         record = {
@@ -2469,7 +2751,7 @@ def run_outcome_tracking(review_day: date | None = None, *, recompute: bool = Fa
                 "sessions_held": outcome.get("sessions_held"),
                 "window_sessions": horizon,
                 "unit": "pct" if (signal.get("explanation_json") or {}).get("forecast") else "R",
-                **{key: outcome[key] for key in ("moved", "move_pct", "market_pct") if key in outcome},
+                **{key: outcome[key] for key in _OUTCOME_NOTE_KEYS if key in outcome},
             },
         }
         if supabase:
@@ -2488,7 +2770,107 @@ def run_outcome_tracking(review_day: date | None = None, *, recompute: bool = Fa
         tracked = _grade_tracked_calls(day, history_by_ticker)
     except Exception as exc:  # noqa: BLE001 - the published calls are graded either way
         print(f"[DailySignals] grading tracked calls failed: {exc}")
+    if stored:
+        try:
+            _refresh_live_records()
+        except Exception as exc:  # noqa: BLE001 - the next build carries the record anyway
+            print(f"[DailySignals] scorecard refresh failed: {exc}")
     return {"review_day": day.isoformat(), "processed": len(stored), "outcomes": stored, "tracked_runs": tracked}
+
+
+def _refresh_live_records() -> int:
+    """Put the latest scorecard on the runs people are looking at.
+
+    Each run stores the scorecard as it stood when the run was built. Calls
+    graded later (a late price feed, a restart) used to stay off the page until
+    the next evening's build: on 5 Nov the page still ended at 3 Nov.
+    """
+    since = _current_session_date().isoformat()
+    updated = 0
+    for horizon in HORIZONS:
+        record = _live_forecast_record(horizon)
+        if record is None:
+            continue
+        version = f"{FORECAST_VERSION}-h{horizon}"
+        if supabase:
+            rows = getattr(
+                supabase.table(MODEL_RUNS_TABLE).select("id,summary").eq("model_version", version)
+                .gte("target_date", since).execute(),
+                "data", None,
+            ) or []
+            for row in rows:
+                summary = {**(row.get("summary") or {}), "live_record": record}
+                supabase.table(MODEL_RUNS_TABLE).update({"summary": summary}).eq("id", row["id"]).execute()
+                updated += 1
+        else:
+            for item in _MEMORY_RUNS:
+                if item.get("model_version") == version and item["target_date"] >= since:
+                    item["summary"] = {**(item.get("summary") or {}), "live_record": record}
+                    updated += 1
+    return updated
+
+
+_LEVELS_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
+_LEVELS_TTL_SECONDS = 60
+_LEVELS_MAX_SYMBOLS = 12
+
+
+def _fetch_session_levels(ticker: str, today: date) -> dict[str, Any] | None:
+    from app.services.data_service import _fetch_yahoo_chart_data
+
+    frame = _fetch_yahoo_chart_data(ticker, range_key="5d", interval="1d")
+    if frame.empty:
+        return None
+    frame = frame.assign(day=pd.to_datetime(frame["date"]).dt.date)
+    current = frame[frame["day"] == today]
+    before = frame[frame["day"] < today]
+    prev_close = float(before["close"].iloc[-1]) if not before.empty else None
+    if current.empty:
+        return {"open": None, "high": None, "low": None, "last": None, "prev_close": prev_close}
+    row = current.iloc[-1]
+    return {
+        "open": round(float(row["open"]), 2),
+        "high": round(float(row["high"]), 2),
+        "low": round(float(row["low"]), 2),
+        "last": round(float(row["close"]), 2),
+        "prev_close": round(prev_close, 2) if prev_close else None,
+    }
+
+
+def session_levels(symbols: list[str]) -> dict[str, Any]:
+    """Today's open, high, low and latest price for called stocks, at most a
+    minute old. Before the open, a plan's levels are priced from yesterday's
+    close; once a stock has opened, the page prices them from the actual open,
+    as the plan was tested, and shows whether the stop has been reached."""
+    now = datetime.now(IST)
+    today = now.date()
+    allowed = {ticker.replace(".NS", "") for ticker in forecast_engine.universe_tickers()}
+    levels: dict[str, Any] = {}
+    for symbol in symbols[:_LEVELS_MAX_SYMBOLS]:
+        clean = symbol.strip().upper()
+        if clean not in allowed:
+            continue
+        cached = _LEVELS_CACHE.get(clean)
+        if cached and _time_now() - cached[0] < _LEVELS_TTL_SECONDS:
+            levels[clean] = cached[1]
+            continue
+        try:
+            data = _fetch_session_levels(f"{clean}.NS", today)
+        except Exception as exc:  # noqa: BLE001 - one stock's feed must not hide the rest
+            print(f"[DailySignals] session levels unavailable for {clean}: {exc}")
+            data = None
+        if data:
+            if len(_LEVELS_CACHE) > 300:
+                _LEVELS_CACHE.clear()
+            _LEVELS_CACHE[clean] = (_time_now(), data)
+            levels[clean] = data
+    return {
+        "session": today.isoformat(),
+        "as_of": now.isoformat(timespec="seconds"),
+        "trading_day": not _is_market_holiday(today),
+        "open_now": _session_started(now),
+        "levels": levels,
+    }
 
 
 def get_signals_today(market: str | None = None, risk_level: str | None = None, signal_type: str | None = None) -> dict[str, Any]:

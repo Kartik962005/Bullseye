@@ -100,6 +100,130 @@ def _order_price(price: float) -> str:
     return f"₹{round(round(price / step) * step, 2):,.2f}"
 
 
+def _pretty(iso: Any) -> str:
+    """"Fri 06 Nov" from an ISO date."""
+    from datetime import date as _date
+
+    try:
+        return _date.fromisoformat(str(iso)[:10]).strftime("%a %d %b")
+    except (TypeError, ValueError):
+        return str(iso or "")
+
+
+def _side_heading(label: str, caption: str | None = None) -> str:
+    return (
+        f"<p style='margin:18px 0 8px;font-family:{theme.FONT};font-size:12px;font-weight:700;letter-spacing:1px;"
+        f"text-transform:uppercase;color:{theme.MUTED}'>{escape(label)}</p>"
+        + (
+            f"<p style='margin:-4px 0 10px;font-family:{theme.FONT};font-size:12.5px;line-height:1.55;color:{theme.FAINT}'>{escape(caption)}</p>"
+            if caption
+            else ""
+        )
+    )
+
+
+def _forecast_card(signal: dict[str, Any], *, digest: bool = False) -> tuple[str, str]:
+    """One forecast call as an email card and as plain text.
+
+    A sell with the tested plan shows the order to place: entry, the level to
+    skip it at, the stop-loss and the exit. In the evening email (digest) every
+    other call shows its entry, a stop at the 1-in-10 bad case and its exit, with
+    no invented target; the older layout showed the likely range instead.
+    """
+    symbol = str(signal["symbol"])
+    direction = str(signal["direction"])
+    horizon = int(((signal.get("explanation_json") or {}).get("forecast") or {}).get("horizon_days")
+                  or (signal.get("explanation_json") or {}).get("horizon_days") or 1)
+    company_name = str(signal.get("company_name") or symbol)
+    reasons = (signal.get("explanation_json") or {}).get("reasons") or signal.get("reasons") or []
+    setup_type = str(signal.get("setup_type") or "Model-ranked setup").replace("_", " ").title()
+    why = "; ".join(str(r) for r in reasons[:2]) or setup_type
+    forecast = (signal.get("explanation_json") or {}).get("forecast") or {}
+    buy = direction == "BUY"
+    chance = float(forecast.get("p_call", forecast["p_beat"] if buy else 1 - forecast["p_beat"]))
+    label = "BUY" if buy else "SELL"
+    odds = f"{round(chance * 100)}% to {'beat' if buy else 'lag'} the market"
+    last = f"{float(forecast['reference_close']):,.2f}"
+    tested = forecast.get("tested") or {}
+    rate = tested.get("call_rate", tested.get("actual_beat_rate"))
+    evidence = (
+        f"In testing, calls like this were right {round(rate * 100)}% of the time ({tested['samples']:,} cases)."
+        if tested and rate is not None
+        else ""
+    )
+    # The forecast runs from the open, so its range is a move from the open,
+    # not a price from the last close (the open can gap away from it).
+    q10, q90 = float(forecast["q10"]), float(forecast["q90"])
+    against = q10 if buy else q90
+    exit_move = f"{_signed_pct(against)} from the open" if (against < 0) == buy else "outside the range"
+    trade = forecast.get("plan")
+    if trade:
+        # The tested intraday sell plan, priced from yesterday's close.
+        stop_pct = float(trade["stop_pct"])
+        plan = [
+            ("Entry", "Sell at the 9:15 AM open"),
+            ("Skip if it opens below", _order_price(float(trade["skip_below"]))),
+            ("Stop-loss", f"{_order_price(float(trade['stop_price']))} (+{stop_pct * 100:.1f}%)"),
+            ("Target and exit", "No target; buy back by 3:15 PM"),
+        ]
+        evidence = (
+            f"Yesterday's close {_order_price(float(forecast['reference_close']))}. If you sell at another price, "
+            f"keep the stop {stop_pct * 100:.1f}% above it. {evidence}"
+        ).strip()
+    elif digest:
+        # No plan was tested for this call, so no profit target is invented: the
+        # stop is the 1-in-10 bad case from the open, priced from the last close.
+        stop = float(forecast.get("stop_price") or float(forecast["reference_close"]) * (1 + against))
+        exit_at = "Sell by 3:15 PM" if horizon == 1 and buy else "Buy back by 3:15 PM" if horizon == 1 else f"Sell at the close on {_pretty(forecast.get('last_session'))}"
+        plan = [
+            ("Entry", f"{'Buy' if buy else 'Sell'} at the 9:15 AM open"),
+            ("Stop-loss", f"{_order_price(stop)} ({_signed_pct(against)})"),
+            ("Target and exit", f"No target; {exit_at[0].lower()}{exit_at[1:]}"),
+            ("Right in testing", f"{round(rate * 100)}%" if rate is not None else "n/a"),
+        ]
+        evidence = (
+            f"Yesterday's close {_order_price(float(forecast['reference_close']))}. If it opens elsewhere, keep the stop "
+            f"{abs(against) * 100:.1f}% {'below' if buy else 'above'} your price. {evidence}"
+        ).strip()
+    else:
+        plan = [
+            ("Last close", last),
+            ("Likely move from the open", f"{_signed_pct(q10)} to {_signed_pct(q90)}"),
+            ("Exit if it moves", exit_move),
+            ("Right in testing", f"{round(rate * 100)}%" if rate is not None else "n/a"),
+        ]
+    html = (
+        f"<table role='presentation' width='100%' style='border-collapse:separate;border:1px solid {theme.LINE};"
+        "border-radius:16px;margin:0 0 12px'><tr><td style='padding:16px 16px 6px'>"
+        "<table role='presentation' width='100%' style='border-collapse:collapse'><tr>"
+        "<td style='vertical-align:top'>"
+        f"<div style='font-family:{theme.FONT};font-size:19px;font-weight:700;letter-spacing:-0.3px;color:{theme.INK}'>{escape(symbol)}</div>"
+        f"<div style='font-family:{theme.FONT};font-size:13px;color:{theme.MUTED}'>{escape(company_name)}</div>"
+        "</td>"
+        "<td style='vertical-align:top;text-align:right'>"
+        f"{theme.pill(label, 'up' if buy else 'down')}"
+        f"<div style='margin-top:6px'>{theme.pill(odds)}</div>"
+        "</td></tr></table>"
+        "<div style='height:14px'></div>"
+        + theme.metric_grid(plan)
+        + f"<p style='margin:0 0 10px;font-family:{theme.FONT};font-size:13px;line-height:1.55;color:{theme.MUTED}'>"
+        f"{escape(why)}. {escape(evidence)}</p>"
+        "</td></tr></table>"
+    )
+    if trade:
+        order = (
+            "Sell at the 9:15 AM open; skip it if it opens below "
+            f"{_order_price(float(trade['skip_below']))}; stop-loss {_order_price(float(trade['stop_price']))} "
+            f"(+{float(trade['stop_pct']) * 100:.1f}%); no target, buy back by 3:15 PM"
+        )
+    elif digest:
+        order = "; ".join(f"{name}: {value}" for name, value in plan[:3])
+    else:
+        order = f"Last close {last}; likely move from the open {_signed_pct(q10)} to {_signed_pct(q90)}; exit if it moves {exit_move}"
+    text = f"{symbol} {label}: {odds}\n{order}\n{why}. {evidence}\n"
+    return html, text
+
+
 def build_signal_email(
     *,
     signal_date: str,
@@ -162,80 +286,13 @@ def build_signal_email(
         forecast = (signal.get("explanation_json") or {}).get("forecast")
         if forecast:
             buy = direction == "BUY"
-            chance = float(forecast.get("p_call", forecast["p_beat"] if buy else 1 - forecast["p_beat"]))
-            label = "BUY" if buy else "SELL"
-            odds = f"{round(chance * 100)}% to {'beat' if buy else 'lag'} the market"
-            last = f"{float(forecast['reference_close']):,.2f}"
-            tested = forecast.get("tested") or {}
-            rate = tested.get("call_rate", tested.get("actual_beat_rate"))
-            evidence = (
-                f"In testing, calls like this were right {round(rate * 100)}% of the time ({tested['samples']:,} cases)."
-                if tested and rate is not None
-                else ""
-            )
-            # The forecast runs from the open, so its range is a move from the open,
-            # not a price from the last close (the open can gap away from it).
-            q10, q90 = float(forecast["q10"]), float(forecast["q90"])
-            against = q10 if buy else q90
-            exit_move = f"{_signed_pct(against)} from the open" if (against < 0) == buy else "outside the range"
-            trade = forecast.get("plan")
-            if trade:
-                # The tested intraday sell plan, priced from yesterday's close.
-                stop_pct = float(trade["stop_pct"])
-                plan = [
-                    ("Entry", "Sell at the 9:15 AM open"),
-                    ("Skip if it opens below", _order_price(float(trade["skip_below"]))),
-                    ("Stop-loss", f"{_order_price(float(trade['stop_price']))} (+{stop_pct * 100:.1f}%)"),
-                    ("Target and exit", "No target; buy back by 3:15 PM"),
-                ]
-                evidence = (
-                    f"Yesterday's close {_order_price(float(forecast['reference_close']))}. If you sell at another price, "
-                    f"keep the stop {stop_pct * 100:.1f}% above it. {evidence}"
-                ).strip()
-            else:
-                plan = [
-                    ("Last close", last),
-                    ("Likely move from the open", f"{_signed_pct(q10)} to {_signed_pct(q90)}"),
-                    ("Exit if it moves", exit_move),
-                    ("Right in testing", f"{round(rate * 100)}%" if rate is not None else "n/a"),
-                ]
             if section_direction != direction:
                 section_direction = direction
-                card_rows.append(
-                    f"<p style='margin:18px 0 8px;font-family:{theme.FONT};font-size:12px;font-weight:700;letter-spacing:1px;"
-                    f"text-transform:uppercase;color:{theme.MUTED}'>{'Buy calls' if buy else 'Sell calls'}</p>"
-                )
+                card_rows.append(_side_heading("Buy calls" if buy else "Sell calls"))
                 text_rows.append("BUY CALLS" if buy else "SELL CALLS")
-            card_rows.append(
-                f"<table role='presentation' width='100%' style='border-collapse:separate;border:1px solid {theme.LINE};"
-                "border-radius:16px;margin:0 0 12px'><tr><td style='padding:16px 16px 6px'>"
-                "<table role='presentation' width='100%' style='border-collapse:collapse'><tr>"
-                "<td style='vertical-align:top'>"
-                f"<div style='font-family:{theme.FONT};font-size:19px;font-weight:700;letter-spacing:-0.3px;color:{theme.INK}'>{escape(symbol)}</div>"
-                f"<div style='font-family:{theme.FONT};font-size:13px;color:{theme.MUTED}'>{escape(company_name)}</div>"
-                "</td>"
-                "<td style='vertical-align:top;text-align:right'>"
-                f"{theme.pill(label, 'up' if buy else 'down')}"
-                f"<div style='margin-top:6px'>{theme.pill(odds)}</div>"
-                "</td></tr></table>"
-                "<div style='height:14px'></div>"
-                + theme.metric_grid(plan)
-                + f"<p style='margin:0 0 10px;font-family:{theme.FONT};font-size:13px;line-height:1.55;color:{theme.MUTED}'>"
-                f"{escape(why)}. {escape(evidence)}</p>"
-                "</td></tr></table>"
-            )
-            text_rows.append(
-                f"{symbol} {label}: {odds}\n"
-                + (
-                    "Sell at the 9:15 AM open; skip it if it opens below "
-                    f"{_order_price(float(trade['skip_below']))}; stop-loss {_order_price(float(trade['stop_price']))} "
-                    f"(+{float(trade['stop_pct']) * 100:.1f}%); no target, buy back by 3:15 PM"
-                    if trade
-                    else f"Last close {last}; likely move from the open {_signed_pct(q10)} to {_signed_pct(q90)}; "
-                    f"exit if it moves {exit_move}"
-                )
-                + f"\n{why}. {evidence}\n"
-            )
+            card_html, card_text = _forecast_card(signal)
+            card_rows.append(card_html)
+            text_rows.append(card_text)
             continue
         card_rows.append(
             f"<table role='presentation' width='100%' style='border-collapse:separate;border:1px solid {theme.LINE};"
@@ -351,6 +408,224 @@ def build_signal_email(
         + conviction_text
         + ("\n".join(text_rows) if text_rows else (empty_note or "No signals passed the quality filters for the next trading day."))
         + "\nSignals are model-generated analysis. Returns are not guaranteed. Past performance does not guarantee future results.\n"
+        + f"Unsubscribe: {unsubscribe_url}"
+    )
+    return subject, text, html
+
+
+# ── The evening email: every horizon in one ─────────────────────────────────
+
+_HORIZON_TITLE = {1: "Intraday", 3: "3 days", 5: "5 days"}
+_COUNT_WORD = {1: "intraday", 3: "3-day", 5: "5-day"}
+_SIZING_NOTE = (
+    "Size each trade so a stop-out costs at most about 1% of your capital. All of these are shorts on the same "
+    "day, so a market-wide rally can stop several at once; if you take them all, risk about 0.5% on each."
+)
+
+
+def _note_box(text: str) -> str:
+    return (
+        "<p style='margin:0 0 10px;padding:12px 14px;border:1px dashed #d9d6e4;border-radius:14px;"
+        f"font-family:{theme.FONT};font-size:13px;line-height:1.6;color:{theme.MUTED}'>{escape(text)}</p>"
+    )
+
+
+def _muted(text: str, margin: str = "0 0 12px") -> str:
+    return (
+        f"<p style='margin:{margin};font-family:{theme.FONT};font-size:13px;line-height:1.6;color:{theme.MUTED}'>"
+        f"{escape(text)}</p>"
+    )
+
+
+def _section_heading(title: str, window: str) -> str:
+    return (
+        f"<div style='margin:26px 0 2px;padding-top:18px;border-top:1px solid {theme.LINE}'>"
+        f"<div style='font-family:{theme.FONT};font-size:18px;font-weight:700;letter-spacing:-0.3px;color:{theme.INK}'>{escape(title)}</div>"
+        f"<div style='margin-top:3px;font-family:{theme.FONT};font-size:13px;line-height:1.55;color:{theme.MUTED}'>{escape(window)}</div>"
+        "</div>"
+    )
+
+
+def _plan_word(call: dict[str, Any]) -> str:
+    """How the printed sell plan did on a graded call, in a few words."""
+    plan, pct = call.get("plan"), call.get("plan_pct")
+    if plan == "skipped":
+        return "plan skipped it"
+    if plan in {"held", "stopped"} and isinstance(pct, (int, float)):
+        return f"{'stopped out' if plan == 'stopped' else 'plan'} {_signed_pct(pct / 100)}"
+    return ""
+
+
+def _scorecard(record: dict[str, Any] | None) -> tuple[str, str]:
+    """The last five graded sessions, call by call, then the running totals."""
+    record = record or {}
+    sessions = record.get("sessions") or ([record["latest"]] if record.get("latest") else [])
+    if not sessions:
+        return "", ""
+    html = [_section_heading("How recent calls did", "Every published call, right or wrong. Moves run from the open to the close.")]
+    text = ["HOW RECENT CALLS DID"]
+    for session in sessions:
+        calls = session.get("calls") or []
+        sells = [c for c in calls if c.get("direction") == "SELL"]
+        buys = [c for c in calls if c.get("direction") == "BUY"]
+        parts = []
+        if sells:
+            parts.append(f"{sum(1 for c in sells if c.get('moved'))} of {len(sells)} sells fell")
+        if buys:
+            parts.append(f"{sum(1 for c in buys if c.get('moved'))} of {len(buys)} buys rose")
+        if isinstance(session.get("plan_avg_pct"), (int, float)):
+            parts.append(f"the sell plan averaged {_signed_pct(session['plan_avg_pct'] / 100)} a trade")
+        headline = f"{_pretty(session.get('date'))}: {', '.join(parts)}" if parts else _pretty(session.get("date"))
+        text.append(headline)
+        rows = []
+        for call in calls:
+            ok = call.get("moved") if call.get("moved") is not None else call.get("right")
+            move = call.get("move_pct")
+            moved = _signed_pct(move / 100) if isinstance(move, (int, float)) else ""
+            tone = theme.UP if call.get("direction") == "BUY" else theme.DOWN
+            rows.append(
+                "<tr>"
+                f"<td style='padding:5px 8px 5px 0;font-family:{theme.FONT};font-size:11px;font-weight:700;color:{tone[0]}'>"
+                f"{escape(str(call.get('direction')))}</td>"
+                f"<td style='padding:5px 8px 5px 0;font-family:{theme.MONO};font-size:13px;color:{theme.INK}'>{escape(str(call.get('symbol')))}</td>"
+                f"<td style='padding:5px 8px 5px 0;font-family:{theme.MONO};font-size:13px;color:{theme.INK};text-align:right'>{moved}</td>"
+                f"<td style='padding:5px 8px 5px 0;font-family:{theme.FONT};font-size:12px;color:{theme.MUTED};text-align:right'>"
+                f"{escape(_plan_word(call))}</td>"
+                f"<td style='padding:5px 0;font-family:{theme.FONT};font-size:12px;font-weight:600;text-align:right;"
+                f"color:{(theme.UP if ok else theme.DOWN)[0]}'>{'Right' if ok else 'Missed'}</td>"
+                "</tr>"
+            )
+            text.append(f"  {call.get('direction')} {call.get('symbol')} {moved} {_plan_word(call)} {'right' if ok else 'missed'}".replace("  ", " ").rstrip())
+        html.append(
+            f"<div style='margin:14px 0 4px;font-family:{theme.FONT};font-size:13px;font-weight:600;color:{theme.INK}'>{escape(headline)}</div>"
+            f"<table role='presentation' width='100%' style='border-collapse:collapse'>{''.join(rows)}</table>"
+        )
+    totals = []
+    for side, moved_word, versus in (("sell", "fell", "lagged"), ("buy", "rose", "beat")):
+        stats = record.get(side) or {}
+        if stats.get("calls"):
+            known = stats.get("moved_calls") or stats["calls"]
+            totals.append(
+                f"{stats.get('moved', 0)} of {known} {side}s {moved_word} ({round(100 * stats.get('moved', 0) / known)}%) "
+                f"and {stats.get('right', 0)} of {stats['calls']} {versus} the market"
+            )
+    plan = record.get("plan") or {}
+    if plan.get("taken") and isinstance(plan.get("avg_pct"), (int, float)):
+        totals.append(
+            f"following the sell plan, {plan['taken']} trades were taken, {plan.get('stopped', 0)} stopped out and "
+            f"{plan.get('skipped', 0)} skipped, averaging {_signed_pct(plan['avg_pct'] / 100)} a trade after costs"
+        )
+    if totals:
+        joined = "; ".join(totals)
+        line = f"Since {_pretty(record['since'])}: {joined}." if record.get("since") else f"{joined[0].upper()}{joined[1:]}."
+        html.append(_muted(line, "14px 0 0"))
+        text.append(line)
+    return "".join(html), "\n".join(text) + "\n"
+
+
+def build_daily_digest_email(
+    *,
+    target_date: str,
+    market: str,
+    risk_level: str,
+    horizons: list[dict[str, Any]],
+    unsubscribe_url: str,
+    data_date: str | None = None,
+    record: dict[str, Any] | None = None,
+    plan_note: str | None = None,
+) -> tuple[str, str, str]:
+    """The evening email: intraday buy and sell calls, then 3-day and 5-day calls,
+    then how the last five sessions' calls did.
+
+    Each item in `horizons` is {"horizon", "signals", "notes" (why a side has no
+    calls), "captions" (each side's tested record), "last_session", "withheld"}.
+    A horizon with nothing to publish still gets its section, saying why, so the
+    email always reads the same way.
+    """
+    pretty_date = _pretty(target_date)
+    counts: list[tuple[int, str, int]] = []
+    body_html: list[str] = []
+    body_text: list[str] = []
+    for item in sorted(horizons, key=lambda entry: int(entry["horizon"])):
+        horizon = int(item["horizon"])
+        last = item.get("last_session")
+        if horizon == 1:
+            title = f"{_HORIZON_TITLE[1]} · {pretty_date}"
+            window = "Enter at the 9:15 AM open and close out by 3:15 PM, before brokers square off intraday trades."
+        elif last:
+            title = f"{_HORIZON_TITLE[horizon]} · {pretty_date} to {_pretty(last)}"
+            window = f"Buy at the 9:15 AM open on {pretty_date} and sell at the close on {_pretty(last)}: {horizon} trading sessions."
+        else:
+            title = f"{_HORIZON_TITLE[horizon]} · from {pretty_date}"
+            window = f"Buy at the open and hold for {horizon} trading sessions."
+        body_html.append(_section_heading(title, window))
+        body_text.append(f"\n{title.upper()}\n{window}")
+        if item.get("withheld"):
+            body_html.append(_note_box(str(item["withheld"])))
+            body_text.append(str(item["withheld"]))
+            continue
+        signals = [s for s in item.get("signals") or [] if (s.get("explanation_json") or {}).get("forecast")]
+        notes = item.get("notes") or {}
+        captions = item.get("captions") or {}
+        sides = ("sell", "buy") if horizon == 1 else ("buy",)
+        listed = [side for side in sides if any(s.get("direction") == side.upper() for s in signals)]
+        for side in listed:
+            mine = sorted((s for s in signals if s.get("direction") == side.upper()), key=lambda s: s.get("signal_rank") or 0)
+            counts.append((horizon, side, len(mine)))
+            label = f"{'Sell' if side == 'sell' else 'Buy'} calls ({len(mine)})"
+            body_html.append(_side_heading(label, captions.get(side)))
+            body_text.append(label.upper() + (f"\n{captions[side]}" if captions.get(side) else ""))
+            if side == "sell" and horizon == 1:
+                guide = " ".join(part for part in (plan_note, _SIZING_NOTE) if part)
+                body_html.append(_muted(guide))
+                body_text.append(guide)
+            for signal in mine:
+                card_html, card_text = _forecast_card(signal, digest=True)
+                body_html.append(card_html)
+                body_text.append(card_text)
+        for side in sides:
+            if side in listed:
+                continue
+            note = notes.get(side) or f"No {side} call passed its tested bar for this session."
+            body_html.append(_side_heading(f"{'Sell' if side == 'sell' else 'Buy'} calls · none today"))
+            body_html.append(_note_box(note))
+            body_text.append(f"{side.upper()} CALLS: none today. {note}")
+        if horizon != 1:
+            line = f"No sell calls for {horizon}-day holds: a short can't be carried overnight in the cash market."
+            body_html.append(_muted(line, "2px 0 4px"))
+            body_text.append(line)
+
+    score_html, score_text = _scorecard(record)
+    total = sum(n for _, _, n in counts)
+    parts = [f"{n} {_COUNT_WORD[h]} {side}{'' if n == 1 else 's'}" for h, side, n in counts]
+    if total:
+        subject = f"Bullseye calls for {pretty_date}: {', '.join(parts)}"
+        title = f"{total} call{'' if total == 1 else 's'} for {pretty_date}"
+        listed_text = ", ".join(parts)
+        preheader = f"{listed_text[0].upper()}{listed_text[1:]}, each with an entry, a stop-loss and an exit. Then how recent calls did."
+    else:
+        subject = f"Bullseye for {pretty_date}: no call passed the bar"
+        title = f"No calls for {pretty_date}"
+        preheader = "No call passed its tested bar for this session. Here's why, and how recent calls did."
+    built = f" · built from the {_pretty(data_date)} close" if data_date else ""
+    subtitle = f"{risk_level} risk{built}. Intraday, 3-day and 5-day calls below, then how recent calls did."
+    html = theme.email_shell(
+        preheader=preheader,
+        eyebrow=f"Daily calls · {pretty_date}",
+        title=title,
+        subtitle=subtitle,
+        body="".join(body_html) + score_html,
+        footer=theme.footer_html(
+            "Model-generated research, not investment advice. Bullseye is not registered with SEBI. "
+            "Returns are not guaranteed, and past results don't predict future ones.",
+            [("See every call", f"{theme.SITE_URL}/?alerts=1"), ("Unsubscribe", unsubscribe_url)],
+        ),
+    )
+    text = (
+        f"Bullseye calls for {pretty_date}\n{subtitle}\n"
+        + "\n".join(body_text)
+        + ("\n\n" + score_text if score_text else "\n")
+        + "\nModel-generated research, not investment advice. Returns are not guaranteed.\n"
         + f"Unsubscribe: {unsubscribe_url}"
     )
     return subject, text, html

@@ -1041,7 +1041,20 @@
         "avg_loss": -0.01641,
         "worst_5pct": -0.03416,
         "median_stop": 0.0359,
-        "hold_avg_after_cost": 0.00173
+        "hold_avg_after_cost": 0.00173,
+        "days": 730,
+        "day_win_rate": 0.5616,
+        "worst_day": -0.03877,
+        "losing_streak": 7,
+        "max_drawdown": -0.14654,
+        "recent": {
+          "sessions": 125,
+          "first_day": "2026-04-23",
+          "last_day": "2026-10-22",
+          "calls": 589,
+          "moved_rate": 0.5671,
+          "avg_after_cost": 0.00038
+        }
       }
     }
   }

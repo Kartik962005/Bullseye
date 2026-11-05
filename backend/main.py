@@ -110,6 +110,7 @@ from app.services.daily_trade_service import (
     run_outcome_tracking,
     run_daily_review,
     send_instant_signal_email,
+    session_levels,
     unsubscribe_daily_alerts,
     update_notification_preference,
     update_daily_update_preference,
@@ -1035,6 +1036,17 @@ async def get_today_signals_endpoint(request: Request, market: str = "NSE", risk
         return get_signals_today(market=market, risk_level=risk_level, signal_type=signal_type)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/v1/signals/session-levels")
+@limiter.limit("30/minute")
+async def get_session_levels_endpoint(request: Request, symbols: str = ""):
+    """Today's open and latest price for called stocks, so a plan's stop and skip
+    levels can be priced from the actual open once the market is open."""
+    try:
+        return await asyncio.to_thread(session_levels, [s for s in symbols.split(",") if s.strip()])
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

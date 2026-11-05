@@ -59,6 +59,7 @@ SELL_CUTS = [0.46, 0.45, 0.44, 0.43, 0.42, 0.41, 0.40, 0.38, 0.36, 0.34]
 PLAN_STOP_VOL = 1.5     # stop-loss above the entry: this many 20-day daily volatilities
 PLAN_SKIP_GAP = 0.01    # skip a sell that opens this much below the previous close
 PLAN_COST = 0.0015      # retail intraday round trip: brokerage, STT, charges, slippage
+PLAN_RECENT_SESSIONS = 125  # about six months, quoted beside the full test
 
 
 def oos_predictions(data: pd.DataFrame, h: int, chosen: str) -> pd.DataFrame:
@@ -167,6 +168,14 @@ def trade_plan(chosen: pd.DataFrame, price_frames: dict[str, pd.DataFrame]) -> d
     stop = PLAN_STOP_VOL * vol[keep]
     stopped = adverse[keep] >= stop
     net = np.where(stopped, -stop, short[keep]) - PLAN_COST
+    # Taking every call of a day with the same money in each: all are shorts on
+    # the same day, so they win and lose together.
+    by_day = pd.Series(net).groupby(days[keep]).mean().sort_index()
+    losing = (by_day < 0).astype(int)
+    streak = int(losing.groupby((losing != losing.shift()).cumsum()).sum().max()) if len(losing) else 0
+    curve = by_day.cumsum()
+    recent_days = set(sorted(by_day.index)[-PLAN_RECENT_SESSIONS:])
+    recent = np.isin(days[keep], list(recent_days))
     return {
         "stop_vol": PLAN_STOP_VOL,
         "skip_gap": PLAN_SKIP_GAP,
@@ -185,6 +194,19 @@ def trade_plan(chosen: pd.DataFrame, price_frames: dict[str, pd.DataFrame]) -> d
         "worst_5pct": round(float(np.quantile(net, 0.05)), 5),
         "median_stop": round(float(np.median(stop)), 5),
         "hold_avg_after_cost": round(float(short.mean() - PLAN_COST), 5),
+        "days": int(len(by_day)),
+        "day_win_rate": round(float((by_day > 0).mean()), 4),
+        "worst_day": round(float(by_day.min()), 5),
+        "losing_streak": streak,
+        "max_drawdown": round(float((curve - curve.cummax()).min()), 5),
+        "recent": {
+            "sessions": len(recent_days),
+            "first_day": str(min(recent_days)),
+            "last_day": str(max(recent_days)),
+            "calls": int(recent.sum()),
+            "moved_rate": round(float((short[keep][recent] > 0).mean()), 4),
+            "avg_after_cost": round(float(net[recent].mean()), 5),
+        },
     }
 
 
