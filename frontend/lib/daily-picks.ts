@@ -81,6 +81,8 @@ export type TradePlan = {
   stop_price: number;
   daily_vol: number;
   exit: 'close';
+  /** Round-trip costs the plan was tested with. */
+  cost?: number;
 };
 
 /** How the sell plan did on the untouched half of the test, after `cost` a trade. */
@@ -102,6 +104,14 @@ export type PlanStats = {
   worst_5pct: number;
   median_stop: number;
   hold_avg_after_cost: number;
+  /** Taking every call of a day with the same money in each. */
+  days?: number;
+  day_win_rate?: number;
+  worst_day?: number;
+  losing_streak?: number;
+  max_drawdown?: number;
+  /** The last six months of the test. */
+  recent?: { sessions: number; first_day: string; last_day: string; calls: number; moved_rate: number; avg_after_cost: number };
 };
 
 /** The chance of the call itself, for v3 forecasts and older ones alike. */
@@ -139,9 +149,16 @@ export type GradedCall = {
   move_pct?: number | null;
   market_pct?: number | null;
   edge_pct?: number;
+  /** How the printed sell plan did: held to the close, stopped out, or skipped at the open. */
+  plan?: 'held' | 'stopped' | 'skipped';
+  /** The plan's result after costs, in percent. */
+  plan_pct?: number;
 };
 
 type LiveSide = { calls: number; right: number; moved_calls?: number; moved?: number; avg_edge_pct: number };
+
+/** One graded session on the scorecard. */
+export type ScoredSession = { date: string; calls: GradedCall[]; moved?: number; right?: number; plan_avg_pct?: number | null };
 
 /** The scorecard: how the published calls have actually done since this engine went live. */
 export type LiveRecord = {
@@ -149,7 +166,11 @@ export type LiveRecord = {
   since?: string | null;
   buy?: LiveSide;
   sell?: LiveSide;
-  latest?: { date: string; calls: GradedCall[] } | null;
+  /** The sell plan as printed, graded live. */
+  plan?: { calls: number; taken: number; skipped: number; stopped: number; wins: number; avg_pct: number | null; total_pct: number | null };
+  /** The last five graded sessions, newest first. */
+  sessions?: ScoredSession[];
+  latest?: ScoredSession | null;
 };
 
 /** How a publishing cut-off did on one half of the out-of-sample test. */
@@ -479,4 +500,15 @@ export async function disableAlerts(onSlow?: () => void) {
 
 export async function emailPicksNow(horizon: Horizon, risk: RiskLevel, onSlow?: () => void) {
   return backend('/api/v1/notification-preferences/send-now', 'POST', { market: 'NSE', risk_level: risk, signal_type: signalTypeFor(horizon) }, onSlow);
+}
+
+/** Today's open and latest price for one called stock (Yahoo, at most a minute old). */
+export type SessionLevel = { open: number | null; high: number | null; low: number | null; last: number | null; prev_close: number | null };
+export type SessionLevels = { session: string; as_of: string; trading_day: boolean; open_now: boolean; levels: Record<string, SessionLevel> };
+
+export async function loadSessionLevels(symbols: string[]): Promise<SessionLevels> {
+  const params = new URLSearchParams({ symbols: symbols.slice(0, 12).join(',') });
+  const response = await fetchWithTimeout(`${BACKEND}/api/v1/signals/session-levels?${params}`, {}, { timeoutMs: 30000 });
+  if (!response.ok) throw new Error('Live prices are unavailable just now.');
+  return response.json();
 }

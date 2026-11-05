@@ -87,9 +87,9 @@ export function DailySignalPreviewCard({ signedIn, alertsEnabled, onOpenSettings
           </h2>
           <p className="mt-4 max-w-[44ch] font-body text-[15px] leading-7 text-[color:var(--ink-2)]">
             After each close the model ranks the Nifty 200 for the next session and the next 3 and 5 trading days, and
-            publishes a call only at a strength that held up on years of data it never trained on. Each comes with its
-            likely move, an exit line and how often calls like it were right. Some days there are none, and every
-            result goes on the scorecard, right or wrong.
+            publishes a call only at a strength that held up on years of data it never trained on. Each comes with an
+            entry, a stop-loss and an exit in prices your broker accepts, and how often calls like it were right. Some
+            days there are none, and every result goes on the scorecard, right or wrong.
           </p>
           <button type="button" onClick={onOpenSettings} className="nova-btn nova-btn-primary mt-7">
             {!signedIn ? "Sign in to see every call" : alertsEnabled ? "Open daily calls" : "See every call"}

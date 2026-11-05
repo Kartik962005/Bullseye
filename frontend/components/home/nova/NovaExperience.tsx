@@ -25,10 +25,11 @@ type SceneLike = Pick<NovaScene, "setMorph" | "setPointer" | "setOpacity" | "set
 
 const noopSubscribe = () => () => {};
 
-// The glide between stops: slow enough to watch the particles re-form (about
-// 1.5 s for the short hop to the stock boxes, up to 2 s between acts).
-const GLIDE_MIN_MS = 1500;
-const GLIDE_MAX_MS = 2000;
+// The glide between stops: slow enough to watch the particles re-form, quick
+// enough not to drag (about 1.1 s for the short hop to the stock boxes, up to
+// 1.45 s between acts).
+const GLIDE_MIN_MS = 1100;
+const GLIDE_MAX_MS = 1450;
 // After a glide the wheel must go quiet this long before the next stop, so a
 // trackpad's momentum or a spun wheel moves one stop, not several.
 const QUIET_MS = 180;
@@ -222,7 +223,7 @@ export function NovaExperience({ signedIn, onOpenDailySignals, stockStrip }: Nov
       const from = window.scrollY;
       const distance = target - from;
       if (Math.abs(distance) < 2) return;
-      const duration = reduced ? 450 : Math.min(GLIDE_MAX_MS, Math.max(GLIDE_MIN_MS, 1100 + Math.abs(distance) * 0.7));
+      const duration = reduced ? 450 : Math.min(GLIDE_MAX_MS, Math.max(GLIDE_MIN_MS, 800 + Math.abs(distance) * 0.55));
       const start = performance.now();
       gliding = true;
       const step = (now: number) => {

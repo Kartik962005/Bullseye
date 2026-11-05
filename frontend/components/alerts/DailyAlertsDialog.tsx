@@ -268,7 +268,6 @@ export function DailyAlertsDialog({
 
   if (!presence.mounted) return null;
 
-  const horizonInfo = HORIZONS.find(item => item.value === horizon)!;
   const targetDate = run?.target_date ?? session.sessionDate;
   const forToday = targetDate === session.today;
   const phaseNote =
@@ -339,7 +338,7 @@ export function DailyAlertsDialog({
                     {notReadyMessage(session)}
                   </p>
                 ) : forecastRun ? (
-                  <CallLists picks={picks} horizon={horizon} publish={run?.summary?.publish} notes={run?.summary?.side_notes} />
+                  <CallLists picks={picks} horizon={horizon} publish={run?.summary?.publish} notes={run?.summary?.side_notes} targetDate={run?.target_date} />
                 ) : picks.length === 0 ? (
                   <p className="mt-4 rounded-2xl border border-dashed border-white/10 px-4 py-5 text-[13px] leading-6 text-[color:var(--ink-2)]">
                     No calls for this session.
@@ -351,10 +350,10 @@ export function DailyAlertsDialog({
                 )}
               </div>
 
-              {run && picks.length > 0 && (
+              {run && (
                 <div className="mt-3 flex justify-end">
                   <button type="button" onClick={emailNow} disabled={busy} className="sx-btn-ghost justify-center disabled:opacity-50">
-                    Email me these calls
+                    Email me today&apos;s calls
                   </button>
                 </div>
               )}
@@ -370,8 +369,8 @@ export function DailyAlertsDialog({
                   <div className="text-[15px] font-medium">Email me every trading evening</div>
                   <p className="mt-0.5 text-[12.5px] leading-5 text-[color:var(--ink-3)]">
                     {draft.daily_stock_email_enabled
-                      ? `${horizonInfo.label} calls, ${risk.toLowerCase()} risk, to ${userEmail || 'your email'}.`
-                      : 'The next session’s calls for the horizon and risk level above.'}
+                      ? `Intraday, 3-day and 5-day calls at ${risk.toLowerCase()} risk, with recent results, to ${userEmail || 'your email'}.`
+                      : 'One email with the next session’s intraday, 3-day and 5-day calls at the risk level above, and how recent calls did.'}
                   </p>
                 </div>
                 <button
